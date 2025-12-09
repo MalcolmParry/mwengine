@@ -23,6 +23,9 @@
             pkgs.zig_0_15
             pkgs.libx11
             pkgs.vulkan-loader
+            pkgs.vulkan-validation-layers
+            pkgs.vulkan-tools
+            pkgs.git
           ];
 
           shellHook = ''
