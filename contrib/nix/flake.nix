@@ -25,6 +25,7 @@
             pkgs.vulkan-loader
             pkgs.vulkan-validation-layers
             pkgs.vulkan-tools
+            pkgs.glslang
             pkgs.git
           ];
 
