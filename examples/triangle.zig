@@ -5,16 +5,13 @@ pub const tracy = @import("tracy");
 const gpu = mw.gpu;
 
 var window: mw.Window = undefined;
-var running: bool = true;
 
 fn eventHandler() !void {
     while (window.eventPending()) {
         const event = window.popEvent() orelse break;
 
         switch (event.type) {
-            .closed => {
-                running = false;
-            },
+            .closed => {},
         }
     }
 }
@@ -192,7 +189,7 @@ pub fn main() !void {
 
     defer device.waitUntilIdle() catch @panic("failed waiting for device");
     var frame: usize = 0;
-    while (running) {
+    while (!window.shouldClose()) {
         var should_rebuild: bool = false;
         var command_buffer = command_buffers[frame];
         const image_available_semaphore = image_available_semaphores[frame];
@@ -238,6 +235,7 @@ pub fn main() !void {
         if (should_rebuild)
             try rebuildDisplay(&device, &display, render_pass, framebuffers, alloc);
 
+        window.update();
         try eventHandler();
 
         frame = (frame + 1) % frames_in_flight;
@@ -249,7 +247,7 @@ fn rebuildDisplay(device: *gpu.Device, display: *gpu.Display, render_pass: gpu.R
     for (framebuffers) |*x| {
         x.deinit(device);
     }
-    try display.rebuild(window.getClientSize(), alloc);
+    try display.rebuild(window.getFramebufferSize(), alloc);
     for (framebuffers, display.image_views) |*x, image_view| {
         x.* = try .init(device, render_pass, display.image_size, &.{image_view});
     }

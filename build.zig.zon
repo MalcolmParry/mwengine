@@ -22,5 +22,9 @@
             .url = "git+https://github.com/Games-by-Mason/tracy_zig.git#81acd22b8218668ad1215835fb21d63bf04ae6b4",
             .hash = "tracy-0.0.0-R7l8BSJIAQCSQWVPOIr-kFep8eSZzkD60a2h5O0gt3S2",
         },
+        .zglfw = .{
+            .url = "git+https://github.com/zig-gamedev/zglfw.git#15bf6ec59a4e1399d0c753455f69b28f09e41791",
+            .hash = "zglfw-0.10.0-dev-zgVDNHO2IQDy_fSdwY5U4z42rHUuKgt7T9f-qmQ3FnuL",
+        },
     },
 }

@@ -4,18 +4,18 @@ const vk = @import("vulkan");
 const Device = @import("Device.zig");
 const platform = @import("../../platform.zig");
 
-const required_extensions = platform.vulkan.required_extensions ++ .{
+const extra_required_extensions: [3][*:0]const u8 = .{
     vk.extensions.khr_get_surface_capabilities_2.name,
     vk.extensions.ext_surface_maintenance_1.name,
     vk.extensions.khr_get_physical_device_properties_2.name,
 };
 
 const validation_layer: [1][*:0]const u8 = .{"VK_LAYER_KHRONOS_validation"};
-const debug_extensions = required_extensions ++ .{
+const debug_extensions: [1][*:0]const u8 = .{
     vk.extensions.ext_debug_utils.name,
 };
 
-_lib_vulkan: std.DynLib,
+_platform_wrapper: platform.vulkan.Wrapper,
 _instance: vk.InstanceProxy,
 _maybe_debug_messenger: ?vk.DebugUtilsMessengerEXT,
 _physical_devices: []Device.Physical,
@@ -32,13 +32,16 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
     defer zone.end();
 
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    var lib_vulkan = try std.DynLib.open(platform.vulkan.lib_path);
-    errdefer lib_vulkan.close();
-    const loader = lib_vulkan.lookup(vk.PfnGetInstanceProcAddr, "vkGetInstanceProcAddr") orelse return Error.CantLoadVulkan;
-    const vkb = vk.BaseWrapper.load(loader);
+    var platform_wrapper = try platform.vulkan.Wrapper.init();
+    const vkb = try platform_wrapper.getBaseWrapper();
 
     // TODO: check extention support
-    const extensions: []const [*:0]const u8 = if (debug_logging) &debug_extensions else &required_extensions;
+    var extensions: std.ArrayList([*:0]const u8) = .empty;
+    defer extensions.deinit(alloc);
+    try extensions.appendSlice(alloc, try platform.vulkan.getRequiredInstanceExtensions());
+    try extensions.appendSlice(alloc, &extra_required_extensions);
+    if (debug_logging) try extensions.appendSlice(alloc, &debug_extensions);
+
     const layers: []const [*:0]const u8 = if (debug_logging) &validation_layer else &.{};
 
     const instance_handle = try vkb.createInstance(&.{
@@ -49,8 +52,8 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
             .engine_version = 0, // TODO: fill in
             .api_version = @bitCast(vk.API_VERSION_1_0),
         },
-        .enabled_extension_count = @intCast(extensions.len),
-        .pp_enabled_extension_names = extensions.ptr,
+        .enabled_extension_count = @intCast(extensions.items.len),
+        .pp_enabled_extension_names = extensions.items.ptr,
         .enabled_layer_count = @intCast(layers.len),
         .pp_enabled_layer_names = layers.ptr,
         .flags = .{},
@@ -116,7 +119,7 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
     }
 
     return .{
-        ._lib_vulkan = lib_vulkan,
+        ._platform_wrapper = platform_wrapper,
         ._instance = instance,
         ._maybe_debug_messenger = maybe_debug_messenger,
         ._physical_devices = physical_devices,
@@ -135,7 +138,7 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
         this._instance.destroyDebugUtilsMessengerEXT(debug_messenger, vk_alloc);
     this._instance.destroyInstance(vk_alloc);
     alloc.destroy(this._instance.wrapper);
-    this._lib_vulkan.close();
+    this._platform_wrapper.deinit();
 }
 
 pub const initDevice = Device.init;

@@ -42,7 +42,7 @@ pub fn init(device: *Device, window: *platform.Window, alloc: std.mem.Allocator)
         ._device = device,
     };
 
-    try this.initSwapchain(window.getClientSize(), alloc);
+    try this.initSwapchain(window.getFramebufferSize(), alloc);
 
     return this;
 }

@@ -1,6 +1,5 @@
 const std = @import("std");
 const Event = @import("../Event.zig");
-const vk = @import("vulkan");
 
 const c = @cImport({
     @cInclude("X11/Xlib.h");
@@ -11,6 +10,7 @@ pub const Window = struct {
     _display: *c.Display,
     _window: c.Window,
     _wm_delete_message: c.Atom,
+    _should_close: bool,
 
     pub fn init(class: []const u8, size: @Vector(2, u32), alloc: std.mem.Allocator) !Window {
         var this: Window = undefined;
@@ -55,6 +55,10 @@ pub const Window = struct {
         if (c.XFlush(this._display) == 0) return error.FailedToFlush;
     }
 
+    pub fn update(this: *Window) void {
+        _ = this;
+    }
+
     pub fn eventPending(this: *const Window) bool {
         return c.XPending(this._display) != 0;
     }
@@ -68,8 +72,10 @@ pub const Window = struct {
 
         switch (event.type) {
             c.ClientMessage => {
-                if (event.xclient.data.l[0] == this._wm_delete_message)
+                if (event.xclient.data.l[0] == this._wm_delete_message) {
+                    this._should_close = true;
                     return .{ .type = Event.Type.closed };
+                }
             },
             else => {},
         }
@@ -77,7 +83,11 @@ pub const Window = struct {
         return null;
     }
 
-    pub fn getClientSize(this: *const Window) @Vector(2, u32) {
+    pub fn shouldClose(this: *Window) bool {
+        return this._should_close;
+    }
+
+    pub fn getFramebufferSize(this: *const Window) @Vector(2, u32) {
         var root: c.Window = undefined;
         var x: c_int = undefined;
         var y: c_int = undefined;
@@ -93,10 +103,16 @@ pub const Window = struct {
 };
 
 pub const vulkan = struct {
-    pub const required_extensions: [2][*:0]const u8 = .{
-        "VK_KHR_surface",
-        "VK_KHR_xlib_surface",
+    const vk = @import("vulkan");
+
+    const required_instance_extensions: [2][*:0]const u8 = .{
+        vk.extensions.khr_surface.name,
+        vk.extensions.khr_xlib_surface.name,
     };
+
+    pub fn getRequiredInstanceExtensions() ![]const [*:0]const u8 {
+        return &required_instance_extensions;
+    }
 
     pub fn createSurface(window: *Window, instance: vk.InstanceProxy) !vk.SurfaceKHR {
         const vk_alloc: ?*vk.AllocationCallbacks = null;

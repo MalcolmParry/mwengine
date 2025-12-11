@@ -29,6 +29,12 @@
             pkgs.git
           ];
 
+          LD_LIBRARY_PATH = "${nixpkgs.lib.makeLibraryPath [
+            pkgs.kdePackages.wayland
+            pkgs.libxkbcommon
+            pkgs.libGL
+          ]}";
+
           shellHook = ''
             echo Entering Dev Shell
             echo Zig Version: $(zig version)
