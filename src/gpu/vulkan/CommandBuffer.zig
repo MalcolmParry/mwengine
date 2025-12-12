@@ -7,6 +7,7 @@ const GraphicsPipeline = @import("GraphicsPipeline.zig");
 const Semaphore = @import("wait_objects.zig").Semaphore;
 const Fence = @import("wait_objects.zig").Fence;
 const Buffer = @import("Buffer.zig");
+const ResourceSet = @import("ResourceSet.zig");
 
 _command_buffer: vk.CommandBuffer,
 
@@ -150,6 +151,22 @@ pub fn queueBindIndexBuffer(this: *@This(), device: *Device, buffer_region: Buff
         .uint16 => .uint16,
         .uint32 => .uint32,
     });
+}
+
+pub fn queueBindResourceSets(this: *@This(), device: *Device, pipeline: *GraphicsPipeline, resource_sets: []const ResourceSet, first: u32, alloc: std.mem.Allocator) !void {
+    const natives = try ResourceSet._nativesFromSlice(resource_sets, alloc);
+    defer alloc.free(natives);
+
+    device._device.cmdBindDescriptorSets(
+        this._command_buffer,
+        .graphics,
+        pipeline._pipeline_layout,
+        first,
+        @intCast(resource_sets.len),
+        natives.ptr,
+        0,
+        null,
+    );
 }
 
 const DrawInfo = struct {

@@ -97,22 +97,33 @@ pub fn main() !void {
     });
     defer index_buffer.deinit(&device);
 
+    const uniform: [16]f32 = mw.math.toArray(mw.math.rotateZ(mw.math.pi / 4.0));
+    var uniform_buffer = try device.initBuffer(@sizeOf(@TypeOf(uniform)), .{
+        .uniform = true,
+        .map_write = true,
+    });
+    defer uniform_buffer.deinit(&device);
+
     {
         const vertex_data_bytes = std.mem.sliceAsBytes(&vertex_data);
         const vertex_mapping = try vertex_buffer.map(&device);
         const index_bytes = std.mem.sliceAsBytes(&indices);
         const index_mapping = try index_buffer.map(&device);
+        const uniform_bytes = std.mem.sliceAsBytes(&uniform);
+        const uniform_mapping = try uniform_buffer.map(&device);
 
         var tmp_cmd_buffer = try gpu.CommandBuffer.init(&device);
         var fence = try gpu.Fence.init(&device, false);
         @memcpy(vertex_mapping[0..vertex_data_bytes.len], vertex_data_bytes);
         @memcpy(index_mapping[0..index_bytes.len], index_bytes);
+        @memcpy(uniform_mapping[0..uniform_bytes.len], uniform_bytes);
         vertex_buffer.unmap(&device);
         index_buffer.unmap(&device);
 
         try tmp_cmd_buffer.begin(&device);
         tmp_cmd_buffer.queueFlushBuffer(&device, &vertex_buffer);
         tmp_cmd_buffer.queueFlushBuffer(&device, &index_buffer);
+        tmp_cmd_buffer.queueFlushBuffer(&device, &uniform_buffer);
         try tmp_cmd_buffer.end(&device);
         try tmp_cmd_buffer.submit(&device, &.{}, &.{}, fence);
         try fence.wait(&device, .all, std.time.ns_per_s);
@@ -131,7 +142,20 @@ pub fn main() !void {
             },
         },
     });
-    defer resource_layout.deinit(&device);
+    defer resource_layout.deinit(&device, alloc);
+
+    var resource_set = try device.initResouceSet(&resource_layout);
+    defer resource_set.deinit(&device);
+    try resource_set.update(&device, &.{
+        .{
+            .binding = 0,
+            .data = .{
+                .uniform = &.{
+                    uniform_buffer.getRegion(),
+                },
+            },
+        },
+    }, alloc);
 
     var graphics_pipeline = try gpu.GraphicsPipeline.init(.{
         .alloc = alloc,
@@ -220,6 +244,7 @@ pub fn main() !void {
         try command_buffer.begin(&device);
         command_buffer.queueBeginRenderPass(&device, render_pass, framebuffer, display.image_size);
         command_buffer.queueBindPipeline(&device, graphics_pipeline, display.image_size);
+        try command_buffer.queueBindResourceSets(&device, &graphics_pipeline, &.{resource_set}, 0, alloc);
         command_buffer.queueBindVertexBuffer(&device, vertex_buffer.getRegion());
         command_buffer.queueBindIndexBuffer(&device, index_buffer.getRegion(), .uint8);
         command_buffer.queueDraw(.{

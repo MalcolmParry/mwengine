@@ -20,10 +20,6 @@ _instance: vk.InstanceProxy,
 _maybe_debug_messenger: ?vk.DebugUtilsMessengerEXT,
 _physical_devices: []Device.Physical,
 
-const Error = error{
-    CantLoadVulkan,
-};
-
 //  TODO: add app version to paramerers
 pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
     const zone = tracy.Zone.begin(.{
@@ -61,7 +57,7 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
 
     const instance_wrapper = try alloc.create(vk.InstanceWrapper);
     errdefer alloc.destroy(instance_wrapper);
-    instance_wrapper.* = .load(instance_handle, vkb.dispatch.vkGetInstanceProcAddr orelse return Error.CantLoadVulkan);
+    instance_wrapper.* = .load(instance_handle, vkb.dispatch.vkGetInstanceProcAddr orelse return error.CantLoadVulkan);
     const instance: vk.InstanceProxy = .init(instance_handle, instance_wrapper);
     errdefer instance.destroyInstance(vk_alloc);
 

@@ -117,6 +117,7 @@ pub fn waitUntilIdle(this: *const @This()) !void {
 pub const initDisplay = Display.init;
 pub const initBuffer = Buffer.init;
 pub const initResouceLayout = ResourceSet.Layout.init;
+pub const initResouceSet = ResourceSet.init;
 
 pub const _MemoryRegion = struct {
     memory: vk.DeviceMemory,

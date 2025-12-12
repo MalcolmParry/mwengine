@@ -26,7 +26,8 @@ pub fn init(create_info: CreateInfo) !@This() {
 
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const native_device = create_info.device._device;
-    const native_descriptor_set_layouts = ResourceSet.Layout._nativesFromSlice(create_info.resource_layouts);
+    const native_descriptor_set_layouts = try ResourceSet.Layout._nativesFromSlice(create_info.resource_layouts, create_info.alloc);
+    defer create_info.alloc.free(native_descriptor_set_layouts);
 
     // TODO: could be separated into different objects
     const pipeline_layout = try native_device.createPipelineLayout(&.{

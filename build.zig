@@ -16,7 +16,6 @@ pub fn build(b: *Build) !void {
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
     });
 
     const options = b.addOptions();
@@ -48,6 +47,7 @@ pub fn build(b: *Build) !void {
         module.addImport("glfw", glfw_mod);
         module.linkLibrary(glfw.artifact("glfw"));
     } else {
+        module.link_libc = true;
         module.linkSystemLibrary("X11", .{});
     }
 

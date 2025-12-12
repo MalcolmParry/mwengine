@@ -134,6 +134,10 @@ pub fn rotateEuler(euler_angles: Vec3) Mat4 {
 fn ToArrayReturnType(t: type) type {
     switch (@typeInfo(t)) {
         .vector => |vec| return [vec.len]vec.child,
+        .array => |arr| switch (@typeInfo(arr.child)) {
+            .vector => |vec| return [arr.len * vec.len]vec.child,
+            else => @compileError("invalid type"),
+        },
         else => @compileError("invalid type"),
     }
 }
@@ -150,6 +154,20 @@ pub fn toArray(x: anytype) ToArrayReturnType(@TypeOf(x)) {
             }
 
             return result;
+        },
+        .array => |arr| switch (@typeInfo(arr.child)) {
+            .vector => |vec| {
+                var result: [arr.len * vec.len]vec.child = undefined;
+
+                for (0..arr.len) |i| {
+                    for (0..vec.len) |ii| {
+                        result[ii + i * vec.len] = x[i][ii];
+                    }
+                }
+
+                return result;
+            },
+            else => @compileError("invalid type"),
         },
         else => @compileError("invalid type"),
     }
