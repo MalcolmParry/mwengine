@@ -2,14 +2,10 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Build = std.Build;
 
-const shader_path = "examples/shaders/";
-const shader_output = "res/shaders/";
-
 pub fn build(b: *Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const enable_tracy = b.option(bool, "tracy", "Build with tracy") orelse false;
     const use_glfw = b.option(bool, "glfw", "Use glfw for window") orelse true;
 
     const module = b.addModule("mwengine", .{
@@ -51,16 +47,25 @@ pub fn build(b: *Build) !void {
         module.linkSystemLibrary("X11", .{});
     }
 
-    // example
+    try buildExample(b, target, optimize, module, tracy);
+}
+
+// examples
+const shader_path = "examples/shaders/";
+const shader_output = "res/shaders/";
+
+fn buildExample(b: *Build, target: Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, mwengine: *Build.Module, tracy: *Build.Dependency) !void {
+    const enable_tracy = b.option(bool, "tracy", "Build with tracy") orelse false;
+
     const example = b.addExecutable(.{
         .name = "example",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/triangle.zig"),
+            .root_source_file = b.path("examples/main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{.{
                 .name = "mwengine",
-                .module = module,
+                .module = mwengine,
             }},
         }),
     });
@@ -72,13 +77,13 @@ pub fn build(b: *Build) !void {
         example.root_module.addImport("tracy_impl", tracy.module("tracy_impl_disabled"));
     }
 
-    // build the example
+    // build
     const example_build_artifact = b.addInstallArtifact(example, .{});
     const example_build_step = b.step("example", "Build the example executable");
     example_build_step.dependOn(&example_build_artifact.step);
     try buildShaders(b, example_build_step);
 
-    // run the example
+    // run
     const run_command = b.addRunArtifact(example);
     run_command.setCwd(.{ .cwd_relative = b.install_prefix });
     run_command.step.dependOn(example_build_step);
@@ -86,7 +91,7 @@ pub fn build(b: *Build) !void {
     const run_step = b.step("run", "Run the example");
     run_step.dependOn(&run_command.step);
 
-    // testing
+    // test
     const unit_tests = b.addTest(.{
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/root.zig"),
