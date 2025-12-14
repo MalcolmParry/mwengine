@@ -62,8 +62,8 @@ pub const Fence = struct {
         };
     }
 
-    pub fn wait(this: @This(), device: *Device, how_many: WaitForEnum, timeout_ns: ?u64) !void {
-        return waitMany(&.{this}, device, how_many, timeout_ns);
+    pub fn wait(this: @This(), device: *Device, timeout_ns: ?u64) !void {
+        return waitMany(&.{this}, device, .all, timeout_ns);
     }
 
     pub fn checkSignaled(this: @This(), device: *Device) bool {

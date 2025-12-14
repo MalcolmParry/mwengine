@@ -5,6 +5,9 @@ const Instance = @import("Instance.zig");
 const Display = @import("Display.zig");
 const Buffer = @import("Buffer.zig");
 const ResourceSet = @import("ResourceSet.zig");
+const wait_objects = @import("wait_objects.zig");
+const Framebuffer = @import("Framebuffer.zig");
+const CommandBuffer = @import("CommandBuffer.zig");
 
 pub const required_extensions: [3][*:0]const u8 = .{
     vk.extensions.khr_swapchain.name,
@@ -118,6 +121,10 @@ pub const initDisplay = Display.init;
 pub const initBuffer = Buffer.init;
 pub const initResouceLayout = ResourceSet.Layout.init;
 pub const initResouceSet = ResourceSet.init;
+pub const initCommandBuffer = CommandBuffer.init;
+pub const initFramebuffer = Framebuffer.init;
+pub const initSemaphore = wait_objects.Semaphore.init;
+pub const initFence = wait_objects.Fence.init;
 
 pub const _MemoryRegion = struct {
     memory: vk.DeviceMemory,
