@@ -50,9 +50,9 @@ pub fn submit(this: *@This(), device: *Device, wait_semaphores: []const Semaphor
         .p_command_buffers = @ptrCast(&this._command_buffer),
         .wait_semaphore_count = @intCast(wait_semaphores.len),
         .p_wait_semaphores = Semaphore._nativesFromSlice(wait_semaphores),
+        .p_wait_dst_stage_mask = @ptrCast(&wait_dst_stage_mask),
         .signal_semaphore_count = @intCast(signal_semaphores.len),
         .p_signal_semaphores = Semaphore._nativesFromSlice(signal_semaphores),
-        .p_wait_dst_stage_mask = @ptrCast(&wait_dst_stage_mask),
     };
 
     try device._device.queueSubmit(device._queue, 1, @ptrCast(&submit_info), if (signal_fence) |fence| fence._fence else .null_handle);

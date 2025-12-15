@@ -3,6 +3,7 @@ const mw = @import("mwengine");
 const gpu = mw.gpu;
 const App = @This();
 
+timer: std.time.Timer,
 window: mw.Window,
 instance: gpu.Instance,
 device: gpu.Device,
@@ -12,17 +13,17 @@ frame_in_flight: usize,
 render_pass: gpu.RenderPass,
 vertex_buffer: gpu.Buffer,
 index_buffer: gpu.Buffer,
-uniform_buffer: gpu.Buffer,
 vertex_shader: gpu.Shader,
 pixel_shader: gpu.Shader,
 shader_set: gpu.Shader.Set,
 resource_layout: gpu.ResourceSet.Layout,
-resource_set: gpu.ResourceSet,
 graphics_pipeline: gpu.GraphicsPipeline,
 
 frames_in_flight_data: []PerFrameInFlight,
 
 pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
+    this.timer = try .start();
+
     this.window = try mw.Window.init("diamond example", .{ 100, 100 }, alloc);
     errdefer this.window.deinit();
 
@@ -51,34 +52,22 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     });
     errdefer this.index_buffer.deinit(&this.device);
 
-    const uniform: [16]f32 = mw.math.toArray(mw.math.rotateZ(mw.math.pi / 4.0));
-    this.uniform_buffer = try this.device.initBuffer(@sizeOf(@TypeOf(uniform)), .{
-        .uniform = true,
-        .map_write = true,
-    });
-    errdefer this.uniform_buffer.deinit(&this.device);
-
     {
         const vertex_data_bytes = std.mem.sliceAsBytes(&vertex_data);
         const vertex_mapping = try this.vertex_buffer.map(&this.device);
         const index_bytes = std.mem.sliceAsBytes(&indices);
         const index_mapping = try this.index_buffer.map(&this.device);
-        const uniform_bytes = std.mem.sliceAsBytes(&uniform);
-        const uniform_mapping = try this.uniform_buffer.map(&this.device);
 
         var tmp_cmd_buffer = try gpu.CommandBuffer.init(&this.device);
         var fence = try gpu.Fence.init(&this.device, false);
         @memcpy(vertex_mapping[0..vertex_data_bytes.len], vertex_data_bytes);
         @memcpy(index_mapping[0..index_bytes.len], index_bytes);
-        @memcpy(uniform_mapping[0..uniform_bytes.len], uniform_bytes);
         this.vertex_buffer.unmap(&this.device);
         this.index_buffer.unmap(&this.device);
-        this.uniform_buffer.unmap(&this.device);
 
         try tmp_cmd_buffer.begin(&this.device);
         tmp_cmd_buffer.queueFlushBuffer(&this.device, &this.vertex_buffer);
         tmp_cmd_buffer.queueFlushBuffer(&this.device, &this.index_buffer);
-        tmp_cmd_buffer.queueFlushBuffer(&this.device, &this.uniform_buffer);
         try tmp_cmd_buffer.end(&this.device);
         try tmp_cmd_buffer.submit(&this.device, &.{}, &.{}, fence);
         try fence.wait(&this.device, std.time.ns_per_s);
@@ -111,19 +100,6 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     });
     errdefer this.resource_layout.deinit(&this.device, alloc);
 
-    this.resource_set = try this.device.initResouceSet(&this.resource_layout);
-    errdefer this.resource_set.deinit(&this.device);
-    try this.resource_set.update(&this.device, &.{
-        .{
-            .binding = 0,
-            .data = .{
-                .uniform = &.{
-                    this.uniform_buffer.getRegion(),
-                },
-            },
-        },
-    }, alloc);
-
     this.graphics_pipeline = try gpu.GraphicsPipeline.init(.{
         .alloc = alloc,
         .device = &this.device,
@@ -140,7 +116,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
 
     for (this.frames_in_flight_data, 0..) |*x, i| {
         errdefer for (this.frames_in_flight_data[0 .. i - 1]) |*x2| x2.deinit(this);
-        x.* = try .init(this, i);
+        x.* = try .init(this, i, alloc);
     }
 }
 
@@ -151,12 +127,10 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
     alloc.free(this.frames_in_flight_data);
 
     this.graphics_pipeline.deinit(&this.device);
-    this.resource_set.deinit(&this.device);
     this.resource_layout.deinit(&this.device, alloc);
     this.shader_set.deinit(alloc);
     this.pixel_shader.deinit(&this.device);
     this.vertex_shader.deinit(&this.device);
-    this.uniform_buffer.deinit(&this.device);
     this.index_buffer.deinit(&this.device);
     this.vertex_buffer.deinit(&this.device);
     this.render_pass.deinit(&this.display);
@@ -188,16 +162,31 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         return error.Failed;
     };
     const framebuffer = &this.frames_in_flight_data[image_index].framebuffer;
-    _ = framebuffer;
+    const time_s = @as(f32, @floatFromInt(this.timer.read())) / std.time.ns_per_s;
+    const speed = 0.5;
+    const mvp = mw.math.rotateZ(time_s * speed);
+
+    {
+        const mapping = try per_frame.uniform_buffer.map(&this.device);
+        defer per_frame.uniform_buffer.unmap(&this.device);
+
+        @memcpy(mapping, std.mem.sliceAsBytes(&mw.math.toArray(mvp)));
+    }
+
+    try per_frame.write_command_buffer.reset(&this.device);
+    try per_frame.write_command_buffer.begin(&this.device);
+    per_frame.write_command_buffer.queueFlushBuffer(&this.device, &per_frame.uniform_buffer);
+    try per_frame.write_command_buffer.end(&this.device);
+    try per_frame.write_command_buffer.submit(&this.device, &.{}, &.{per_frame.uniform_written_semaphore}, null);
 
     try per_frame.command_buffer.reset(&this.device);
     try per_frame.command_buffer.begin(&this.device);
-    per_frame.command_buffer.queueBeginRenderPass(&this.device, this.render_pass, per_frame.framebuffer, this.display.image_size);
+    per_frame.command_buffer.queueBeginRenderPass(&this.device, this.render_pass, framebuffer.*, this.display.image_size);
 
     per_frame.command_buffer.queueBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
     per_frame.command_buffer.queueBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
     per_frame.command_buffer.queueBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
-    try per_frame.command_buffer.queueBindResourceSets(&this.device, &this.graphics_pipeline, &.{this.resource_set}, 0, alloc);
+    try per_frame.command_buffer.queueBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0, alloc);
     per_frame.command_buffer.queueDraw(.{
         .device = &this.device,
         .vertex_count = 6,
@@ -206,7 +195,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     per_frame.command_buffer.queueEndRenderPass(&this.device);
     try per_frame.command_buffer.end(&this.device);
-    try per_frame.command_buffer.submit(&this.device, &.{per_frame.image_available_semaphore}, &.{per_frame.render_finished_semaphore}, null);
+    try per_frame.command_buffer.submit(&this.device, &.{ per_frame.image_available_semaphore, per_frame.uniform_written_semaphore }, &.{per_frame.render_finished_semaphore}, null);
 
     switch (try this.display.presentImage(image_index, &.{per_frame.render_finished_semaphore}, per_frame.presented_fence)) {
         .success => {},
@@ -241,11 +230,16 @@ fn rebuildDisplay(this: *@This(), alloc: std.mem.Allocator) !void {
 const PerFrameInFlight = struct {
     framebuffer: gpu.Framebuffer,
     command_buffer: gpu.CommandBuffer,
+    write_command_buffer: gpu.CommandBuffer,
+    uniform_written_semaphore: gpu.Semaphore,
     image_available_semaphore: gpu.Semaphore,
     render_finished_semaphore: gpu.Semaphore,
     presented_fence: gpu.Fence,
 
-    pub fn init(app: *App, i: usize) !@This() {
+    uniform_buffer: gpu.Buffer,
+    resource_set: gpu.ResourceSet,
+
+    pub fn init(app: *App, i: usize, alloc: std.mem.Allocator) !@This() {
         var this: @This() = undefined;
 
         this.framebuffer = try app.device.initFramebuffer(app.render_pass, app.display.image_size, &.{app.display.image_views[i]});
@@ -253,6 +247,12 @@ const PerFrameInFlight = struct {
 
         this.command_buffer = try app.device.initCommandBuffer();
         errdefer this.command_buffer.deinit(&app.device);
+
+        this.write_command_buffer = try app.device.initCommandBuffer();
+        errdefer this.write_command_buffer.deinit(&app.device);
+
+        this.uniform_written_semaphore = try app.device.initSemaphore();
+        errdefer this.uniform_written_semaphore.deinit(&app.device);
 
         this.image_available_semaphore = try app.device.initSemaphore();
         errdefer this.image_available_semaphore.deinit(&app.device);
@@ -263,6 +263,25 @@ const PerFrameInFlight = struct {
         this.presented_fence = try app.device.initFence(true);
         errdefer this.presented_fence.deinit(&app.device);
 
+        this.uniform_buffer = try app.device.initBuffer(@sizeOf(mw.math.Mat4), .{
+            .uniform = true,
+            .map_write = true,
+        });
+        errdefer this.uniform_buffer.deinit(&app.device);
+
+        this.resource_set = try .init(&app.device, &app.resource_layout);
+        errdefer this.resource_set.deinit(&app.device);
+        try this.resource_set.update(&app.device, &.{
+            .{
+                .binding = 0,
+                .data = .{
+                    .uniform = &.{
+                        this.uniform_buffer.getRegion(),
+                    },
+                },
+            },
+        }, alloc);
+
         return this;
     }
 
@@ -271,7 +290,11 @@ const PerFrameInFlight = struct {
         this.command_buffer.deinit(&app.device);
         this.image_available_semaphore.deinit(&app.device);
         this.render_finished_semaphore.deinit(&app.device);
+        this.uniform_written_semaphore.deinit(&app.device);
         this.presented_fence.deinit(&app.device);
+
+        this.uniform_buffer.deinit(&app.device);
+        this.resource_set.deinit(&app.device);
     }
 };
 
