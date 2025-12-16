@@ -3,6 +3,7 @@ const std = @import("std");
 pub const Vec2 = @Vector(2, f32);
 pub const Vec3 = @Vector(3, f32);
 pub const Vec4 = @Vector(4, f32);
+// column major
 pub const Mat4 = [4]Vec4;
 
 pub const pi = std.math.pi;
@@ -36,11 +37,11 @@ pub fn matMul(left: Mat4, right: Mat4) Mat4 {
 
     for (0..4) |row| {
         for (0..4) |col| {
-            result[row][col] = dot(left[row], Vec4{
-                right[0][col],
-                right[1][col],
-                right[2][col],
-                right[3][col],
+            result[col][row] = dot(right[col], Vec4{
+                left[0][row],
+                left[1][row],
+                left[2][row],
+                left[3][row],
             });
         }
     }
@@ -53,29 +54,29 @@ pub fn matMulScalar(mat: Mat4, scalar: f32) Mat4 {
 
     for (0..4) |row| {
         for (0..4) |col| {
-            result[row][col] = mat[row][col] * scalar;
+            result[col][row] = mat[col][row] * scalar;
         }
     }
 
     return result;
 }
 
-pub fn matMulVec(mat: Mat4, vec: Vec4) Vec4 {
-    var result: Vec4 = undefined;
-
-    for (0..4) |row| {
-        result[row] = dot(mat[row], vec);
-    }
-
-    return result;
-}
+// pub fn matMulVec(mat: Mat4, vec: Vec4) Vec4 {
+//     var result: Vec4 = undefined;
+//
+//     for (0..4) |row| {
+//         result[row] = dot(mat[row], vec);
+//     }
+//
+//     return result;
+// }
 
 pub fn translate(vec: Vec4) Mat4 {
     return .{
-        .{ 1, 0, 0, vec[0] },
-        .{ 0, 1, 0, vec[1] },
-        .{ 0, 0, 1, vec[2] },
-        .{ 0, 0, 0, 1 },
+        .{ 1, 0, 0, 0 },
+        .{ 0, 1, 0, 0 },
+        .{ 0, 0, 1, 0 },
+        .{ vec[0], vec[1], vec[2], 1 },
     };
 }
 
@@ -94,8 +95,8 @@ pub fn rotateX(angle: f32) Mat4 {
 
     return .{
         .{ 1, 0, 0, 0 },
-        .{ 0, c, s, 0 },
-        .{ 0, -s, c, 0 },
+        .{ 0, c, -s, 0 },
+        .{ 0, s, c, 0 },
         .{ 0, 0, 0, 1 },
     };
 }
@@ -105,9 +106,9 @@ pub fn rotateY(angle: f32) Mat4 {
     const s = sin(angle);
 
     return .{
-        .{ c, 0, -s, 0 },
+        .{ c, 0, s, 0 },
         .{ 0, 1, 0, 0 },
-        .{ s, 0, c, 0 },
+        .{ -s, 0, c, 0 },
         .{ 0, 0, 0, 1 },
     };
 }
@@ -117,8 +118,8 @@ pub fn rotateZ(angle: f32) Mat4 {
     const s = sin(angle);
 
     return .{
-        .{ c, s, 0, 0 },
-        .{ -s, c, 0, 0 },
+        .{ c, -s, 0, 0 },
+        .{ s, c, 0, 0 },
         .{ 0, 0, 1, 0 },
         .{ 0, 0, 0, 1 },
     };

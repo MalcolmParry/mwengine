@@ -1,6 +1,7 @@
 const std = @import("std");
 const mw = @import("mwengine");
 const gpu = mw.gpu;
+const math = mw.math;
 const App = @This();
 
 timer: std.time.Timer,
@@ -164,13 +165,18 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     const framebuffer = &this.frames_in_flight_data[image_index].framebuffer;
     const time_s = @as(f32, @floatFromInt(this.timer.read())) / std.time.ns_per_s;
     const speed = 0.5;
-    const mvp = mw.math.rotateZ(time_s * speed);
+    const mvp = math.matMul(
+        math.translate(.{ 0, 0, 0.5, 0 }),
+        math.rotateX(time_s * speed),
+    );
+    // const mvp = math.translate(.{ 1, 0, 0, 0 });
+    // const mvp = math.scale(.{ 2, 0.5, 1, 1 });
 
     {
         const mapping = try per_frame.uniform_buffer.map(&this.device);
         defer per_frame.uniform_buffer.unmap(&this.device);
 
-        @memcpy(mapping, std.mem.sliceAsBytes(&mw.math.toArray(mvp)));
+        @memcpy(mapping, std.mem.sliceAsBytes(&math.toArray(mvp)));
     }
 
     try per_frame.write_command_buffer.reset(&this.device);
