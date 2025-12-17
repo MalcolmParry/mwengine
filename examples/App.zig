@@ -163,11 +163,15 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         return error.Failed;
     };
     const framebuffer = &this.frames_in_flight_data[image_index].framebuffer;
+    const viewport = this.window.getFramebufferSize();
     const time_s = @as(f32, @floatFromInt(this.timer.read())) / std.time.ns_per_s;
     const speed = 0.5;
     const mvp = math.matMul(
-        math.translate(.{ 0, 0, 0.5, 0 }),
-        math.rotateX(time_s * speed),
+        math.orthographic(.{ 0, 0, -200 }, .{ @floatFromInt(viewport[0]), @floatFromInt(viewport[1]), 1000 }),
+        math.matMul(
+            math.rotateX(time_s * speed),
+            math.scale(@splat(300)),
+        ),
     );
     // const mvp = math.translate(.{ 1, 0, 0, 0 });
     // const mvp = math.scale(.{ 2, 0.5, 1, 1 });

@@ -41,9 +41,10 @@ pub fn reset(this: *@This(), device: *Device) !void {
 }
 
 pub fn submit(this: *@This(), device: *Device, wait_semaphores: []const Semaphore, signal_semaphores: []const Semaphore, signal_fence: ?Fence) !void {
-    const wait_dst_stage_mask: vk.PipelineStageFlags = .{
+    // really cursed temporary solution
+    const wait_dst_stage_mask: [5]vk.PipelineStageFlags = @splat(.{
         .color_attachment_output_bit = true,
-    };
+    });
 
     const submit_info: vk.SubmitInfo = .{
         .command_buffer_count = 1,

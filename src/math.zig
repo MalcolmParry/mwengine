@@ -71,7 +71,7 @@ pub fn matMulScalar(mat: Mat4, scalar: f32) Mat4 {
 //     return result;
 // }
 
-pub fn translate(vec: Vec4) Mat4 {
+pub fn translate(vec: Vec3) Mat4 {
     return .{
         .{ 1, 0, 0, 0 },
         .{ 0, 1, 0, 0 },
@@ -80,7 +80,7 @@ pub fn translate(vec: Vec4) Mat4 {
     };
 }
 
-pub fn scale(vec: Vec4) Mat4 {
+pub fn scale(vec: Vec3) Mat4 {
     return .{
         .{ vec[0], 0, 0, 0 },
         .{ 0, vec[1], 0, 0 },
@@ -130,6 +130,13 @@ pub fn rotateEuler(euler_angles: Vec3) Mat4 {
 
     const zy = matMul(rotateZ(z), rotateY(y));
     return matMul(zy, rotateX(x));
+}
+
+pub fn orthographic(pos: Vec3, size: Vec3) Mat4 {
+    return matMul(
+        scale(.{ 2 / size[0], 2 / size[1], 1 / size[2] }),
+        translate(-pos),
+    );
 }
 
 fn ToArrayReturnType(t: type) type {
