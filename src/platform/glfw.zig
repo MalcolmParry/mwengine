@@ -1,19 +1,32 @@
 const std = @import("std");
-const Event = @import("../Event.zig");
+const events = @import("../events.zig");
 const glfw = @import("glfw");
 
 pub const Window = struct {
     _window: *glfw.Window,
+    maybe_event_queue: ?*events.Queue,
 
-    pub fn init(title: []const u8, size: @Vector(2, u32), alloc: std.mem.Allocator) !Window {
+    pub fn init(alloc: std.mem.Allocator, title: []const u8, size: @Vector(2, u32), maybe_event_queue: ?*events.Queue) !Window {
         try addRef();
         const nt_title = try alloc.dupeZ(u8, title);
         defer alloc.free(nt_title);
         glfw.windowHint(.client_api, .no_api);
         glfw.windowHint(.visible, true);
 
+        const window = try glfw.createWindow(@intCast(size[0]), @intCast(size[1]), nt_title, null);
+        errdefer {
+            glfw.destroyWindow(window);
+            subRef();
+        }
+
+        if (maybe_event_queue) |event_queue| {
+            glfw.setWindowUserPointer(window, event_queue);
+            _ = glfw.setFramebufferSizeCallback(window, framebufferSizeCallback);
+        }
+
         return .{
-            ._window = try glfw.createWindow(@intCast(size[0]), @intCast(size[1]), nt_title, null),
+            ._window = window,
+            .maybe_event_queue = maybe_event_queue,
         };
     }
 
@@ -34,16 +47,6 @@ pub const Window = struct {
         glfw.pollEvents();
     }
 
-    pub fn eventPending(this: *const Window) bool {
-        _ = this;
-        return false;
-    }
-
-    pub fn popEvent(this: *Window) ?Event {
-        _ = this;
-        return null;
-    }
-
     pub fn shouldClose(this: *Window) bool {
         return glfw.windowShouldClose(this._window);
     }
@@ -54,6 +57,11 @@ pub const Window = struct {
 
         glfw.getFramebufferSize(this._window, &width, &height);
         return @Vector(2, u32){ @intCast(width), @intCast(height) };
+    }
+
+    fn framebufferSizeCallback(window: *glfw.Window, height: c_int, width: c_int) callconv(.c) void {
+        const event_queue: *events.Queue = glfw.getWindowUserPointer(window, events.Queue).?;
+        event_queue.push(.{ .resize = .{ @intCast(width), @intCast(height) } }) catch @panic("out of memory");
     }
 };
 
@@ -77,7 +85,6 @@ pub const vulkan = struct {
         }
     };
 
-    // pub const lib_path = "libvulkan.so.1";
     pub fn getRequiredInstanceExtensions() ![][*:0]const u8 {
         return try glfw.getRequiredInstanceExtensions();
     }

@@ -5,6 +5,7 @@ const math = mw.math;
 const App = @This();
 
 timer: std.time.Timer,
+event_queue: mw.EventQueue,
 window: mw.Window,
 instance: gpu.Instance,
 device: gpu.Device,
@@ -25,7 +26,10 @@ frames_in_flight_data: []PerFrameInFlight,
 pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.timer = try .start();
 
-    this.window = try mw.Window.init("diamond example", .{ 100, 100 }, alloc);
+    this.event_queue = try .init(alloc);
+    errdefer this.event_queue.deinit();
+
+    this.window = try mw.Window.init(alloc, "diamond example", .{ 100, 100 }, &this.event_queue);
     errdefer this.window.deinit();
 
     this.instance = try gpu.Instance.init(true, alloc);
@@ -140,6 +144,7 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
     this.device.deinit(alloc);
     this.instance.deinit(alloc);
     this.window.deinit();
+    this.event_queue.deinit();
 }
 
 pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
@@ -217,10 +222,19 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         },
     }
 
-    if (rebuild) try this.rebuildDisplay(alloc);
-
     this.frame_in_flight = (this.frame_in_flight + 1) % this.frames_in_flight_data.len;
     this.window.update();
+    while (this.event_queue.pending()) {
+        const event = this.event_queue.pop();
+
+        switch (event) {
+            .close => return false,
+            .resize => rebuild = true,
+        }
+    }
+
+    if (rebuild) try this.rebuildDisplay(alloc);
+
     return !this.window.shouldClose();
 }
 
