@@ -170,16 +170,15 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     const framebuffer = &this.frames_in_flight_data[image_index].framebuffer;
     const viewport = this.window.getFramebufferSize();
     const time_s = @as(f32, @floatFromInt(this.timer.read())) / std.time.ns_per_s;
+    const aspect_ratio = @as(f32, @floatFromInt(viewport[0])) / @as(f32, @floatFromInt(viewport[1]));
     const speed = 0.5;
     const mvp = math.matMul(
-        math.orthographic(.{ 0, 0, -200 }, .{ @floatFromInt(viewport[0]), @floatFromInt(viewport[1]), 1000 }),
+        math.orthographic(.{ 0, 0, -1 }, .{ aspect_ratio, 1, 2 }),
         math.matMul(
             math.rotateX(time_s * speed),
-            math.scale(@splat(300)),
+            math.scale(@splat(0.75)),
         ),
     );
-    // const mvp = math.translate(.{ 1, 0, 0, 0 });
-    // const mvp = math.scale(.{ 2, 0.5, 1, 1 });
 
     {
         const mapping = try per_frame.uniform_buffer.map(&this.device);
@@ -230,6 +229,10 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         switch (event) {
             .close => return false,
             .resize => rebuild = true,
+            .key_down => |kc| {
+                if (kc == .escape) return false;
+            },
+            else => {},
         }
     }
 

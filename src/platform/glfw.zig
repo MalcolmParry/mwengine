@@ -22,6 +22,7 @@ pub const Window = struct {
         if (maybe_event_queue) |event_queue| {
             glfw.setWindowUserPointer(window, event_queue);
             _ = glfw.setFramebufferSizeCallback(window, framebufferSizeCallback);
+            _ = glfw.setKeyCallback(window, keyCallback);
         }
 
         return .{
@@ -62,6 +63,146 @@ pub const Window = struct {
     fn framebufferSizeCallback(window: *glfw.Window, height: c_int, width: c_int) callconv(.c) void {
         const event_queue: *events.Queue = glfw.getWindowUserPointer(window, events.Queue).?;
         event_queue.push(.{ .resize = .{ @intCast(width), @intCast(height) } }) catch @panic("out of memory");
+    }
+
+    fn keyCallback(window: *glfw.Window, glfw_kc: glfw.Key, scancode: c_int, action: glfw.Action, mods: glfw.Mods) callconv(.c) void {
+        _ = scancode;
+        _ = mods;
+
+        const event_queue: *events.Queue = glfw.getWindowUserPointer(window, events.Queue).?;
+        const keycode = keycodeFromGlfw(glfw_kc);
+        event_queue.push(switch (action) {
+            .press => .{ .key_down = keycode },
+            .release => .{ .key_down = keycode },
+            .repeat => .{ .key_down = keycode },
+        }) catch @panic("out of memory");
+    }
+
+    fn keycodeFromGlfw(glfw_kc: glfw.Key) events.Keycode {
+        return switch (glfw_kc) {
+            .space => .space,
+            .apostrophe => .apostrophe,
+            .comma => .comma,
+            .minus => .minus,
+            .period => .period,
+            .slash => .slash,
+            .zero => .zero,
+            .one => .one,
+            .two => .two,
+            .three => .three,
+            .four => .four,
+            .five => .five,
+            .six => .six,
+            .seven => .seven,
+            .eight => .eight,
+            .nine => .nine,
+            .semicolon => .semicolon,
+            .equal => .equal,
+            .a => .a,
+            .b => .b,
+            .c => .c,
+            .d => .d,
+            .e => .e,
+            .f => .f,
+            .g => .g,
+            .h => .h,
+            .i => .i,
+            .j => .j,
+            .k => .k,
+            .l => .l,
+            .m => .m,
+            .n => .n,
+            .o => .o,
+            .p => .p,
+            .q => .q,
+            .r => .r,
+            .s => .s,
+            .t => .t,
+            .u => .u,
+            .v => .v,
+            .w => .w,
+            .x => .x,
+            .y => .y,
+            .z => .z,
+            .left_bracket => .left_bracket,
+            .backslash => .backslash,
+            .right_bracket => .right_bracket,
+            .grave_accent => .grave_accent,
+            .world_1 => .world_1,
+            .world_2 => .world_2,
+
+            .escape => .escape,
+            .enter => .enter,
+            .tab => .tab,
+            .backspace => .backspace,
+            .insert => .insert,
+            .delete => .delete,
+            .right => .right,
+            .left => .left,
+            .down => .down,
+            .up => .up,
+            .page_up => .page_down,
+            .page_down => .page_up,
+            .home => .home,
+            .end => .end,
+            .caps_lock => .caps_lock,
+            .scroll_lock => .scroll_lock,
+            .num_lock => .num_lock,
+            .print_screen => .print_screen,
+            .pause => .pause,
+            .F1 => .F1,
+            .F2 => .F2,
+            .F3 => .F3,
+            .F4 => .F4,
+            .F5 => .F5,
+            .F6 => .F6,
+            .F7 => .F7,
+            .F8 => .F8,
+            .F9 => .F9,
+            .F10 => .F10,
+            .F11 => .F11,
+            .F12 => .F12,
+            .F13 => .F13,
+            .F14 => .F14,
+            .F15 => .F15,
+            .F16 => .F16,
+            .F17 => .F17,
+            .F18 => .F18,
+            .F19 => .F19,
+            .F20 => .F20,
+            .F21 => .F21,
+            .F22 => .F22,
+            .F23 => .F23,
+            .F24 => .F24,
+            .F25 => .F25,
+            .kp_0 => .kp_0,
+            .kp_1 => .kp_1,
+            .kp_2 => .kp_2,
+            .kp_3 => .kp_3,
+            .kp_4 => .kp_4,
+            .kp_5 => .kp_5,
+            .kp_6 => .kp_6,
+            .kp_7 => .kp_7,
+            .kp_8 => .kp_8,
+            .kp_9 => .kp_9,
+            .kp_decimal => .kp_decimal,
+            .kp_divide => .kp_divide,
+            .kp_multiply => .kp_multiply,
+            .kp_subtract => .kp_subtract,
+            .kp_add => .kp_add,
+            .kp_enter => .kp_enter,
+            .kp_equal => .kp_equal,
+            .left_shift => .left_shift,
+            .left_control => .left_control,
+            .left_alt => .left_alt,
+            .left_super => .left_super,
+            .right_shift => .right_shift,
+            .right_control => .right_control,
+            .right_alt => .right_alt,
+            .right_super => .right_super,
+            .menu => .menu,
+            else => .unknown,
+        };
     }
 };
 
