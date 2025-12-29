@@ -42,8 +42,8 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.display = try this.device.initDisplay(&this.window, alloc);
     errdefer this.display.deinit(alloc);
 
-    this.render_pass = try this.display.initRenderPass();
-    errdefer this.render_pass.deinit(&this.display);
+    this.render_pass = try this.device.initRenderPass(this.display.image_format);
+    errdefer this.render_pass.deinit(&this.device);
 
     this.vertex_buffer = try this.device.initBuffer(@sizeOf(@TypeOf(vertex_data)), .{
         .vertex = true,
@@ -138,7 +138,7 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
     this.vertex_shader.deinit(&this.device);
     this.index_buffer.deinit(&this.device);
     this.vertex_buffer.deinit(&this.device);
-    this.render_pass.deinit(&this.display);
+    this.render_pass.deinit(&this.device);
 
     this.display.deinit(alloc);
     this.device.deinit(alloc);

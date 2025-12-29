@@ -1,14 +1,15 @@
 const std = @import("std");
 const vk = @import("vulkan");
-const Display = @import("Display.zig");
+const Device = @import("Device.zig");
+const Image = @import("Image.zig");
 
 _render_pass: vk.RenderPass,
 
-pub fn init(display: *Display) !@This() {
+pub fn init(device: *Device, image_format: Image.Format) !@This() {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const attachments: [1]vk.AttachmentDescription = .{
         .{
-            .format = display._surface_format.format,
+            .format = image_format._toNative(),
             .samples = .{
                 .@"1_bit" = true,
             },
@@ -51,7 +52,7 @@ pub fn init(display: *Display) !@This() {
         },
     };
 
-    const render_pass = try display._device._device.createRenderPass(&.{
+    const render_pass = try device._device.createRenderPass(&.{
         .attachment_count = attachments.len,
         .p_attachments = &attachments,
         .subpass_count = 1,
@@ -79,7 +80,7 @@ pub fn init(display: *Display) !@This() {
     // };
 }
 
-pub fn deinit(this: *@This(), display: *Display) void {
+pub fn deinit(this: *@This(), device: *Device) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    display._device._device.destroyRenderPass(this._render_pass, vk_alloc);
+    device._device.destroyRenderPass(this._render_pass, vk_alloc);
 }

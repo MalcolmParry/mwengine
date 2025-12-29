@@ -4,12 +4,12 @@ const platform = @import("../../platform.zig");
 const vk = @import("vulkan");
 const Instance = @import("Instance.zig");
 const Device = @import("Device.zig");
-const RenderPass = @import("RenderPass.zig");
 const Semaphore = @import("wait_objects.zig").Semaphore;
 const Fence = @import("wait_objects.zig").Fence;
 const Image = @import("Image.zig");
 
 image_size: @Vector(2, u32),
+image_format: Image.Format,
 images: []Image,
 image_views: []Image.View,
 _swapchain: vk.SwapchainKHR,
@@ -33,6 +33,7 @@ pub fn init(device: *Device, window: *platform.Window, alloc: std.mem.Allocator)
     const surface_format = try chooseSurfaceFormat(instance._instance.wrapper, device._phys, surface, alloc);
     var this: @This() = .{
         .image_size = undefined,
+        .image_format = Image.Format._fromNative(surface_format.format),
         .images = &.{},
         .image_views = &.{},
         ._swapchain = .null_handle,
@@ -58,8 +59,6 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
     this._device._device.destroySwapchainKHR(this._swapchain, vk_alloc);
     this._instance.destroySurfaceKHR(this._surface, vk_alloc);
 }
-
-pub const initRenderPass = RenderPass.init;
 
 pub const ImageIndex = u32;
 const AcquireImageIndexResult = union(PresentResult) {

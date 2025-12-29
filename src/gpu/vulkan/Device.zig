@@ -4,6 +4,7 @@ const vk = @import("vulkan");
 const Instance = @import("Instance.zig");
 const Display = @import("Display.zig");
 const Buffer = @import("Buffer.zig");
+const RenderPass = @import("RenderPass.zig");
 const ResourceSet = @import("ResourceSet.zig");
 const wait_objects = @import("wait_objects.zig");
 const Framebuffer = @import("Framebuffer.zig");
@@ -125,6 +126,7 @@ pub const initCommandBuffer = CommandBuffer.init;
 pub const initFramebuffer = Framebuffer.init;
 pub const initSemaphore = wait_objects.Semaphore.init;
 pub const initFence = wait_objects.Fence.init;
+pub const initRenderPass = RenderPass.init;
 
 pub const _MemoryRegion = struct {
     memory: vk.DeviceMemory,
