@@ -26,5 +26,9 @@
             .url = "git+https://github.com/zig-gamedev/zglfw.git#15bf6ec59a4e1399d0c753455f69b28f09e41791",
             .hash = "zglfw-0.10.0-dev-zgVDNHO2IQDy_fSdwY5U4z42rHUuKgt7T9f-qmQ3FnuL",
         },
+        .x11 = .{
+            .url = "git+https://github.com/marler8997/zigx.git#0c43699b224e242aa60d3e63f05aa340172f4a25",
+            .hash = "x11-0.0.0-yWuw5ro9DABrBKKl5EZaRFzpsAsbStioFd33mTlzAjvm",
+        },
     },
 }

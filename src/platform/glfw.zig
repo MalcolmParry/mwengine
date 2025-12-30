@@ -43,7 +43,7 @@ pub const Window = struct {
         glfw.setWindowTitle(this._window, nt_title);
     }
 
-    pub fn update(this: *Window) void {
+    pub fn update(this: *Window) !void {
         _ = this;
         glfw.pollEvents();
     }

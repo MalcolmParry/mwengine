@@ -32,211 +32,213 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.window = try mw.Window.init(alloc, "diamond example", .{ 100, 100 }, &this.event_queue);
     errdefer this.window.deinit();
 
-    this.instance = try gpu.Instance.init(true, alloc);
-    errdefer this.instance.deinit(alloc);
-
-    const physical_device = try this.instance.bestPhysicalDevice(alloc);
-    this.device = try this.instance.initDevice(&physical_device, alloc);
-    errdefer this.device.deinit(alloc);
-
-    this.display = try this.device.initDisplay(&this.window, alloc);
-    errdefer this.display.deinit(alloc);
-
-    this.render_pass = try this.device.initRenderPass(this.display.image_format);
-    errdefer this.render_pass.deinit(&this.device);
-
-    this.vertex_buffer = try this.device.initBuffer(@sizeOf(@TypeOf(vertex_data)), .{
-        .vertex = true,
-        .map_write = true,
-    });
-    errdefer this.vertex_buffer.deinit(&this.device);
-
-    this.index_buffer = try this.device.initBuffer(@sizeOf(@TypeOf(indices)), .{
-        .index = true,
-        .map_write = true,
-    });
-    errdefer this.index_buffer.deinit(&this.device);
-
-    {
-        const vertex_data_bytes = std.mem.sliceAsBytes(&vertex_data);
-        const vertex_mapping = try this.vertex_buffer.map(&this.device);
-        const index_bytes = std.mem.sliceAsBytes(&indices);
-        const index_mapping = try this.index_buffer.map(&this.device);
-
-        var tmp_cmd_buffer = try gpu.CommandBuffer.init(&this.device);
-        var fence = try gpu.Fence.init(&this.device, false);
-        @memcpy(vertex_mapping[0..vertex_data_bytes.len], vertex_data_bytes);
-        @memcpy(index_mapping[0..index_bytes.len], index_bytes);
-        this.vertex_buffer.unmap(&this.device);
-        this.index_buffer.unmap(&this.device);
-
-        try tmp_cmd_buffer.begin(&this.device);
-        tmp_cmd_buffer.queueFlushBuffer(&this.device, &this.vertex_buffer);
-        tmp_cmd_buffer.queueFlushBuffer(&this.device, &this.index_buffer);
-        try tmp_cmd_buffer.end(&this.device);
-        try tmp_cmd_buffer.submit(&this.device, &.{}, &.{}, fence);
-        try fence.wait(&this.device, std.time.ns_per_s);
-        tmp_cmd_buffer.deinit(&this.device);
-        fence.deinit(&this.device);
-    }
-
-    this.vertex_shader = try createShader(&this.device, "res/shaders/triangle.vert.spv", .vertex, alloc);
-    errdefer this.vertex_shader.deinit(&this.device);
-
-    this.pixel_shader = try createShader(&this.device, "res/shaders/triangle.frag.spv", .pixel, alloc);
-    errdefer this.pixel_shader.deinit(&this.device);
-
-    this.shader_set = try gpu.Shader.Set.init(this.vertex_shader, this.pixel_shader, &.{
-        .float32x2,
-        .float32x3,
-    }, alloc);
-    errdefer this.shader_set.deinit(alloc);
-
-    this.resource_layout = try this.device.initResouceLayout(.{
-        .alloc = alloc,
-        .descriptors = &.{
-            .{
-                .t = .uniform,
-                .stage = .{ .vertex = true },
-                .count = 1,
-                .binding = 0,
-            },
-        },
-    });
-    errdefer this.resource_layout.deinit(&this.device, alloc);
-
-    this.graphics_pipeline = try gpu.GraphicsPipeline.init(.{
-        .alloc = alloc,
-        .device = &this.device,
-        .render_pass = this.render_pass,
-        .shader_set = this.shader_set,
-        .resource_layouts = &.{this.resource_layout},
-        .framebuffer_size = this.display.image_size,
-    });
-    errdefer this.graphics_pipeline.deinit(&this.device);
-
-    this.frame_in_flight = 0;
-    this.frames_in_flight_data = try alloc.alloc(PerFrameInFlight, this.display.images.len);
-    errdefer alloc.free(this.frames_in_flight_data);
-
-    for (this.frames_in_flight_data, 0..) |*x, i| {
-        errdefer for (this.frames_in_flight_data[0 .. i - 1]) |*x2| x2.deinit(this);
-        x.* = try .init(this, i, alloc);
-    }
+    // this.instance = try gpu.Instance.init(true, alloc);
+    // errdefer this.instance.deinit(alloc);
+    //
+    // const physical_device = try this.instance.bestPhysicalDevice(alloc);
+    // this.device = try this.instance.initDevice(&physical_device, alloc);
+    // errdefer this.device.deinit(alloc);
+    //
+    // this.display = try this.device.initDisplay(&this.window, alloc);
+    // errdefer this.display.deinit(alloc);
+    //
+    // this.render_pass = try this.device.initRenderPass(this.display.image_format);
+    // errdefer this.render_pass.deinit(&this.device);
+    //
+    // this.vertex_buffer = try this.device.initBuffer(@sizeOf(@TypeOf(vertex_data)), .{
+    //     .vertex = true,
+    //     .map_write = true,
+    // });
+    // errdefer this.vertex_buffer.deinit(&this.device);
+    //
+    // this.index_buffer = try this.device.initBuffer(@sizeOf(@TypeOf(indices)), .{
+    //     .index = true,
+    //     .map_write = true,
+    // });
+    // errdefer this.index_buffer.deinit(&this.device);
+    //
+    // {
+    //     const vertex_data_bytes = std.mem.sliceAsBytes(&vertex_data);
+    //     const vertex_mapping = try this.vertex_buffer.map(&this.device);
+    //     const index_bytes = std.mem.sliceAsBytes(&indices);
+    //     const index_mapping = try this.index_buffer.map(&this.device);
+    //
+    //     var tmp_cmd_buffer = try gpu.CommandBuffer.init(&this.device);
+    //     var fence = try gpu.Fence.init(&this.device, false);
+    //     @memcpy(vertex_mapping[0..vertex_data_bytes.len], vertex_data_bytes);
+    //     @memcpy(index_mapping[0..index_bytes.len], index_bytes);
+    //     this.vertex_buffer.unmap(&this.device);
+    //     this.index_buffer.unmap(&this.device);
+    //
+    //     try tmp_cmd_buffer.begin(&this.device);
+    //     tmp_cmd_buffer.queueFlushBuffer(&this.device, &this.vertex_buffer);
+    //     tmp_cmd_buffer.queueFlushBuffer(&this.device, &this.index_buffer);
+    //     try tmp_cmd_buffer.end(&this.device);
+    //     try tmp_cmd_buffer.submit(&this.device, &.{}, &.{}, fence);
+    //     try fence.wait(&this.device, std.time.ns_per_s);
+    //     tmp_cmd_buffer.deinit(&this.device);
+    //     fence.deinit(&this.device);
+    // }
+    //
+    // this.vertex_shader = try createShader(&this.device, "res/shaders/triangle.vert.spv", .vertex, alloc);
+    // errdefer this.vertex_shader.deinit(&this.device);
+    //
+    // this.pixel_shader = try createShader(&this.device, "res/shaders/triangle.frag.spv", .pixel, alloc);
+    // errdefer this.pixel_shader.deinit(&this.device);
+    //
+    // this.shader_set = try gpu.Shader.Set.init(this.vertex_shader, this.pixel_shader, &.{
+    //     .float32x2,
+    //     .float32x3,
+    // }, alloc);
+    // errdefer this.shader_set.deinit(alloc);
+    //
+    // this.resource_layout = try this.device.initResouceLayout(.{
+    //     .alloc = alloc,
+    //     .descriptors = &.{
+    //         .{
+    //             .t = .uniform,
+    //             .stage = .{ .vertex = true },
+    //             .count = 1,
+    //             .binding = 0,
+    //         },
+    //     },
+    // });
+    // errdefer this.resource_layout.deinit(&this.device, alloc);
+    //
+    // this.graphics_pipeline = try gpu.GraphicsPipeline.init(.{
+    //     .alloc = alloc,
+    //     .device = &this.device,
+    //     .render_pass = this.render_pass,
+    //     .shader_set = this.shader_set,
+    //     .resource_layouts = &.{this.resource_layout},
+    //     .framebuffer_size = this.display.image_size,
+    // });
+    // errdefer this.graphics_pipeline.deinit(&this.device);
+    //
+    // this.frame_in_flight = 0;
+    // this.frames_in_flight_data = try alloc.alloc(PerFrameInFlight, this.display.images.len);
+    // errdefer alloc.free(this.frames_in_flight_data);
+    //
+    // for (this.frames_in_flight_data, 0..) |*x, i| {
+    //     errdefer for (this.frames_in_flight_data[0 .. i - 1]) |*x2| x2.deinit(this);
+    //     x.* = try .init(this, i, alloc);
+    // }
 }
 
 pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
-    this.device.waitUntilIdle() catch @panic("failed to wait for device");
-
-    for (this.frames_in_flight_data) |*x| x.deinit(this);
-    alloc.free(this.frames_in_flight_data);
-
-    this.graphics_pipeline.deinit(&this.device);
-    this.resource_layout.deinit(&this.device, alloc);
-    this.shader_set.deinit(alloc);
-    this.pixel_shader.deinit(&this.device);
-    this.vertex_shader.deinit(&this.device);
-    this.index_buffer.deinit(&this.device);
-    this.vertex_buffer.deinit(&this.device);
-    this.render_pass.deinit(&this.device);
-
-    this.display.deinit(alloc);
-    this.device.deinit(alloc);
-    this.instance.deinit(alloc);
+    _ = alloc;
+    // this.device.waitUntilIdle() catch @panic("failed to wait for device");
+    //
+    // for (this.frames_in_flight_data) |*x| x.deinit(this);
+    // alloc.free(this.frames_in_flight_data);
+    //
+    // this.graphics_pipeline.deinit(&this.device);
+    // this.resource_layout.deinit(&this.device, alloc);
+    // this.shader_set.deinit(alloc);
+    // this.pixel_shader.deinit(&this.device);
+    // this.vertex_shader.deinit(&this.device);
+    // this.index_buffer.deinit(&this.device);
+    // this.vertex_buffer.deinit(&this.device);
+    // this.render_pass.deinit(&this.device);
+    //
+    // this.display.deinit(alloc);
+    // this.device.deinit(alloc);
+    // this.instance.deinit(alloc);
     this.window.deinit();
     this.event_queue.deinit();
 }
 
 pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
-    var rebuild: bool = false;
-    const per_frame = &this.frames_in_flight_data[this.frame_in_flight];
-    try per_frame.presented_fence.wait(&this.device, std.time.ns_per_s);
-    try per_frame.presented_fence.reset(&this.device);
-
-    const image_index = blk: {
-        for (0..3) |_| {
-            switch (try this.display.acquireImageIndex(per_frame.image_available_semaphore, null, std.time.ns_per_s)) {
-                .success => |i| break :blk i,
-                .suboptimal => |i| {
-                    rebuild = true;
-                    break :blk i;
-                },
-                .out_of_date => return error.OutOfDate,
-            }
-        }
-
-        return error.Failed;
-    };
-    const framebuffer = &this.frames_in_flight_data[image_index].framebuffer;
-    const viewport = this.window.getFramebufferSize();
-    const time_s = @as(f32, @floatFromInt(this.timer.read())) / std.time.ns_per_s;
-    const aspect_ratio = @as(f32, @floatFromInt(viewport[0])) / @as(f32, @floatFromInt(viewport[1]));
-    const speed = 0.5;
-    const mvp = math.matMul(
-        math.orthographic(.{ 0, 0, -1 }, .{ aspect_ratio, 1, 2 }),
-        math.matMul(
-            math.rotateX(time_s * speed),
-            math.scale(@splat(0.75)),
-        ),
-    );
-
-    {
-        const mapping = try per_frame.uniform_buffer.map(&this.device);
-        defer per_frame.uniform_buffer.unmap(&this.device);
-
-        @memcpy(mapping, std.mem.sliceAsBytes(&math.toArray(mvp)));
-    }
-
-    try per_frame.write_command_buffer.reset(&this.device);
-    try per_frame.write_command_buffer.begin(&this.device);
-    per_frame.write_command_buffer.queueFlushBuffer(&this.device, &per_frame.uniform_buffer);
-    try per_frame.write_command_buffer.end(&this.device);
-    try per_frame.write_command_buffer.submit(&this.device, &.{}, &.{per_frame.uniform_written_semaphore}, null);
-
-    try per_frame.command_buffer.reset(&this.device);
-    try per_frame.command_buffer.begin(&this.device);
-    per_frame.command_buffer.queueBeginRenderPass(&this.device, this.render_pass, framebuffer.*, this.display.image_size);
-
-    per_frame.command_buffer.queueBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
-    per_frame.command_buffer.queueBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
-    per_frame.command_buffer.queueBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
-    try per_frame.command_buffer.queueBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0, alloc);
-    per_frame.command_buffer.queueDraw(.{
-        .device = &this.device,
-        .vertex_count = 6,
-        .indexed = true,
-    });
-
-    per_frame.command_buffer.queueEndRenderPass(&this.device);
-    try per_frame.command_buffer.end(&this.device);
-    try per_frame.command_buffer.submit(&this.device, &.{ per_frame.image_available_semaphore, per_frame.uniform_written_semaphore }, &.{per_frame.render_finished_semaphore}, null);
-
-    switch (try this.display.presentImage(image_index, &.{per_frame.render_finished_semaphore}, per_frame.presented_fence)) {
-        .success => {},
-        .suboptimal => {
-            rebuild = true;
-        },
-        .out_of_date => {
-            return error.OutOfDate;
-        },
-    }
-
-    this.frame_in_flight = (this.frame_in_flight + 1) % this.frames_in_flight_data.len;
-    this.window.update();
+    // var rebuild: bool = false;
+    // const per_frame = &this.frames_in_flight_data[this.frame_in_flight];
+    // try per_frame.presented_fence.wait(&this.device, std.time.ns_per_s);
+    // try per_frame.presented_fence.reset(&this.device);
+    //
+    // const image_index = blk: {
+    //     for (0..3) |_| {
+    //         switch (try this.display.acquireImageIndex(per_frame.image_available_semaphore, null, std.time.ns_per_s)) {
+    //             .success => |i| break :blk i,
+    //             .suboptimal => |i| {
+    //                 rebuild = true;
+    //                 break :blk i;
+    //             },
+    //             .out_of_date => return error.OutOfDate,
+    //         }
+    //     }
+    //
+    //     return error.Failed;
+    // };
+    // const framebuffer = &this.frames_in_flight_data[image_index].framebuffer;
+    // const viewport = this.window.getFramebufferSize();
+    // const time_s = @as(f32, @floatFromInt(this.timer.read())) / std.time.ns_per_s;
+    // const aspect_ratio = @as(f32, @floatFromInt(viewport[0])) / @as(f32, @floatFromInt(viewport[1]));
+    // const speed = 0.5;
+    // const mvp = math.matMul(
+    //     math.orthographic(.{ 0, 0, -1 }, .{ aspect_ratio, 1, 2 }),
+    //     math.matMul(
+    //         math.rotateX(time_s * speed),
+    //         math.scale(@splat(0.75)),
+    //     ),
+    // );
+    //
+    // {
+    //     const mapping = try per_frame.uniform_buffer.map(&this.device);
+    //     defer per_frame.uniform_buffer.unmap(&this.device);
+    //
+    //     @memcpy(mapping, std.mem.sliceAsBytes(&math.toArray(mvp)));
+    // }
+    //
+    // try per_frame.write_command_buffer.reset(&this.device);
+    // try per_frame.write_command_buffer.begin(&this.device);
+    // per_frame.write_command_buffer.queueFlushBuffer(&this.device, &per_frame.uniform_buffer);
+    // try per_frame.write_command_buffer.end(&this.device);
+    // try per_frame.write_command_buffer.submit(&this.device, &.{}, &.{per_frame.uniform_written_semaphore}, null);
+    //
+    // try per_frame.command_buffer.reset(&this.device);
+    // try per_frame.command_buffer.begin(&this.device);
+    // per_frame.command_buffer.queueBeginRenderPass(&this.device, this.render_pass, framebuffer.*, this.display.image_size);
+    //
+    // per_frame.command_buffer.queueBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
+    // per_frame.command_buffer.queueBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
+    // per_frame.command_buffer.queueBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
+    // try per_frame.command_buffer.queueBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0, alloc);
+    // per_frame.command_buffer.queueDraw(.{
+    //     .device = &this.device,
+    //     .vertex_count = 6,
+    //     .indexed = true,
+    // });
+    //
+    // per_frame.command_buffer.queueEndRenderPass(&this.device);
+    // try per_frame.command_buffer.end(&this.device);
+    // try per_frame.command_buffer.submit(&this.device, &.{ per_frame.image_available_semaphore, per_frame.uniform_written_semaphore }, &.{per_frame.render_finished_semaphore}, null);
+    //
+    // switch (try this.display.presentImage(image_index, &.{per_frame.render_finished_semaphore}, per_frame.presented_fence)) {
+    //     .success => {},
+    //     .suboptimal => {
+    //         rebuild = true;
+    //     },
+    //     .out_of_date => {
+    //         return error.OutOfDate;
+    //     },
+    // }
+    //
+    // this.frame_in_flight = (this.frame_in_flight + 1) % this.frames_in_flight_data.len;
+    try this.window.update();
+    std.log.info("fg", .{});
     while (this.event_queue.pending()) {
         const event = this.event_queue.pop();
 
         switch (event) {
-            .close => return false,
-            .resize => rebuild = true,
+            // .resize => rebuild = true,
             .key_down => |kc| {
                 if (kc == .escape) return false;
             },
             else => {},
         }
     }
+    _ = alloc;
 
-    if (rebuild) try this.rebuildDisplay(alloc);
+    // if (rebuild) try this.rebuildDisplay(alloc);
 
     return !this.window.shouldClose();
 }

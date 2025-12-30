@@ -1,86 +1,142 @@
 const std = @import("std");
-const Event = @import("../Event.zig");
-
-const c = @cImport({
-    @cInclude("X11/Xlib.h");
-    @cInclude("X11/Xutil.h");
-});
+const x = @import("x");
+const events = @import("../events.zig");
 
 pub const Window = struct {
-    _display: *c.Display,
-    _window: c.Window,
-    _wm_delete_message: c.Atom,
+    maybe_event_queue: ?*events.Queue,
     _should_close: bool,
+    _source: x.Source,
+    _reader: std.net.Stream.Reader,
+    _writer: std.net.Stream.Writer,
+    _window: x.Window,
 
-    pub fn init(class: []const u8, size: @Vector(2, u32), alloc: std.mem.Allocator) !Window {
-        var this: Window = undefined;
+    pub fn init(alloc: std.mem.Allocator, title: []const u8, size: @Vector(2, u32), maybe_event_queue: ?*events.Queue) !Window {
+        var this: @This() = undefined;
+        this.maybe_event_queue = maybe_event_queue;
+        this._should_close = false;
 
-        this._display = c.XOpenDisplay(null) orelse return error.FailedToOpenDisplay;
-        errdefer _ = c.XCloseDisplay(this._display);
+        try x.wsaStartup();
 
-        this._window = c.XCreateSimpleWindow(this._display, c.XDefaultRootWindow(this._display), 0, 0, size[0], size[1], 0, 0, 0);
-        if (this._window == 0) return error.FailedToCreateWindow;
-        errdefer _ = c.XDestroyWindow(this._display, this._window);
+        var read_buffer: [256]u8 = undefined;
+        this._reader, const used_auth = try x.draft.connect(&read_buffer);
+        errdefer x.disconnect(this._reader.getStream());
+        _ = used_auth;
 
-        this._wm_delete_message = c.XInternAtom(this._display, "WM_DELETE_WINDOW", 0);
-        if (this._wm_delete_message == c.None) return error.FailedToCreateAtom;
+        const setup = try x.readSetupSuccess(this._reader.interface());
+        this._source = .initFinishSetup(this._reader.interface(), &setup);
+        std.log.info("setup reply {f}", .{setup});
+        try this._source.requireReplyAtLeast(setup.required());
 
-        const nt_class = try alloc.dupeZ(u8, class);
-        defer alloc.free(nt_class);
+        {
+            var used = false;
+            const fmt = this._source.fmtReplyData(setup.vendor_len, &used);
+            x.log.info("vendor '{f}'", .{fmt});
+            std.debug.assert(used == true);
+        }
+        try this._source.replyDiscard(x.pad4Len(@truncate(setup.vendor_len)));
 
-        const class_hint = c.XAllocClassHint();
-        if (class_hint == null) return error.OutOfMemory;
-        defer _ = c.XFree(class_hint);
-        class_hint.*.res_name = nt_class;
-        class_hint.*.res_class = nt_class;
-        if (c.XSetClassHint(this._display, this._window, class_hint) == 0) return error.FailedToSetWindowClass;
+        const screen = blk: {
+            var formats_buf: [std.math.maxInt(u8)]x.Format = undefined;
+            const formats = formats_buf[0..setup.format_count];
+            for (formats, 0..) |*format, i| {
+                try this._source.readReply(std.mem.asBytes(format));
+                std.log.info(
+                    "format[{}] depth={} bpp={} scanlinepad={}",
+                    .{ i, format.depth, format.bits_per_pixel, format.scanline_pad },
+                );
+            }
 
-        if (c.XSetWMProtocols(this._display, this._window, &this._wm_delete_message, 1) == 0) return error.FailedToSetProtocols;
-        if (c.XMapWindow(this._display, this._window) == 0) return error.FailedToMapWindow;
-        if (c.XSync(this._display, 0) == 0) return error.FailedToSync;
+            var first_screen: ?x.ScreenHeader = null;
+
+            for (0..setup.root_screen_count) |screen_index| {
+                try this._source.requireReplyAtLeast(@sizeOf(x.ScreenHeader));
+                var screen_header: x.ScreenHeader = undefined;
+                try this._source.readReply(std.mem.asBytes(&screen_header));
+                std.log.info("screen {} | {}", .{ screen_index, screen_header });
+                if (first_screen == null) {
+                    first_screen = screen_header;
+                }
+                try this._source.requireReplyAtLeast(@as(u35, screen_header.allowed_depth_count) * @sizeOf(x.ScreenDepth));
+                for (0..screen_header.allowed_depth_count) |depth_index| {
+                    var depth: x.ScreenDepth = undefined;
+                    try this._source.readReply(std.mem.asBytes(&depth));
+                    try this._source.requireReplyAtLeast(@as(u35, depth.visual_type_count) * @sizeOf(x.VisualType));
+                    std.log.info("screen {} | depth {} | {}", .{ screen_index, depth_index, depth });
+                    for (0..depth.visual_type_count) |visual_index| {
+                        var visual: x.VisualType = undefined;
+                        try this._source.readReply(std.mem.asBytes(&visual));
+                        if (false) std.log.info("screen {} | depth {} | visual {} | {}\n", .{ screen_index, depth_index, visual_index, visual });
+                    }
+                }
+            }
+
+            const remaining = this._source.replyRemainingSize();
+            if (remaining != 0) {
+                x.log.err("setup reply had an extra {} bytes", .{remaining});
+                return error.xProtocol;
+            }
+
+            const screen = first_screen orelse {
+                std.log.err("no screen?", .{});
+                std.process.exit(0xff);
+            };
+
+            break :blk screen;
+        };
+
+        var write_buffer: [256]u8 = undefined;
+        this._writer = x.socketWriter(this._reader.getStream(), &write_buffer);
+        var sink: x.RequestSink = .{ .writer = &this._writer.interface };
+
+        this._window = setup.resource_id_base.add(0).window();
+        try sink.CreateWindow(.{
+            .window_id = this._window,
+            .parent_window_id = screen.root,
+            .depth = 0,
+            .x = 0,
+            .y = 0,
+            .width = @intCast(size[0]),
+            .height = @intCast(size[1]),
+            .border_width = 0,
+            .class = .input_output,
+            .visual_id = screen.root_visual,
+        }, .{
+            .bg_pixel = 0xffffff,
+            .event_mask = .{
+                .Exposure = 1,
+            },
+        });
+
+        try this.setTitle(title, alloc);
+        try sink.MapWindow(this._window);
+        try sink.writer.flush();
 
         return this;
     }
 
     pub fn deinit(this: *Window) void {
-        _ = c.XDestroyWindow(this._display, this._window);
-        _ = c.XCloseDisplay(this._display);
+        x.disconnect(this._reader.getStream());
     }
 
     pub fn setTitle(this: *Window, title: []const u8, alloc: std.mem.Allocator) !void {
-        const title_c = try alloc.dupeZ(u8, title);
-        defer alloc.free(title_c);
-
-        if (c.XStoreName(this._display, this._window, title_c) == 0) return error.FailedToSetTitle;
-        if (c.XFlush(this._display) == 0) return error.FailedToFlush;
+        _ = alloc;
+        var sink: x.RequestSink = .{ .writer = &this._writer.interface };
+        try sink.ChangeProperty(.replace, this._window, .WM_NAME, .STRING, u8, .init(title.ptr, @intCast(title.len)));
+        try sink.writer.flush();
     }
 
-    pub fn update(this: *Window) void {
+    pub fn update(this: *Window) !void {
         _ = this;
-    }
-
-    pub fn eventPending(this: *const Window) bool {
-        return c.XPending(this._display) != 0;
-    }
-
-    pub fn popEvent(this: *Window) ?Event {
-        if (c.XPending(this._display) == 0)
-            return null;
-
-        var event: c.XEvent = undefined;
-        _ = c.XNextEvent(this._display, &event);
-
-        switch (event.type) {
-            c.ClientMessage => {
-                if (event.xclient.data.l[0] == this._wm_delete_message) {
-                    this._should_close = true;
-                    return .{ .type = Event.Type.closed };
-                }
-            },
-            else => {},
-        }
-
-        return null;
+        // var sink: x.RequestSink = .{ .writer = &this._writer.interface };
+        //
+        // while (true) {
+        //     try sink.writer.flush();
+        //     const kind = try this._source.readKind();
+        //
+        //     switch (kind) {
+        //         else => unreachable,
+        //     }
+        // }
     }
 
     pub fn shouldClose(this: *Window) bool {
@@ -88,17 +144,8 @@ pub const Window = struct {
     }
 
     pub fn getFramebufferSize(this: *const Window) @Vector(2, u32) {
-        var root: c.Window = undefined;
-        var x: c_int = undefined;
-        var y: c_int = undefined;
-        var width: c_uint = undefined;
-        var height: c_uint = undefined;
-        var border: c_uint = undefined;
-        var depth: c_uint = undefined;
-
-        _ = c.XGetGeometry(this._display, this._window, &root, &x, &y, &width, &height, &border, &depth);
-
-        return @Vector(2, u32){ width, height };
+        _ = this;
+        return @splat(0);
     }
 };
 

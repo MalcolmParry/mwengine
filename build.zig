@@ -43,8 +43,8 @@ pub fn build(b: *Build) !void {
         module.addImport("glfw", glfw_mod);
         module.linkLibrary(glfw.artifact("glfw"));
     } else {
-        module.link_libc = true;
-        module.linkSystemLibrary("X11", .{});
+        const x = b.dependency("x11", .{}).module("x11");
+        module.addImport("x", x);
     }
 
     try buildExample(b, target, optimize, module, tracy);

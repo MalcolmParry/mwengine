@@ -1,7 +1,6 @@
 const std = @import("std");
 
 pub const Event = union(enum) {
-    close,
     resize: @Vector(2, u32),
     key_down: Keycode,
     key_up: Keycode,
