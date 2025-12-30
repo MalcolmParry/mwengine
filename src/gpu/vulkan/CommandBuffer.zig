@@ -91,13 +91,13 @@ pub fn queueFlushBuffer(this: *@This(), device: *Device, buffer: *Buffer) void {
 }
 
 // Graphics Commands
-pub fn queueBeginRenderPass(this: *@This(), device: *Device, render_pass: RenderPass, framebuffer: Framebuffer, image_size: @Vector(2, u32)) void {
+pub fn queueBeginRenderPass(this: *@This(), device: *Device, render_pass_desc: RenderPass.Desc, framebuffer: Framebuffer, image_size: @Vector(2, u32)) void {
     const clear_value: vk.ClearValue = .{
         .color = .{ .float_32 = .{ 0, 0, 0, 1 } },
     };
 
     device._device.cmdBeginRenderPass(this._command_buffer, &.{
-        .render_pass = render_pass._render_pass,
+        .render_pass = render_pass_desc._render_pass,
         .framebuffer = framebuffer._framebuffer,
         .clear_value_count = 1,
         .p_clear_values = @ptrCast(&clear_value),

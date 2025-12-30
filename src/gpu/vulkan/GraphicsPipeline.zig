@@ -9,7 +9,7 @@ const ResourceSet = @import("ResourceSet.zig");
 pub const CreateInfo = struct {
     alloc: std.mem.Allocator,
     device: *Device,
-    render_pass: RenderPass,
+    render_pass_desc: RenderPass.Desc,
     shader_set: Shader.Set,
     resource_layouts: []const ResourceSet.Layout,
     framebuffer_size: @Vector(2, u32),
@@ -115,7 +115,7 @@ pub fn init(create_info: CreateInfo) !@This() {
     const pipeline_create_info: vk.GraphicsPipelineCreateInfo = .{
         .subpass = 0,
         .layout = pipeline_layout,
-        .render_pass = create_info.render_pass._render_pass,
+        .render_pass = create_info.render_pass_desc._render_pass,
         .base_pipeline_handle = .null_handle,
         .base_pipeline_index = -1,
         .stage_count = shader_stages.len,

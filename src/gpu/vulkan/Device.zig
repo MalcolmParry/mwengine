@@ -126,7 +126,7 @@ pub const initCommandBuffer = CommandBuffer.init;
 pub const initFramebuffer = Framebuffer.init;
 pub const initSemaphore = wait_objects.Semaphore.init;
 pub const initFence = wait_objects.Fence.init;
-pub const initRenderPass = RenderPass.init;
+pub const initRenderPassDesc = RenderPass.Desc.init;
 
 pub const _MemoryRegion = struct {
     memory: vk.DeviceMemory,
