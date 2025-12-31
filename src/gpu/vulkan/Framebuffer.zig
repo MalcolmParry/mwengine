@@ -6,10 +6,10 @@ const Image = @import("Image.zig");
 
 _framebuffer: vk.Framebuffer,
 
-pub fn init(device: *Device, render_pass: RenderPass, image_size: @Vector(2, u32), image_views: []const Image.View) !@This() {
+pub fn init(device: *Device, render_pass_desc: RenderPass.Desc, image_size: @Vector(2, u32), image_views: []const Image.View) !@This() {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const framebuffer = try device._device.createFramebuffer(&.{
-        .render_pass = render_pass._render_pass,
+        .render_pass = render_pass_desc._render_pass,
         .attachment_count = @intCast(image_views.len),
         .p_attachments = @ptrCast(image_views.ptr),
         .width = image_size[0],
