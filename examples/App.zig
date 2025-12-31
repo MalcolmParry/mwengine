@@ -173,9 +173,12 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     const aspect_ratio = @as(f32, @floatFromInt(viewport[0])) / @as(f32, @floatFromInt(viewport[1]));
     const speed = 0.5;
     const mvp = math.matMul(
-        math.orthographic(.{ 0, 0, -1 }, .{ aspect_ratio, 1, 2 }),
+        math.perspective(aspect_ratio, 90, 0.1, 3),
         math.matMul(
-            math.rotateX(time_s * speed),
+            math.matMul(
+                math.translate(.{ 0, 0, -1 }),
+                math.rotateX(time_s * speed),
+            ),
             math.scale(@splat(0.75)),
         ),
     );

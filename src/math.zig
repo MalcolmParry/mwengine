@@ -139,6 +139,21 @@ pub fn orthographic(pos: Vec3, size: Vec3) Mat4 {
     );
 }
 
+pub fn perspective(aspect_ratio: f32, fov: f32, near: f32, far: f32) Mat4 {
+    const tan_half_fov = tan(fov / 2);
+    const a = 1 / (aspect_ratio * tan_half_fov);
+    const b = -1 / tan_half_fov;
+    const c = far / (near - far);
+    const d = -(far * near) / (far - near);
+
+    return .{
+        .{ a, 0, 0, 0 },
+        .{ 0, b, 0, 0 },
+        .{ 0, 0, c, -1 },
+        .{ 0, 0, d, 0 },
+    };
+}
+
 fn ToArrayReturnType(t: type) type {
     switch (@typeInfo(t)) {
         .vector => |vec| return [vec.len]vec.child,
