@@ -5,6 +5,7 @@ const math = mw.math;
 const App = @This();
 
 timer: std.time.Timer,
+frame_timer: std.time.Timer,
 event_queue: mw.EventQueue,
 window: mw.Window,
 instance: gpu.Instance,
@@ -23,8 +24,11 @@ graphics_pipeline: gpu.GraphicsPipeline,
 
 frames_in_flight_data: []PerFrameInFlight,
 
+cam_pos: math.Vec3,
+
 pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.timer = try .start();
+    this.frame_timer = try .start();
 
     this.event_queue = try .init(alloc);
     errdefer this.event_queue.deinit();
@@ -123,6 +127,8 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
         errdefer for (this.frames_in_flight_data[0 .. i - 1]) |*x2| x2.deinit(this);
         x.* = try .init(this, i, alloc);
     }
+
+    this.cam_pos = .{ 0, 0, -1 };
 }
 
 pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
@@ -171,13 +177,38 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     const viewport = this.window.getFramebufferSize();
     const time_s = @as(f32, @floatFromInt(this.timer.read())) / std.time.ns_per_s;
     const aspect_ratio = @as(f32, @floatFromInt(viewport[0])) / @as(f32, @floatFromInt(viewport[1]));
-    const speed = 0.5;
+    const dt_ns = this.frame_timer.lap();
+    const dt = @as(f32, @floatFromInt(dt_ns)) / std.time.ns_per_s;
+
+    {
+        var move_vector: math.Vec3 = .{ 0, 0, 0 };
+
+        if (this.window.isKeyDown(.w))
+            move_vector += math.dir_forward;
+        if (this.window.isKeyDown(.s))
+            move_vector -= math.dir_forward;
+        if (this.window.isKeyDown(.a))
+            move_vector -= math.dir_right;
+        if (this.window.isKeyDown(.d))
+            move_vector += math.dir_right;
+        if (this.window.isKeyDown(.e))
+            move_vector += math.dir_up;
+        if (this.window.isKeyDown(.q))
+            move_vector -= math.dir_up;
+
+        if (@reduce(.Or, move_vector != @as(math.Vec3, @splat(0)))) {
+            move_vector = math.normalize(move_vector);
+            move_vector *= @splat(dt * 0.75);
+            this.cam_pos += move_vector;
+        }
+    }
+
     const mvp = math.matMul(
-        math.perspective(aspect_ratio, 90, 0.1, 3),
+        math.perspective(aspect_ratio, 70, 0.1, 3),
         math.matMul(
             math.matMul(
-                math.translate(.{ 0, 0, -1 }),
-                math.rotateX(time_s * speed),
+                math.translate(this.cam_pos),
+                math.rotateX(time_s * 0.5),
             ),
             math.scale(@splat(0.75)),
         ),

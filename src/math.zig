@@ -15,13 +15,25 @@ pub const tan = std.math.tan;
 pub const asin = std.math.asin;
 pub const acos = std.math.acos;
 pub const atan = std.math.atan;
+pub const sqrt = std.math.sqrt;
 
-pub const dir_forward: Vec4 = .{ 1, 0, 0, 0 };
-pub const dir_right: Vec4 = .{ 0, 1, 0, 0 };
-pub const dir_up: Vec4 = .{ 0, 0, 1, 0 };
+pub const dir_forward: Vec3 = .{ 0, 0, 1 };
+pub const dir_right: Vec3 = .{ -1, 0, 0 };
+pub const dir_up: Vec3 = .{ 0, -1, 0 };
+// pub const dir_forward: Vec3 = .{ 1, 0, 0 };
+// pub const dir_right: Vec3 = .{ 0, 1, 0 };
+// pub const dir_up: Vec3 = .{ 0, 0, 1 };
 
 pub fn dot(left: anytype, right: anytype) @typeInfo(@TypeOf(left)).vector.child {
     return @reduce(.Add, left * right);
+}
+
+pub fn length(vec: anytype) @typeInfo(@TypeOf(vec)).vector.child {
+    return sqrt(@reduce(.Add, vec * vec));
+}
+
+pub fn normalize(vec: anytype) @TypeOf(vec) {
+    return vec / @as(@TypeOf(vec), @splat(length(vec)));
 }
 
 // matrix
