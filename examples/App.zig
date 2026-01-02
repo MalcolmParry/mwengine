@@ -199,10 +199,14 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
             move_vector -= math.dir_up;
 
         const fov_speed = math.rad(50.0);
+        const fov_max = math.rad(100.0);
+        const fov_min = math.rad(40.0);
         if (this.window.isKeyDown(.minus))
             this.cam_fov -= fov_speed * dt;
         if (this.window.isKeyDown(.equal))
             this.cam_fov += fov_speed * dt;
+
+        this.cam_fov = @min(fov_max, @max(fov_min, this.cam_fov));
 
         if (!math.eql(move_vector, @as(math.Vec3, @splat(0)))) {
             move_vector = math.normalize(move_vector);
