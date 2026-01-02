@@ -24,6 +24,14 @@ pub const dir_up: Vec3 = .{ 0, 1, 0 };
 // pub const dir_right: Vec3 = .{ 0, 1, 0 };
 // pub const dir_up: Vec3 = .{ 0, 0, 1 };
 
+pub fn rad(degrees: anytype) @TypeOf(degrees) {
+    return degrees * (pi / 180.0);
+}
+
+pub fn deg(radians: anytype) @TypeOf(radians) {
+    return radians * (180.0 / pi);
+}
+
 pub fn dot(left: anytype, right: anytype) Base(@TypeOf(left)) {
     return @reduce(.Add, left * right);
 }

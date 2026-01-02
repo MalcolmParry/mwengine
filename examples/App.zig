@@ -25,6 +25,7 @@ graphics_pipeline: gpu.GraphicsPipeline,
 frames_in_flight_data: []PerFrameInFlight,
 
 cam_pos: math.Vec3,
+cam_fov: f32,
 
 pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.timer = try .start();
@@ -129,6 +130,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     }
 
     this.cam_pos = .{ 0, 0, 1 };
+    this.cam_fov = math.rad(70.0);
 }
 
 pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
@@ -181,7 +183,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     const dt = @as(f32, @floatFromInt(dt_ns)) / std.time.ns_per_s;
 
     {
-        var move_vector: math.Vec3 = .{ 0, 0, 0 };
+        var move_vector: math.Vec3 = @splat(0);
 
         if (this.window.isKeyDown(.w))
             move_vector += math.dir_forward;
@@ -196,6 +198,12 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         if (this.window.isKeyDown(.q))
             move_vector -= math.dir_up;
 
+        const fov_speed = math.rad(50.0);
+        if (this.window.isKeyDown(.minus))
+            this.cam_fov -= fov_speed * dt;
+        if (this.window.isKeyDown(.equal))
+            this.cam_fov += fov_speed * dt;
+
         if (!math.eql(move_vector, @as(math.Vec3, @splat(0)))) {
             move_vector = math.normalize(move_vector);
             move_vector *= @splat(dt * 0.75);
@@ -204,7 +212,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     }
 
     const mvp = math.matMulMany(.{
-        math.perspective(aspect_ratio, math.pi / 2.0, 0.1, 3),
+        math.perspective(aspect_ratio, this.cam_fov, 0.1, 3),
         math.translate(-this.cam_pos),
         math.scale(@splat(0.75)),
         math.rotateX(time_s * 0.5),
