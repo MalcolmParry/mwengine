@@ -24,11 +24,19 @@ pub const dir_up: Vec3 = .{ 0, -1, 0 };
 // pub const dir_right: Vec3 = .{ 0, 1, 0 };
 // pub const dir_up: Vec3 = .{ 0, 0, 1 };
 
-pub fn dot(left: anytype, right: anytype) @typeInfo(@TypeOf(left)).vector.child {
+pub fn Base(t: type) type {
+    return switch (@typeInfo(t)) {
+        .vector => |vec| vec.child,
+        .array => |arr| Base(arr.child),
+        else => @compileError("wrong type"),
+    };
+}
+
+pub fn dot(left: anytype, right: anytype) Base(@TypeOf(left)) {
     return @reduce(.Add, left * right);
 }
 
-pub fn length(vec: anytype) @typeInfo(@TypeOf(vec)).vector.child {
+pub fn length(vec: anytype) Base(@TypeOf(vec)) {
     return sqrt(@reduce(.Add, vec * vec));
 }
 
