@@ -17,20 +17,12 @@ pub const acos = std.math.acos;
 pub const atan = std.math.atan;
 pub const sqrt = std.math.sqrt;
 
-pub const dir_forward: Vec3 = .{ 0, 0, 1 };
-pub const dir_right: Vec3 = .{ -1, 0, 0 };
-pub const dir_up: Vec3 = .{ 0, -1, 0 };
+pub const dir_forward: Vec3 = .{ 0, 0, -1 };
+pub const dir_right: Vec3 = .{ 1, 0, 0 };
+pub const dir_up: Vec3 = .{ 0, 1, 0 };
 // pub const dir_forward: Vec3 = .{ 1, 0, 0 };
 // pub const dir_right: Vec3 = .{ 0, 1, 0 };
 // pub const dir_up: Vec3 = .{ 0, 0, 1 };
-
-pub fn Base(t: type) type {
-    return switch (@typeInfo(t)) {
-        .vector => |vec| vec.child,
-        .array => |arr| Base(arr.child),
-        else => @compileError("wrong type"),
-    };
-}
 
 pub fn dot(left: anytype, right: anytype) Base(@TypeOf(left)) {
     return @reduce(.Add, left * right);
@@ -64,6 +56,16 @@ pub fn matMul(left: Mat4, right: Mat4) Mat4 {
                 left[3][row],
             });
         }
+    }
+
+    return result;
+}
+
+pub fn matMulMany(operands: anytype) Mat4 {
+    var result: Mat4 = identity;
+
+    inline for (operands) |x| {
+        result = matMul(result, x);
     }
 
     return result;
@@ -171,6 +173,14 @@ pub fn perspective(aspect_ratio: f32, fov: f32, near: f32, far: f32) Mat4 {
         .{ 0, b, 0, 0 },
         .{ 0, 0, c, -1 },
         .{ 0, 0, d, 0 },
+    };
+}
+
+pub fn Base(T: type) type {
+    return switch (@typeInfo(T)) {
+        .vector => |vec| vec.child,
+        .array => |arr| Base(arr.child),
+        else => @compileError("wrong type"),
     };
 }
 

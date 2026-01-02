@@ -128,7 +128,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
         x.* = try .init(this, i, alloc);
     }
 
-    this.cam_pos = .{ 0, 0, -1 };
+    this.cam_pos = .{ 0, 0, 1 };
 }
 
 pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
@@ -203,16 +203,12 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         }
     }
 
-    const mvp = math.matMul(
+    const mvp = math.matMulMany(.{
         math.perspective(aspect_ratio, 70, 0.1, 3),
-        math.matMul(
-            math.matMul(
-                math.translate(this.cam_pos),
-                math.rotateX(time_s * 0.5),
-            ),
-            math.scale(@splat(0.75)),
-        ),
-    );
+        math.translate(-this.cam_pos),
+        math.rotateX(time_s * 0.5),
+        math.scale(@splat(0.75)),
+    });
 
     {
         const mapping = try per_frame.uniform_buffer.map(&this.device);
