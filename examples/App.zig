@@ -129,7 +129,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
         x.* = try .init(this, i, alloc);
     }
 
-    this.cam_pos = .{ 0, 0, 1 };
+    this.cam_pos = .{ -1, 0, 0 };
     this.cam_fov = math.rad(70.0);
 }
 
@@ -215,11 +215,12 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         }
     }
 
+    // _ = aspect_ratio;
     const mvp = math.matMulMany(.{
-        math.perspective(aspect_ratio, this.cam_fov, 0.1, 3),
+        math.perspective(aspect_ratio, this.cam_fov, 0.1, 5),
         math.translate(-this.cam_pos),
         math.scale(@splat(0.75)),
-        math.rotateX(time_s * 0.5),
+        math.rotateY(time_s * 0.5),
     });
 
     {

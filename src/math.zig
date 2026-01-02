@@ -17,12 +17,9 @@ pub const acos = std.math.acos;
 pub const atan = std.math.atan;
 pub const sqrt = std.math.sqrt;
 
-pub const dir_forward: Vec3 = .{ 0, 0, -1 };
-pub const dir_right: Vec3 = .{ 1, 0, 0 };
-pub const dir_up: Vec3 = .{ 0, 1, 0 };
-// pub const dir_forward: Vec3 = .{ 1, 0, 0 };
-// pub const dir_right: Vec3 = .{ 0, 1, 0 };
-// pub const dir_up: Vec3 = .{ 0, 0, 1 };
+pub const dir_forward: Vec3 = .{ 1, 0, 0 };
+pub const dir_right: Vec3 = .{ 0, 1, 0 };
+pub const dir_up: Vec3 = .{ 0, 0, 1 };
 
 pub fn rad(degrees: anytype) @TypeOf(degrees) {
     return degrees * (pi / 180.0);
@@ -42,6 +39,21 @@ pub fn length(vec: anytype) Base(@TypeOf(vec)) {
 
 pub fn normalize(vec: anytype) @TypeOf(vec) {
     return vec / @as(@TypeOf(vec), @splat(length(vec)));
+}
+
+pub fn changeSize(comptime len: u32, vec: anytype) @Vector(len, @typeInfo(@TypeOf(vec)).vector.child) {
+    var result: @Vector(len, @typeInfo(@TypeOf(vec)).vector.child) = @splat(0);
+
+    for (0..@typeInfo(@TypeOf(vec)).vector.len) |i| {
+        if (i >= len) break;
+
+        result[i] = vec[i];
+    }
+
+    if (len == 4)
+        result[3] = 1;
+
+    return result;
 }
 
 // matrix
@@ -164,9 +176,9 @@ pub fn rotateEuler(euler_angles: Vec3) Mat4 {
     const x, const y, const z = euler_angles;
 
     return matMulMany(.{
-        rotateZ(z),
-        rotateY(y),
         rotateX(x),
+        rotateY(y),
+        rotateZ(z),
     });
 }
 
@@ -180,17 +192,34 @@ pub fn orthographic(pos: Vec3, size: Vec3) Mat4 {
 pub fn perspective(aspect_ratio: f32, fov: f32, near: f32, far: f32) Mat4 {
     const tan_half_fov = tan(fov / 2);
     const a = 1 / (aspect_ratio * tan_half_fov);
-    const b = -1 / tan_half_fov;
+    const b = 1 / tan_half_fov;
     const c = far / (near - far);
     const d = -(far * near) / (far - near);
 
-    return .{
-        .{ a, 0, 0, 0 },
-        .{ 0, b, 0, 0 },
-        .{ 0, 0, c, d },
-        .{ 0, 0, -1, 0 },
-    };
+    return matMul(
+        .{
+            .{ a, 0, 0, 0 },
+            .{ 0, b, 0, 0 },
+            .{ 0, 0, c, d },
+            .{ 0, 0, -1, 0 },
+        },
+        to_vulkan,
+    );
 }
+
+pub const to_vulkan: Mat4 = .{
+    .{ 0, 1, 0, 0 },
+    .{ 0, 0, -1, 0 },
+    .{ -1, 0, 0, 0 },
+    .{ 0, 0, 0, 1 },
+};
+
+pub const from_vulkan: Mat4 = .{
+    .{ 0, 0, -1, 0 },
+    .{ 1, 0, 0, 0 },
+    .{ 0, -1, 0, 0 },
+    .{ 0, 0, 0, 1 },
+};
 
 pub fn eql(left: anytype, right: anytype) bool {
     std.debug.assert(@TypeOf(left) == @TypeOf(right));

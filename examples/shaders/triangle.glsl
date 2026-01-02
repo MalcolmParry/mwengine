@@ -15,7 +15,7 @@ layout(binding = 0) uniform UniformBufferObject {
 } ubo;
 
 void main() {
-    gl_Position = ubo.mvp * vec4(iPos, 0, 1);
+    gl_Position = ubo.mvp * vec4(0, iPos.x, iPos.y, 1);
     pColor = iColor;
 }
 
