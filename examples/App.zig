@@ -196,7 +196,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         if (this.window.isKeyDown(.q))
             move_vector -= math.dir_up;
 
-        if (@reduce(.Or, move_vector != @as(math.Vec3, @splat(0)))) {
+        if (!math.eql(move_vector, @as(math.Vec3, @splat(0)))) {
             move_vector = math.normalize(move_vector);
             move_vector *= @splat(dt * 0.75);
             this.cam_pos += move_vector;

@@ -184,6 +184,15 @@ pub fn perspective(aspect_ratio: f32, fov: f32, near: f32, far: f32) Mat4 {
     };
 }
 
+pub fn eql(left: anytype, right: anytype) bool {
+    std.debug.assert(@TypeOf(left) == @TypeOf(right));
+
+    return switch (@typeInfo(@TypeOf(left))) {
+        .vector => return @reduce(.And, left == right),
+        else => @compileError("unsupported type"),
+    };
+}
+
 pub fn Base(T: type) type {
     return switch (@typeInfo(T)) {
         .vector => |vec| vec.child,
