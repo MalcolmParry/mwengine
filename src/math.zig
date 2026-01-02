@@ -3,7 +3,7 @@ const std = @import("std");
 pub const Vec2 = @Vector(2, f32);
 pub const Vec3 = @Vector(3, f32);
 pub const Vec4 = @Vector(4, f32);
-// column major
+// row major
 pub const Mat4 = [4]Vec4;
 
 pub const pi = std.math.pi;
@@ -44,17 +44,24 @@ pub const identity: Mat4 = .{
     .{ 0, 0, 0, 1 },
 };
 
+pub fn column(mat: Mat4, index: u2) Vec4 {
+    return .{
+        mat[0][index],
+        mat[1][index],
+        mat[2][index],
+        mat[3][index],
+    };
+}
+
 pub fn matMul(left: Mat4, right: Mat4) Mat4 {
     var result: Mat4 = undefined;
 
     for (0..4) |row| {
         for (0..4) |col| {
-            result[col][row] = dot(right[col], Vec4{
-                left[0][row],
-                left[1][row],
-                left[2][row],
-                left[3][row],
-            });
+            result[row][col] = dot(
+                left[row],
+                column(right, @intCast(col)),
+            );
         }
     }
 
@@ -72,33 +79,31 @@ pub fn matMulMany(operands: anytype) Mat4 {
 }
 
 pub fn matMulScalar(mat: Mat4, scalar: f32) Mat4 {
-    var result: Mat4 = undefined;
+    var result: Mat4 = mat;
 
     for (0..4) |row| {
-        for (0..4) |col| {
-            result[col][row] = mat[col][row] * scalar;
-        }
+        result[row] *= @splat(scalar);
     }
 
     return result;
 }
 
-// pub fn matMulVec(mat: Mat4, vec: Vec4) Vec4 {
-//     var result: Vec4 = undefined;
-//
-//     for (0..4) |row| {
-//         result[row] = dot(mat[row], vec);
-//     }
-//
-//     return result;
-// }
+pub fn matMulVec(mat: Mat4, vec: Vec4) Vec4 {
+    var result: Vec4 = undefined;
+
+    for (0..4) |row| {
+        result[row] = dot(mat[row], vec);
+    }
+
+    return result;
+}
 
 pub fn translate(vec: Vec3) Mat4 {
     return .{
-        .{ 1, 0, 0, 0 },
-        .{ 0, 1, 0, 0 },
-        .{ 0, 0, 1, 0 },
-        .{ vec[0], vec[1], vec[2], 1 },
+        .{ 1, 0, 0, vec[0] },
+        .{ 0, 1, 0, vec[1] },
+        .{ 0, 0, 1, vec[2] },
+        .{ 0, 0, 0, 1 },
     };
 }
 
@@ -117,8 +122,8 @@ pub fn rotateX(angle: f32) Mat4 {
 
     return .{
         .{ 1, 0, 0, 0 },
-        .{ 0, c, -s, 0 },
-        .{ 0, s, c, 0 },
+        .{ 0, c, s, 0 },
+        .{ 0, -s, c, 0 },
         .{ 0, 0, 0, 1 },
     };
 }
@@ -128,9 +133,9 @@ pub fn rotateY(angle: f32) Mat4 {
     const s = sin(angle);
 
     return .{
-        .{ c, 0, s, 0 },
+        .{ c, 0, -s, 0 },
         .{ 0, 1, 0, 0 },
-        .{ -s, 0, c, 0 },
+        .{ s, 0, c, 0 },
         .{ 0, 0, 0, 1 },
     };
 }
@@ -140,8 +145,8 @@ pub fn rotateZ(angle: f32) Mat4 {
     const s = sin(angle);
 
     return .{
-        .{ c, -s, 0, 0 },
-        .{ s, c, 0, 0 },
+        .{ c, s, 0, 0 },
+        .{ -s, c, 0, 0 },
         .{ 0, 0, 1, 0 },
         .{ 0, 0, 0, 1 },
     };
@@ -150,8 +155,11 @@ pub fn rotateZ(angle: f32) Mat4 {
 pub fn rotateEuler(euler_angles: Vec3) Mat4 {
     const x, const y, const z = euler_angles;
 
-    const zy = matMul(rotateZ(z), rotateY(y));
-    return matMul(zy, rotateX(x));
+    return matMulMany(.{
+        rotateZ(z),
+        rotateY(y),
+        rotateX(x),
+    });
 }
 
 pub fn orthographic(pos: Vec3, size: Vec3) Mat4 {
@@ -171,8 +179,8 @@ pub fn perspective(aspect_ratio: f32, fov: f32, near: f32, far: f32) Mat4 {
     return .{
         .{ a, 0, 0, 0 },
         .{ 0, b, 0, 0 },
-        .{ 0, 0, c, -1 },
-        .{ 0, 0, d, 0 },
+        .{ 0, 0, c, d },
+        .{ 0, 0, -1, 0 },
     };
 }
 
@@ -212,9 +220,9 @@ pub fn toArray(x: anytype) ToArrayReturnType(@TypeOf(x)) {
             .vector => |vec| {
                 var result: [arr.len * vec.len]vec.child = undefined;
 
-                for (0..arr.len) |i| {
-                    for (0..vec.len) |ii| {
-                        result[ii + i * vec.len] = x[i][ii];
+                for (0..arr.len) |row| {
+                    for (0..vec.len) |col| {
+                        result[row + col * vec.len] = x[row][col];
                     }
                 }
 

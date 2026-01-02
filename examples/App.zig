@@ -204,10 +204,10 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     }
 
     const mvp = math.matMulMany(.{
-        math.perspective(aspect_ratio, 70, 0.1, 3),
+        math.perspective(aspect_ratio, math.pi / 2.0, 0.1, 3),
         math.translate(-this.cam_pos),
-        math.rotateX(time_s * 0.5),
         math.scale(@splat(0.75)),
+        math.rotateX(time_s * 0.5),
     });
 
     {
