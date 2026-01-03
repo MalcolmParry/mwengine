@@ -26,7 +26,7 @@ pub fn build(b: *Build) !void {
 
     const vulkan = b.dependency("vulkan", .{
         .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
-        .target = target,
+        .target = b.graph.host,
         .optimize = optimize,
     }).module("vulkan-zig");
     module.addImport("vulkan", vulkan);
