@@ -13,7 +13,6 @@ device: gpu.Device,
 display: gpu.Display,
 frame_in_flight: usize,
 
-render_pass_desc: gpu.RenderPass.Desc,
 vertex_buffer: gpu.Buffer,
 index_buffer: gpu.Buffer,
 vertex_shader: gpu.Shader,
@@ -46,9 +45,6 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
 
     this.display = try this.device.initDisplay(&this.window, alloc);
     errdefer this.display.deinit(alloc);
-
-    this.render_pass_desc = try this.device.initRenderPassDesc(this.display.image_format);
-    errdefer this.render_pass_desc.deinit(&this.device);
 
     this.vertex_buffer = try this.device.initBuffer(@sizeOf(@TypeOf(vertex_data)), .{
         .vertex = true,
@@ -113,7 +109,9 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.graphics_pipeline = try gpu.GraphicsPipeline.init(.{
         .alloc = alloc,
         .device = &this.device,
-        .render_pass_desc = this.render_pass_desc,
+        .render_target_desc = .{
+            .color_format = this.display.image_format,
+        },
         .shader_set = this.shader_set,
         .resource_layouts = &.{this.resource_layout},
         .framebuffer_size = this.display.image_size,
@@ -126,7 +124,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
 
     for (this.frames_in_flight_data, 0..) |*x, i| {
         errdefer for (this.frames_in_flight_data[0 .. i - 1]) |*x2| x2.deinit(this);
-        x.* = try .init(this, i, alloc);
+        x.* = try .init(this, alloc);
     }
 
     this.cam_pos = .{ -1, 0, 0 };
@@ -146,7 +144,6 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
     this.vertex_shader.deinit(&this.device);
     this.index_buffer.deinit(&this.device);
     this.vertex_buffer.deinit(&this.device);
-    this.render_pass_desc.deinit(&this.device);
 
     this.display.deinit(alloc);
     this.device.deinit(alloc);
@@ -175,7 +172,6 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
         return error.Failed;
     };
-    const framebuffer = &this.frames_in_flight_data[image_index].framebuffer;
     const viewport = this.window.getFramebufferSize();
     const time_s = @as(f32, @floatFromInt(this.timer.read())) / std.time.ns_per_s;
     const aspect_ratio = @as(f32, @floatFromInt(viewport[0])) / @as(f32, @floatFromInt(viewport[1]));
@@ -238,19 +234,19 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     try per_frame.command_buffer.reset(&this.device);
     try per_frame.command_buffer.begin(&this.device);
-    per_frame.command_buffer.queueBeginRenderPass(&this.device, this.render_pass_desc, framebuffer.*, this.display.image_size);
-
-    per_frame.command_buffer.queueBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
-    per_frame.command_buffer.queueBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
-    per_frame.command_buffer.queueBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
-    try per_frame.command_buffer.queueBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0, alloc);
-    per_frame.command_buffer.queueDraw(.{
-        .device = &this.device,
-        .vertex_count = 6,
-        .indexed = true,
-    });
-
-    per_frame.command_buffer.queueEndRenderPass(&this.device);
+    // per_frame.command_buffer.queueBeginRenderPass(&this.device, this.render_pass_desc, framebuffer.*, this.display.image_size);
+    //
+    // per_frame.command_buffer.queueBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
+    // per_frame.command_buffer.queueBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
+    // per_frame.command_buffer.queueBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
+    // try per_frame.command_buffer.queueBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0, alloc);
+    // per_frame.command_buffer.queueDraw(.{
+    //     .device = &this.device,
+    //     .vertex_count = 6,
+    //     .indexed = true,
+    // });
+    //
+    // per_frame.command_buffer.queueEndRenderPass(&this.device);
     try per_frame.command_buffer.end(&this.device);
     try per_frame.command_buffer.submit(&this.device, &.{ per_frame.image_available_semaphore, per_frame.uniform_written_semaphore }, &.{per_frame.render_finished_semaphore}, null);
 
@@ -286,19 +282,10 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
 fn rebuildDisplay(this: *@This(), alloc: std.mem.Allocator) !void {
     try this.device.waitUntilIdle();
-    for (this.frames_in_flight_data) |*per_frame| {
-        per_frame.framebuffer.deinit(&this.device);
-    }
-
     try this.display.rebuild(this.window.getFramebufferSize(), alloc);
-
-    for (this.frames_in_flight_data, 0..) |*per_frame, i| {
-        per_frame.framebuffer = try .init(&this.device, this.render_pass_desc, this.display.image_size, &.{this.display.image_views[i]});
-    }
 }
 
 const PerFrameInFlight = struct {
-    framebuffer: gpu.Framebuffer,
     command_buffer: gpu.CommandBuffer,
     write_command_buffer: gpu.CommandBuffer,
     uniform_written_semaphore: gpu.Semaphore,
@@ -309,11 +296,8 @@ const PerFrameInFlight = struct {
     uniform_buffer: gpu.Buffer,
     resource_set: gpu.ResourceSet,
 
-    pub fn init(app: *App, i: usize, alloc: std.mem.Allocator) !@This() {
+    pub fn init(app: *App, alloc: std.mem.Allocator) !@This() {
         var this: @This() = undefined;
-
-        this.framebuffer = try app.device.initFramebuffer(app.render_pass_desc, app.display.image_size, &.{app.display.image_views[i]});
-        errdefer this.framebuffer.deinit(&app.device);
 
         this.command_buffer = try app.device.initCommandBuffer();
         errdefer this.command_buffer.deinit(&app.device);
@@ -356,7 +340,6 @@ const PerFrameInFlight = struct {
     }
 
     pub fn deinit(this: *@This(), app: *App) void {
-        this.framebuffer.deinit(&app.device);
         this.command_buffer.deinit(&app.device);
         this.image_available_semaphore.deinit(&app.device);
         this.render_finished_semaphore.deinit(&app.device);

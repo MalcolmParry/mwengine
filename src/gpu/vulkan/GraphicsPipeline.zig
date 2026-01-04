@@ -2,14 +2,14 @@ const std = @import("std");
 const tracy = @import("tracy");
 const vk = @import("vulkan");
 const Device = @import("Device.zig");
-const RenderPass = @import("RenderPass.zig");
 const Shader = @import("Shader.zig");
 const ResourceSet = @import("ResourceSet.zig");
+const RenderTarget = @import("RenderTarget.zig");
 
 pub const CreateInfo = struct {
     alloc: std.mem.Allocator,
     device: *Device,
-    render_pass_desc: RenderPass.Desc,
+    render_target_desc: RenderTarget.Desc,
     shader_set: Shader.Set,
     resource_layouts: []const ResourceSet.Layout,
     framebuffer_size: @Vector(2, u32),
@@ -112,10 +112,20 @@ pub fn init(create_info: CreateInfo) !@This() {
         },
     };
 
+    const rendering_create_info: vk.PipelineRenderingCreateInfo = .{
+        .color_attachment_count = 1,
+        .p_color_attachment_formats = &.{
+            create_info.render_target_desc.color_format._toNative(),
+        },
+        .depth_attachment_format = .undefined,
+        .stencil_attachment_format = .undefined,
+        .view_mask = 0, // used for vr and stuff i think
+    };
+
     const pipeline_create_info: vk.GraphicsPipelineCreateInfo = .{
         .subpass = 0,
         .layout = pipeline_layout,
-        .render_pass = create_info.render_pass_desc._render_pass,
+        .render_pass = .null_handle,
         .base_pipeline_handle = .null_handle,
         .base_pipeline_index = -1,
         .stage_count = shader_stages.len,
@@ -195,6 +205,7 @@ pub fn init(create_info: CreateInfo) !@This() {
             .dynamic_state_count = dynamic_states.len,
             .p_dynamic_states = &dynamic_states,
         },
+        .p_next = @ptrCast(&rendering_create_info),
     };
 
     // the only way for pipeline creation to return a non zig error is

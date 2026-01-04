@@ -1,12 +1,10 @@
 pub const Instance = @import("vulkan/Instance.zig");
 pub const Device = @import("vulkan/Device.zig");
 pub const Display = @import("vulkan/Display.zig");
-pub const RenderPass = @import("vulkan/RenderPass.zig");
 pub const Shader = @import("vulkan/Shader.zig");
 pub const GraphicsPipeline = @import("vulkan/GraphicsPipeline.zig");
 pub const CommandBuffer = @import("vulkan/CommandBuffer.zig");
 pub const Semaphore = @import("vulkan/wait_objects.zig").Semaphore;
 pub const Fence = @import("vulkan/wait_objects.zig").Fence;
-pub const Framebuffer = @import("vulkan/Framebuffer.zig");
 pub const Buffer = @import("vulkan/Buffer.zig");
 pub const ResourceSet = @import("vulkan/ResourceSet.zig");

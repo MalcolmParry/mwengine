@@ -4,15 +4,14 @@ const vk = @import("vulkan");
 const Instance = @import("Instance.zig");
 const Display = @import("Display.zig");
 const Buffer = @import("Buffer.zig");
-const RenderPass = @import("RenderPass.zig");
 const ResourceSet = @import("ResourceSet.zig");
 const wait_objects = @import("wait_objects.zig");
-const Framebuffer = @import("Framebuffer.zig");
 const CommandBuffer = @import("CommandBuffer.zig");
 
-pub const required_extensions: [3][*:0]const u8 = .{
+pub const required_extensions: [4][*:0]const u8 = .{
     vk.extensions.khr_swapchain.name,
     vk.extensions.ext_swapchain_maintenance_1.name,
+    vk.extensions.khr_dynamic_rendering.name,
     vk.extensions.ext_index_type_uint_8.name,
 };
 
@@ -64,6 +63,11 @@ pub fn init(instance: *Instance, physical_device: *const Physical, alloc: std.me
         .p_next = @ptrCast(&index_type_uint8),
     };
 
+    var dynamic_rendering: vk.PhysicalDeviceDynamicRenderingFeatures = .{
+        .dynamic_rendering = .true,
+        .p_next = @ptrCast(&swapchain_maintenance),
+    };
+
     // TODO: check extention support
     const device_handle = try instance._instance.createDevice(physical_device._device, &.{
         .p_queue_create_infos = @ptrCast(&queue_create_info),
@@ -74,7 +78,7 @@ pub fn init(instance: *Instance, physical_device: *const Physical, alloc: std.me
             .features = .{
                 .sampler_anisotropy = .true,
             },
-            .p_next = &swapchain_maintenance,
+            .p_next = &dynamic_rendering,
         },
     }, vk_alloc);
 
@@ -123,10 +127,8 @@ pub const initBuffer = Buffer.init;
 pub const initResouceLayout = ResourceSet.Layout.init;
 pub const initResouceSet = ResourceSet.init;
 pub const initCommandBuffer = CommandBuffer.init;
-pub const initFramebuffer = Framebuffer.init;
 pub const initSemaphore = wait_objects.Semaphore.init;
 pub const initFence = wait_objects.Fence.init;
-pub const initRenderPassDesc = RenderPass.Desc.init;
 
 pub const _MemoryRegion = struct {
     memory: vk.DeviceMemory,

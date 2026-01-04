@@ -1,8 +1,6 @@
 const std = @import("std");
 const vk = @import("vulkan");
 const Device = @import("Device.zig");
-const RenderPass = @import("RenderPass.zig");
-const Framebuffer = @import("Framebuffer.zig");
 const GraphicsPipeline = @import("GraphicsPipeline.zig");
 const Semaphore = @import("wait_objects.zig").Semaphore;
 const Fence = @import("wait_objects.zig").Fence;
@@ -91,95 +89,95 @@ pub fn queueFlushBuffer(this: *@This(), device: *Device, buffer: *Buffer) void {
 }
 
 // Graphics Commands
-pub fn queueBeginRenderPass(this: *@This(), device: *Device, render_pass_desc: RenderPass.Desc, framebuffer: Framebuffer, image_size: @Vector(2, u32)) void {
-    const clear_value: vk.ClearValue = .{
-        .color = .{ .float_32 = .{ 0, 0, 0, 1 } },
-    };
-
-    device._device.cmdBeginRenderPass(this._command_buffer, &.{
-        .render_pass = render_pass_desc._render_pass,
-        .framebuffer = framebuffer._framebuffer,
-        .clear_value_count = 1,
-        .p_clear_values = @ptrCast(&clear_value),
-        .render_area = .{
-            .extent = .{ .width = image_size[0], .height = image_size[1] },
-            .offset = .{ .x = 0, .y = 0 },
-        },
-    }, .@"inline");
-}
-
-pub fn queueEndRenderPass(this: *@This(), device: *Device) void {
-    device._device.cmdEndRenderPass(this._command_buffer);
-}
-
-pub fn queueBindPipeline(this: *@This(), device: *Device, graphics_pipeline: GraphicsPipeline, image_size: @Vector(2, u32)) void {
-    device._device.cmdBindPipeline(this._command_buffer, .graphics, graphics_pipeline._pipeline);
-
-    const viewport: vk.Viewport = .{
-        .x = 0,
-        .y = 0,
-        .width = @floatFromInt(image_size[0]),
-        .height = @floatFromInt(image_size[1]),
-        .min_depth = 0,
-        .max_depth = 1,
-    };
-
-    device._device.cmdSetViewport(this._command_buffer, 0, 1, @ptrCast(&viewport));
-
-    const scissor: vk.Rect2D = .{
-        .extent = .{ .width = image_size[0], .height = image_size[1] },
-        .offset = .{ .x = 0, .y = 0 },
-    };
-
-    device._device.cmdSetScissor(this._command_buffer, 0, 1, @ptrCast(&scissor));
-}
-
-pub fn queueBindVertexBuffer(this: *@This(), device: *Device, buffer_region: Buffer.Region) void {
-    const first_binding = 0;
-    const offset = buffer_region.offset;
-    device._device.cmdBindVertexBuffers(this._command_buffer, first_binding, 1, @ptrCast(&buffer_region.buffer._buffer), @ptrCast(&offset));
-}
-
-const IndexType = enum {
-    uint8,
-    uint16,
-    uint32,
-};
-
-pub fn queueBindIndexBuffer(this: *@This(), device: *Device, buffer_region: Buffer.Region, index_type: IndexType) void {
-    device._device.cmdBindIndexBuffer(this._command_buffer, buffer_region.buffer._buffer, buffer_region.offset, switch (index_type) {
-        .uint8 => .uint8_khr,
-        .uint16 => .uint16,
-        .uint32 => .uint32,
-    });
-}
-
-pub fn queueBindResourceSets(this: *@This(), device: *Device, pipeline: *GraphicsPipeline, resource_sets: []const ResourceSet, first: u32, alloc: std.mem.Allocator) !void {
-    const natives = try ResourceSet._nativesFromSlice(resource_sets, alloc);
-    defer alloc.free(natives);
-
-    device._device.cmdBindDescriptorSets(
-        this._command_buffer,
-        .graphics,
-        pipeline._pipeline_layout,
-        first,
-        @intCast(resource_sets.len),
-        natives.ptr,
-        0,
-        null,
-    );
-}
-
-const DrawInfo = struct {
-    device: *Device,
-    vertex_count: u32,
-    indexed: bool,
-};
-
-pub fn queueDraw(this: *@This(), info: DrawInfo) void {
-    if (info.indexed) {
-        info.device._device.cmdDrawIndexed(this._command_buffer, info.vertex_count, 1, 0, 0, 0);
-    } else {
-        info.device._device.cmdDraw(this._command_buffer, info.vertex_count, 1, 0, 0);
-    }
-}
+// pub fn queueBeginRenderPass(this: *@This(), device: *Device, render_pass_desc: RenderPass.Desc, framebuffer: Framebuffer, image_size: @Vector(2, u32)) void {
+//     const clear_value: vk.ClearValue = .{
+//         .color = .{ .float_32 = .{ 0, 0, 0, 1 } },
+//     };
+//
+//     device._device.cmdBeginRenderPass(this._command_buffer, &.{
+//         .render_pass = render_pass_desc._render_pass,
+//         .framebuffer = framebuffer._framebuffer,
+//         .clear_value_count = 1,
+//         .p_clear_values = @ptrCast(&clear_value),
+//         .render_area = .{
+//             .extent = .{ .width = image_size[0], .height = image_size[1] },
+//             .offset = .{ .x = 0, .y = 0 },
+//         },
+//     }, .@"inline");
+// }
+//
+// pub fn queueEndRenderPass(this: *@This(), device: *Device) void {
+//     device._device.cmdEndRenderPass(this._command_buffer);
+// }
+//
+// pub fn queueBindPipeline(this: *@This(), device: *Device, graphics_pipeline: GraphicsPipeline, image_size: @Vector(2, u32)) void {
+//     device._device.cmdBindPipeline(this._command_buffer, .graphics, graphics_pipeline._pipeline);
+//
+//     const viewport: vk.Viewport = .{
+//         .x = 0,
+//         .y = 0,
+//         .width = @floatFromInt(image_size[0]),
+//         .height = @floatFromInt(image_size[1]),
+//         .min_depth = 0,
+//         .max_depth = 1,
+//     };
+//
+//     device._device.cmdSetViewport(this._command_buffer, 0, 1, @ptrCast(&viewport));
+//
+//     const scissor: vk.Rect2D = .{
+//         .extent = .{ .width = image_size[0], .height = image_size[1] },
+//         .offset = .{ .x = 0, .y = 0 },
+//     };
+//
+//     device._device.cmdSetScissor(this._command_buffer, 0, 1, @ptrCast(&scissor));
+// }
+//
+// pub fn queueBindVertexBuffer(this: *@This(), device: *Device, buffer_region: Buffer.Region) void {
+//     const first_binding = 0;
+//     const offset = buffer_region.offset;
+//     device._device.cmdBindVertexBuffers(this._command_buffer, first_binding, 1, @ptrCast(&buffer_region.buffer._buffer), @ptrCast(&offset));
+// }
+//
+// const IndexType = enum {
+//     uint8,
+//     uint16,
+//     uint32,
+// };
+//
+// pub fn queueBindIndexBuffer(this: *@This(), device: *Device, buffer_region: Buffer.Region, index_type: IndexType) void {
+//     device._device.cmdBindIndexBuffer(this._command_buffer, buffer_region.buffer._buffer, buffer_region.offset, switch (index_type) {
+//         .uint8 => .uint8_khr,
+//         .uint16 => .uint16,
+//         .uint32 => .uint32,
+//     });
+// }
+//
+// pub fn queueBindResourceSets(this: *@This(), device: *Device, pipeline: *GraphicsPipeline, resource_sets: []const ResourceSet, first: u32, alloc: std.mem.Allocator) !void {
+//     const natives = try ResourceSet._nativesFromSlice(resource_sets, alloc);
+//     defer alloc.free(natives);
+//
+//     device._device.cmdBindDescriptorSets(
+//         this._command_buffer,
+//         .graphics,
+//         pipeline._pipeline_layout,
+//         first,
+//         @intCast(resource_sets.len),
+//         natives.ptr,
+//         0,
+//         null,
+//     );
+// }
+//
+// const DrawInfo = struct {
+//     device: *Device,
+//     vertex_count: u32,
+//     indexed: bool,
+// };
+//
+// pub fn queueDraw(this: *@This(), info: DrawInfo) void {
+//     if (info.indexed) {
+//         info.device._device.cmdDrawIndexed(this._command_buffer, info.vertex_count, 1, 0, 0, 0);
+//     } else {
+//         info.device._device.cmdDraw(this._command_buffer, info.vertex_count, 1, 0, 0);
+//     }
+// }
