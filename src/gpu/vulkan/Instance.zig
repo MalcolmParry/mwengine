@@ -44,7 +44,7 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
         .p_application_info = &.{
             .p_application_name = "placeholder",
             .application_version = 0,
-            .p_engine_name = "mwengine",
+            .p_engine_name = "placeholder",
             .engine_version = 0, // TODO: fill in
             .api_version = @bitCast(vk.API_VERSION_1_0),
         },
@@ -110,9 +110,8 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
 
             std.debug.print("\n", .{});
         }
-
-        std.debug.print("\n", .{});
     }
+    std.debug.print("\n", .{});
 
     return .{
         ._platform_wrapper = platform_wrapper,

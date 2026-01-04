@@ -217,7 +217,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     // _ = aspect_ratio;
     const mvp = math.matMulMany(.{
-        math.perspective(aspect_ratio, this.cam_fov, 0.1, 5),
+        math.perspective(aspect_ratio, this.cam_fov, 0.1, 50),
         math.translate(-this.cam_pos),
         math.scale(@splat(0.75)),
         math.rotateY(time_s * 0.5),
