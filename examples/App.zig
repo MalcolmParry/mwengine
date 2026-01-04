@@ -234,19 +234,26 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     try per_frame.command_buffer.reset(&this.device);
     try per_frame.command_buffer.begin(&this.device);
-    // per_frame.command_buffer.queueBeginRenderPass(&this.device, this.render_pass_desc, framebuffer.*, this.display.image_size);
-    //
-    // per_frame.command_buffer.queueBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
-    // per_frame.command_buffer.queueBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
-    // per_frame.command_buffer.queueBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
-    // try per_frame.command_buffer.queueBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0, alloc);
-    // per_frame.command_buffer.queueDraw(.{
-    //     .device = &this.device,
-    //     .vertex_count = 6,
-    //     .indexed = true,
-    // });
-    //
-    // per_frame.command_buffer.queueEndRenderPass(&this.device);
+    per_frame.command_buffer.queueBeginRenderPass(.{
+        .device = &this.device,
+        .image_size = this.display.image_size,
+        .target = .{
+            .color_image = this.display.images[image_index],
+            .color_image_view = this.display.image_views[image_index],
+        },
+    });
+
+    per_frame.command_buffer.queueBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
+    per_frame.command_buffer.queueBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
+    per_frame.command_buffer.queueBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
+    try per_frame.command_buffer.queueBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0, alloc);
+    per_frame.command_buffer.queueDraw(.{
+        .device = &this.device,
+        .vertex_count = 6,
+        .indexed = true,
+    });
+
+    per_frame.command_buffer.queueEndRenderPass(&this.device);
     try per_frame.command_buffer.end(&this.device);
     try per_frame.command_buffer.submit(&this.device, &.{ per_frame.image_available_semaphore, per_frame.uniform_written_semaphore }, &.{per_frame.render_finished_semaphore}, null);
 

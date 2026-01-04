@@ -8,9 +8,14 @@ const ResourceSet = @import("ResourceSet.zig");
 const wait_objects = @import("wait_objects.zig");
 const CommandBuffer = @import("CommandBuffer.zig");
 
-pub const required_extensions: [4][*:0]const u8 = .{
+pub const required_extensions: [9][*:0]const u8 = .{
+    vk.extensions.khr_synchronization_2.name,
     vk.extensions.khr_swapchain.name,
     vk.extensions.ext_swapchain_maintenance_1.name,
+    vk.extensions.khr_maintenance_2.name,
+    vk.extensions.khr_multiview.name,
+    vk.extensions.khr_create_renderpass_2.name,
+    vk.extensions.khr_depth_stencil_resolve.name,
     vk.extensions.khr_dynamic_rendering.name,
     vk.extensions.ext_index_type_uint_8.name,
 };
@@ -68,6 +73,11 @@ pub fn init(instance: *Instance, physical_device: *const Physical, alloc: std.me
         .p_next = @ptrCast(&swapchain_maintenance),
     };
 
+    var sync2: vk.PhysicalDeviceSynchronization2Features = .{
+        .synchronization_2 = .true,
+        .p_next = @ptrCast(&dynamic_rendering),
+    };
+
     // TODO: check extention support
     const device_handle = try instance._instance.createDevice(physical_device._device, &.{
         .p_queue_create_infos = @ptrCast(&queue_create_info),
@@ -78,7 +88,7 @@ pub fn init(instance: *Instance, physical_device: *const Physical, alloc: std.me
             .features = .{
                 .sampler_anisotropy = .true,
             },
-            .p_next = &dynamic_rendering,
+            .p_next = &sync2,
         },
     }, vk_alloc);
 
