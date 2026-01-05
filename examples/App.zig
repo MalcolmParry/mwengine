@@ -226,11 +226,10 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         @memcpy(mapping, std.mem.sliceAsBytes(&math.toArray(mvp)));
     }
 
-    try per_frame.cmd_encoder.reset(&this.device);
     try per_frame.cmd_encoder.begin(&this.device);
     per_frame.cmd_encoder.cmdFlushBuffer(&this.device, &per_frame.uniform_buffer);
 
-    per_frame.cmd_encoder.cmdBeginRenderPass(.{
+    var render_pass = per_frame.cmd_encoder.cmdBeginRenderPass(.{
         .device = &this.device,
         .image_size = this.display.image_size,
         .target = .{
@@ -239,17 +238,17 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         },
     });
 
-    per_frame.cmd_encoder.cmdBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
-    per_frame.cmd_encoder.cmdBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
-    per_frame.cmd_encoder.cmdBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
-    per_frame.cmd_encoder.cmdBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0);
-    per_frame.cmd_encoder.cmdDraw(.{
+    render_pass.cmdBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
+    render_pass.cmdBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
+    render_pass.cmdBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
+    render_pass.cmdBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0);
+    render_pass.cmdDraw(.{
         .device = &this.device,
         .vertex_count = 6,
         .indexed = true,
     });
+    render_pass.cmdEnd(&this.device);
 
-    per_frame.cmd_encoder.cmdEndRenderPass(&this.device);
     try per_frame.cmd_encoder.end(&this.device);
     try per_frame.cmd_encoder.submit(&this.device, &.{per_frame.image_available_semaphore}, &.{per_frame.render_finished_semaphore}, null);
 
