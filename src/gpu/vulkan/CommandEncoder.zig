@@ -192,14 +192,12 @@ pub const RenderPassEncoder = struct {
     }
 
     const IndexType = enum {
-        uint8,
         uint16,
         uint32,
     };
 
     pub fn cmdBindIndexBuffer(this: *@This(), device: *Device, buffer_region: Buffer.Region, index_type: IndexType) void {
         device._device.cmdBindIndexBuffer(this.command_encoder._command_buffer, buffer_region.buffer._buffer, buffer_region.offset, switch (index_type) {
-            .uint8 => .uint8_khr,
             .uint16 => .uint16,
             .uint32 => .uint32,
         });

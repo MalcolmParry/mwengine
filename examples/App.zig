@@ -240,7 +240,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     render_pass.cmdBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
     render_pass.cmdBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
-    render_pass.cmdBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
+    render_pass.cmdBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint16);
     render_pass.cmdBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0);
     render_pass.cmdDraw(.{
         .device = &this.device,
@@ -382,4 +382,4 @@ const vertex_data: [4]PerVertex = .{
     },
 };
 
-const indices: [6]u8 = .{ 0, 1, 2, 1, 2, 3 };
+const indices: [6]u16 = .{ 0, 1, 2, 1, 2, 3 };
