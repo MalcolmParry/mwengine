@@ -64,20 +64,20 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
         const index_bytes = std.mem.sliceAsBytes(&indices);
         const index_mapping = try this.index_buffer.map(&this.device);
 
-        var tmp_cmd_buffer = try gpu.CommandBuffer.init(&this.device);
+        var tmp_cmd_encoder = try gpu.CommandEncoder.init(&this.device);
         var fence = try gpu.Fence.init(&this.device, false);
         @memcpy(vertex_mapping[0..vertex_data_bytes.len], vertex_data_bytes);
         @memcpy(index_mapping[0..index_bytes.len], index_bytes);
         this.vertex_buffer.unmap(&this.device);
         this.index_buffer.unmap(&this.device);
 
-        try tmp_cmd_buffer.begin(&this.device);
-        tmp_cmd_buffer.queueFlushBuffer(&this.device, &this.vertex_buffer);
-        tmp_cmd_buffer.queueFlushBuffer(&this.device, &this.index_buffer);
-        try tmp_cmd_buffer.end(&this.device);
-        try tmp_cmd_buffer.submit(&this.device, &.{}, &.{}, fence);
+        try tmp_cmd_encoder.begin(&this.device);
+        tmp_cmd_encoder.cmdFlushBuffer(&this.device, &this.vertex_buffer);
+        tmp_cmd_encoder.cmdFlushBuffer(&this.device, &this.index_buffer);
+        try tmp_cmd_encoder.end(&this.device);
+        try tmp_cmd_encoder.submit(&this.device, &.{}, &.{}, fence);
         try fence.wait(&this.device, std.time.ns_per_s);
-        tmp_cmd_buffer.deinit(&this.device);
+        tmp_cmd_encoder.deinit(&this.device);
         fence.deinit(&this.device);
     }
 
@@ -226,15 +226,11 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         @memcpy(mapping, std.mem.sliceAsBytes(&math.toArray(mvp)));
     }
 
-    try per_frame.write_command_buffer.reset(&this.device);
-    try per_frame.write_command_buffer.begin(&this.device);
-    per_frame.write_command_buffer.queueFlushBuffer(&this.device, &per_frame.uniform_buffer);
-    try per_frame.write_command_buffer.end(&this.device);
-    try per_frame.write_command_buffer.submit(&this.device, &.{}, &.{per_frame.uniform_written_semaphore}, null);
+    try per_frame.cmd_encoder.reset(&this.device);
+    try per_frame.cmd_encoder.begin(&this.device);
+    per_frame.cmd_encoder.cmdFlushBuffer(&this.device, &per_frame.uniform_buffer);
 
-    try per_frame.command_buffer.reset(&this.device);
-    try per_frame.command_buffer.begin(&this.device);
-    per_frame.command_buffer.queueBeginRenderPass(.{
+    per_frame.cmd_encoder.cmdBeginRenderPass(.{
         .device = &this.device,
         .image_size = this.display.image_size,
         .target = .{
@@ -243,19 +239,19 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         },
     });
 
-    per_frame.command_buffer.queueBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
-    per_frame.command_buffer.queueBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
-    per_frame.command_buffer.queueBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
-    try per_frame.command_buffer.queueBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0, alloc);
-    per_frame.command_buffer.queueDraw(.{
+    per_frame.cmd_encoder.cmdBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
+    per_frame.cmd_encoder.cmdBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
+    per_frame.cmd_encoder.cmdBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint8);
+    per_frame.cmd_encoder.cmdBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0);
+    per_frame.cmd_encoder.cmdDraw(.{
         .device = &this.device,
         .vertex_count = 6,
         .indexed = true,
     });
 
-    per_frame.command_buffer.queueEndRenderPass(&this.device);
-    try per_frame.command_buffer.end(&this.device);
-    try per_frame.command_buffer.submit(&this.device, &.{ per_frame.image_available_semaphore, per_frame.uniform_written_semaphore }, &.{per_frame.render_finished_semaphore}, null);
+    per_frame.cmd_encoder.cmdEndRenderPass(&this.device);
+    try per_frame.cmd_encoder.end(&this.device);
+    try per_frame.cmd_encoder.submit(&this.device, &.{per_frame.image_available_semaphore}, &.{per_frame.render_finished_semaphore}, null);
 
     switch (try this.display.presentImage(image_index, &.{per_frame.render_finished_semaphore}, per_frame.presented_fence)) {
         .success => {},
@@ -293,9 +289,7 @@ fn rebuildDisplay(this: *@This(), alloc: std.mem.Allocator) !void {
 }
 
 const PerFrameInFlight = struct {
-    command_buffer: gpu.CommandBuffer,
-    write_command_buffer: gpu.CommandBuffer,
-    uniform_written_semaphore: gpu.Semaphore,
+    cmd_encoder: gpu.CommandEncoder,
     image_available_semaphore: gpu.Semaphore,
     render_finished_semaphore: gpu.Semaphore,
     presented_fence: gpu.Fence,
@@ -306,14 +300,8 @@ const PerFrameInFlight = struct {
     pub fn init(app: *App, alloc: std.mem.Allocator) !@This() {
         var this: @This() = undefined;
 
-        this.command_buffer = try app.device.initCommandBuffer();
-        errdefer this.command_buffer.deinit(&app.device);
-
-        this.write_command_buffer = try app.device.initCommandBuffer();
-        errdefer this.write_command_buffer.deinit(&app.device);
-
-        this.uniform_written_semaphore = try app.device.initSemaphore();
-        errdefer this.uniform_written_semaphore.deinit(&app.device);
+        this.cmd_encoder = try app.device.initCommandEncoder();
+        errdefer this.cmd_encoder.deinit(&app.device);
 
         this.image_available_semaphore = try app.device.initSemaphore();
         errdefer this.image_available_semaphore.deinit(&app.device);
@@ -347,10 +335,9 @@ const PerFrameInFlight = struct {
     }
 
     pub fn deinit(this: *@This(), app: *App) void {
-        this.command_buffer.deinit(&app.device);
+        this.cmd_encoder.deinit(&app.device);
         this.image_available_semaphore.deinit(&app.device);
         this.render_finished_semaphore.deinit(&app.device);
-        this.uniform_written_semaphore.deinit(&app.device);
         this.presented_fence.deinit(&app.device);
 
         this.uniform_buffer.deinit(&app.device);

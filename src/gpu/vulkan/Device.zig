@@ -6,7 +6,7 @@ const Display = @import("Display.zig");
 const Buffer = @import("Buffer.zig");
 const ResourceSet = @import("ResourceSet.zig");
 const wait_objects = @import("wait_objects.zig");
-const CommandBuffer = @import("CommandBuffer.zig");
+const CommandEncoder = @import("CommandEncoder.zig");
 
 pub const required_extensions: [9][*:0]const u8 = .{
     vk.extensions.khr_synchronization_2.name,
@@ -136,7 +136,7 @@ pub const initDisplay = Display.init;
 pub const initBuffer = Buffer.init;
 pub const initResouceLayout = ResourceSet.Layout.init;
 pub const initResouceSet = ResourceSet.init;
-pub const initCommandBuffer = CommandBuffer.init;
+pub const initCommandEncoder = CommandEncoder.init;
 pub const initSemaphore = wait_objects.Semaphore.init;
 pub const initFence = wait_objects.Fence.init;
 
