@@ -27,3 +27,17 @@ pub const Format = enum {
         };
     }
 };
+
+pub const Layout = enum {
+    undefined,
+    color_attachment,
+    present_src,
+
+    pub fn _toNative(layout: Layout) vk.ImageLayout {
+        return switch (layout) {
+            .undefined => .undefined,
+            .color_attachment => .color_attachment_optimal,
+            .present_src => .present_src_khr,
+        };
+    }
+};

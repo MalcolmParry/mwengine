@@ -7,6 +7,7 @@ const Fence = @import("wait_objects.zig").Fence;
 const Buffer = @import("Buffer.zig");
 const ResourceSet = @import("ResourceSet.zig");
 const RenderTarget = @import("RenderTarget.zig");
+const Image = @import("Image.zig");
 
 const CommandEncoder = @This();
 
@@ -88,6 +89,77 @@ pub fn cmdFlushBuffer(this: *@This(), device: *Device, buffer: *Buffer) void {
     });
 }
 
+pub const Stage = packed struct {
+    pipeline_start: bool = false,
+    pipeline_end: bool = false,
+    color_attachment_output: bool = false,
+
+    pub fn _toNative(this: @This()) vk.PipelineStageFlags2KHR {
+        return .{
+            .top_of_pipe_bit = this.pipeline_start,
+            .bottom_of_pipe_bit = this.pipeline_end,
+            .color_attachment_output_bit = this.color_attachment_output,
+        };
+    }
+};
+
+pub const Access = packed struct {
+    color_attachment_write: bool = false,
+
+    pub fn _toNative(this: @This()) vk.AccessFlags2KHR {
+        return .{
+            .color_attachment_write_bit = this.color_attachment_write,
+        };
+    }
+};
+
+pub const MemoryBarrier = union(enum) {
+    image: struct {
+        image: *Image,
+        old_layout: Image.Layout,
+        new_layout: Image.Layout,
+        src_stage: Stage,
+        dst_stage: Stage,
+        src_access: Access,
+        dst_access: Access,
+    },
+};
+
+pub fn cmdMemoryBarrier(this: *@This(), device: *Device, memory_barriers: []const MemoryBarrier) void {
+    const max = 8;
+
+    var image_buffer: [max]vk.ImageMemoryBarrier2KHR = undefined;
+    var image_barriers: std.ArrayList(vk.ImageMemoryBarrier2KHR) = .initBuffer(&image_buffer);
+
+    for (memory_barriers) |barrier| {
+        switch (barrier) {
+            .image => |image| image_barriers.appendAssumeCapacity(.{
+                .image = image.image._image,
+                .old_layout = image.old_layout._toNative(),
+                .new_layout = image.new_layout._toNative(),
+                .src_stage_mask = image.src_stage._toNative(),
+                .dst_stage_mask = image.dst_stage._toNative(),
+                .src_access_mask = image.src_access._toNative(),
+                .dst_access_mask = image.dst_access._toNative(),
+                .src_queue_family_index = device._queue_family_index,
+                .dst_queue_family_index = device._queue_family_index,
+                .subresource_range = .{
+                    .aspect_mask = .{ .color_bit = true },
+                    .base_mip_level = 0,
+                    .level_count = 1,
+                    .base_array_layer = 0,
+                    .layer_count = 1,
+                },
+            }),
+        }
+    }
+
+    device._device.cmdPipelineBarrier2KHR(this._command_buffer, &.{
+        .image_memory_barrier_count = @intCast(image_barriers.items.len),
+        .p_image_memory_barriers = image_barriers.items.ptr,
+    });
+}
+
 pub const cmdBeginRenderPass = RenderPassEncoder.cmdBegin;
 pub const RenderPassEncoder = struct {
     command_encoder: *CommandEncoder,
@@ -99,30 +171,6 @@ pub const RenderPassEncoder = struct {
     };
 
     pub fn cmdBegin(command_encoder: *CommandEncoder, info: RenderPassBeginInfo) @This() {
-        const image_memory_barrier: vk.ImageMemoryBarrier2 = .{
-            .src_access_mask = .{},
-            .dst_access_mask = .{ .color_attachment_write_bit = true },
-            .old_layout = .undefined,
-            .new_layout = .color_attachment_optimal,
-            .image = info.target.color_image._image,
-            .subresource_range = .{
-                .aspect_mask = .{ .color_bit = true },
-                .base_mip_level = 0,
-                .level_count = 1,
-                .base_array_layer = 0,
-                .layer_count = 1,
-            },
-            .src_queue_family_index = 0,
-            .dst_queue_family_index = 0,
-            .src_stage_mask = .{ .top_of_pipe_bit = true },
-            .dst_stage_mask = .{ .color_attachment_output_bit = true },
-        };
-
-        info.device._device.cmdPipelineBarrier2KHR(command_encoder._command_buffer, &.{
-            .image_memory_barrier_count = 1,
-            .p_image_memory_barriers = @ptrCast(&image_memory_barrier),
-        });
-
         const color_attachment: vk.RenderingAttachmentInfo = .{
             .image_layout = .attachment_optimal,
             .image_view = info.target.color_image_view._image_view,

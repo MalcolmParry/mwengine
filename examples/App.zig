@@ -229,6 +229,18 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     try per_frame.cmd_encoder.begin(&this.device);
     per_frame.cmd_encoder.cmdFlushBuffer(&this.device, &per_frame.uniform_buffer);
 
+    per_frame.cmd_encoder.cmdMemoryBarrier(&this.device, &.{
+        .{ .image = .{
+            .image = &this.display.images[image_index],
+            .old_layout = .undefined,
+            .new_layout = .color_attachment,
+            .src_stage = .{ .pipeline_start = true },
+            .dst_stage = .{ .color_attachment_output = true },
+            .src_access = .{},
+            .dst_access = .{ .color_attachment_write = true },
+        } },
+    });
+
     var render_pass = per_frame.cmd_encoder.cmdBeginRenderPass(.{
         .device = &this.device,
         .image_size = this.display.image_size,
@@ -248,6 +260,18 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         .indexed = true,
     });
     render_pass.cmdEnd(&this.device);
+
+    per_frame.cmd_encoder.cmdMemoryBarrier(&this.device, &.{
+        .{ .image = .{
+            .image = &this.display.images[image_index],
+            .old_layout = .color_attachment,
+            .new_layout = .present_src,
+            .src_stage = .{ .color_attachment_output = true },
+            .dst_stage = .{ .pipeline_end = true },
+            .src_access = .{ .color_attachment_write = true },
+            .dst_access = .{},
+        } },
+    });
 
     try per_frame.cmd_encoder.end(&this.device);
     try per_frame.cmd_encoder.submit(&this.device, &.{per_frame.image_available_semaphore}, &.{per_frame.render_finished_semaphore}, null);
