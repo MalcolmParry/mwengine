@@ -1,6 +1,6 @@
 const Image = @import("Image.zig");
 
-color_image: Image,
+color_clear_value: @Vector(4, f32),
 color_image_view: Image.View,
 
 pub const Desc = Descriptor;

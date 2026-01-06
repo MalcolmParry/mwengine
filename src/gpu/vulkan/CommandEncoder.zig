@@ -178,7 +178,7 @@ pub const RenderPassEncoder = struct {
             .store_op = .store,
             .clear_value = .{
                 .color = .{
-                    .float_32 = .{ 0, 0, 0, 0 },
+                    .float_32 = info.target.color_clear_value,
                 },
             },
             .resolve_image_layout = .undefined,
@@ -207,11 +207,11 @@ pub const RenderPassEncoder = struct {
         return .{ .command_encoder = command_encoder };
     }
 
-    pub fn cmdEnd(this: *@This(), device: *Device) void {
+    pub fn cmdEnd(this: @This(), device: *Device) void {
         device._device.cmdEndRenderingKHR(this.command_encoder._command_buffer);
     }
 
-    pub fn cmdBindPipeline(this: *@This(), device: *Device, graphics_pipeline: GraphicsPipeline, image_size: @Vector(2, u32)) void {
+    pub fn cmdBindPipeline(this: @This(), device: *Device, graphics_pipeline: GraphicsPipeline, image_size: @Vector(2, u32)) void {
         device._device.cmdBindPipeline(this.command_encoder._command_buffer, .graphics, graphics_pipeline._pipeline);
 
         const viewport: vk.Viewport = .{
@@ -233,7 +233,7 @@ pub const RenderPassEncoder = struct {
         device._device.cmdSetScissor(this.command_encoder._command_buffer, 0, 1, @ptrCast(&scissor));
     }
 
-    pub fn cmdBindVertexBuffer(this: *@This(), device: *Device, buffer_region: Buffer.Region) void {
+    pub fn cmdBindVertexBuffer(this: @This(), device: *Device, buffer_region: Buffer.Region) void {
         const first_binding = 0;
         const offset = buffer_region.offset;
         device._device.cmdBindVertexBuffers(this.command_encoder._command_buffer, first_binding, 1, @ptrCast(&buffer_region.buffer._buffer), @ptrCast(&offset));
@@ -244,14 +244,14 @@ pub const RenderPassEncoder = struct {
         uint32,
     };
 
-    pub fn cmdBindIndexBuffer(this: *@This(), device: *Device, buffer_region: Buffer.Region, index_type: IndexType) void {
+    pub fn cmdBindIndexBuffer(this: @This(), device: *Device, buffer_region: Buffer.Region, index_type: IndexType) void {
         device._device.cmdBindIndexBuffer(this.command_encoder._command_buffer, buffer_region.buffer._buffer, buffer_region.offset, switch (index_type) {
             .uint16 => .uint16,
             .uint32 => .uint32,
         });
     }
 
-    pub fn cmdBindResourceSets(this: *@This(), device: *Device, pipeline: *GraphicsPipeline, resource_sets: []const ResourceSet, first: u32) void {
+    pub fn cmdBindResourceSets(this: @This(), device: *Device, pipeline: *GraphicsPipeline, resource_sets: []const ResourceSet, first: u32) void {
         var buffer: [64]u8 = undefined;
         var alloc = std.heap.FixedBufferAllocator.init(&buffer);
         const natives = ResourceSet._nativesFromSlice(resource_sets, alloc.allocator()) catch unreachable;
@@ -274,7 +274,7 @@ pub const RenderPassEncoder = struct {
         indexed: bool,
     };
 
-    pub fn cmdDraw(this: *@This(), info: DrawInfo) void {
+    pub fn cmdDraw(this: @This(), info: DrawInfo) void {
         if (info.indexed) {
             info.device._device.cmdDrawIndexed(this.command_encoder._command_buffer, info.vertex_count, 1, 0, 0, 0);
         } else {

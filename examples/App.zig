@@ -245,7 +245,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         .device = &this.device,
         .image_size = this.display.image_size,
         .target = .{
-            .color_image = this.display.images[image_index],
+            .color_clear_value = @splat(0),
             .color_image_view = this.display.image_views[image_index],
         },
     });
