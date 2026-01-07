@@ -69,26 +69,6 @@ pub fn cmdCopyBuffer(this: *@This(), device: *Device, src: Buffer.Region, dst: B
     device._device.cmdCopyBuffer(this._command_buffer, src.buffer._buffer, dst.buffer._buffer, 1, @ptrCast(&copy_region));
 }
 
-pub fn cmdFlushBuffer(this: *@This(), device: *Device, buffer: *Buffer) void {
-    var staging: Buffer = .{
-        ._staging = null,
-        ._buffer = buffer._staging.?._buffer,
-        ._memory_region = buffer._staging.?._memory_region,
-        ._usage = .{},
-        .size = buffer.size,
-    };
-
-    this.cmdCopyBuffer(device, .{
-        .buffer = &staging,
-        .offset = 0,
-        .size = buffer.size,
-    }, .{
-        .buffer = buffer,
-        .offset = 0,
-        .size = buffer.size,
-    });
-}
-
 pub const Stage = packed struct {
     pipeline_start: bool = false,
     pipeline_end: bool = false,

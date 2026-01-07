@@ -122,8 +122,8 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
     alloc.destroy(this._device.wrapper);
 }
 
-pub fn waitUntilIdle(this: *const @This()) !void {
-    try this._device.deviceWaitIdle();
+pub fn waitUntilIdle(this: *const @This()) void {
+    this._device.deviceWaitIdle() catch @panic("failed to wait for device");
 }
 
 pub const initDisplay = Display.init;

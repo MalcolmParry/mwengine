@@ -46,39 +46,65 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.display = try this.device.initDisplay(&this.window, alloc);
     errdefer this.display.deinit(alloc);
 
-    this.vertex_buffer = try this.device.initBuffer(@sizeOf(@TypeOf(vertex_data)), .{
-        .vertex = true,
-        .map_write = true,
+    this.vertex_buffer = try this.device.initBuffer(.{
+        .size = @sizeOf(@TypeOf(vertex_data)),
+        .loc = .device,
+        .usage = .{
+            .vertex = true,
+            .dst = true,
+        },
     });
     errdefer this.vertex_buffer.deinit(&this.device);
 
-    this.index_buffer = try this.device.initBuffer(@sizeOf(@TypeOf(indices)), .{
-        .index = true,
-        .map_write = true,
+    this.index_buffer = try this.device.initBuffer(.{
+        .size = @sizeOf(@TypeOf(indices)),
+        .loc = .device,
+        .usage = .{
+            .index = true,
+            .dst = true,
+        },
     });
     errdefer this.index_buffer.deinit(&this.device);
 
     {
-        const vertex_data_bytes = std.mem.sliceAsBytes(&vertex_data);
-        const vertex_mapping = try this.vertex_buffer.map(&this.device);
-        const index_bytes = std.mem.sliceAsBytes(&indices);
-        const index_mapping = try this.index_buffer.map(&this.device);
+        var staging = try this.device.initBuffer(.{
+            .size = this.vertex_buffer.size + this.index_buffer.size,
+            .loc = .host,
+            .usage = .{
+                .src = true,
+            },
+        });
+        defer staging.deinit(&this.device);
+        const vertex_staging_region: gpu.Buffer.Region = .{
+            .buffer = &staging,
+            .size = this.vertex_buffer.size,
+            .offset = 0,
+        };
+        const index_staging_region: gpu.Buffer.Region = .{
+            .buffer = &staging,
+            .size = this.index_buffer.size,
+            .offset = vertex_staging_region.size,
+        };
 
-        var tmp_cmd_encoder = try gpu.CommandEncoder.init(&this.device);
+        {
+            const mapping = try staging.map(&this.device);
+            defer staging.unmap(&this.device);
+            const vertex_region = mapping[0..vertex_staging_region.size];
+            const index_region = mapping[index_staging_region.offset .. index_staging_region.offset + index_staging_region.size];
+            @memcpy(vertex_region, std.mem.sliceAsBytes(&vertex_data));
+            @memcpy(index_region, std.mem.sliceAsBytes(&indices));
+        }
+
         var fence = try gpu.Fence.init(&this.device, false);
-        @memcpy(vertex_mapping[0..vertex_data_bytes.len], vertex_data_bytes);
-        @memcpy(index_mapping[0..index_bytes.len], index_bytes);
-        this.vertex_buffer.unmap(&this.device);
-        this.index_buffer.unmap(&this.device);
-
+        defer fence.deinit(&this.device);
+        var tmp_cmd_encoder = try gpu.CommandEncoder.init(&this.device);
+        defer tmp_cmd_encoder.deinit(&this.device);
         try tmp_cmd_encoder.begin(&this.device);
-        tmp_cmd_encoder.cmdFlushBuffer(&this.device, &this.vertex_buffer);
-        tmp_cmd_encoder.cmdFlushBuffer(&this.device, &this.index_buffer);
+        tmp_cmd_encoder.cmdCopyBuffer(&this.device, vertex_staging_region, this.vertex_buffer.region());
+        tmp_cmd_encoder.cmdCopyBuffer(&this.device, index_staging_region, this.index_buffer.region());
         try tmp_cmd_encoder.end(&this.device);
         try tmp_cmd_encoder.submit(&this.device, &.{}, &.{}, fence);
         try fence.wait(&this.device, std.time.ns_per_s);
-        tmp_cmd_encoder.deinit(&this.device);
-        fence.deinit(&this.device);
     }
 
     this.vertex_shader = try createShader(&this.device, "res/shaders/triangle.vert.spv", .vertex, alloc);
@@ -132,7 +158,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
 }
 
 pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
-    this.device.waitUntilIdle() catch @panic("failed to wait for device");
+    this.device.waitUntilIdle();
 
     for (this.frames_in_flight_data) |*x| x.deinit(this);
     alloc.free(this.frames_in_flight_data);
@@ -219,15 +245,16 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         math.rotateY(time_s * 0.5),
     });
 
-    {
-        const mapping = try per_frame.uniform_buffer.map(&this.device);
-        defer per_frame.uniform_buffer.unmap(&this.device);
-
-        @memcpy(mapping, std.mem.sliceAsBytes(&math.toArray(mvp)));
-    }
+    per_frame.uniform_mapping.* = .{
+        .mvp = mvp,
+    };
 
     try per_frame.cmd_encoder.begin(&this.device);
-    per_frame.cmd_encoder.cmdFlushBuffer(&this.device, &per_frame.uniform_buffer);
+    per_frame.cmd_encoder.cmdCopyBuffer(
+        &this.device,
+        per_frame.uniform_staging.region(),
+        per_frame.uniform_buffer.region(),
+    );
 
     per_frame.cmd_encoder.cmdMemoryBarrier(&this.device, &.{
         .{ .image = .{
@@ -251,8 +278,8 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     });
 
     render_pass.cmdBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
-    render_pass.cmdBindVertexBuffer(&this.device, this.vertex_buffer.getRegion());
-    render_pass.cmdBindIndexBuffer(&this.device, this.index_buffer.getRegion(), .uint16);
+    render_pass.cmdBindVertexBuffer(&this.device, this.vertex_buffer.region());
+    render_pass.cmdBindIndexBuffer(&this.device, this.index_buffer.region(), .uint16);
     render_pass.cmdBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0);
     render_pass.cmdDraw(.{
         .device = &this.device,
@@ -307,7 +334,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 }
 
 fn rebuildDisplay(this: *@This(), alloc: std.mem.Allocator) !void {
-    try this.device.waitUntilIdle();
+    this.device.waitUntilIdle();
     try this.display.rebuild(this.window.getFramebufferSize(), alloc);
 }
 
@@ -318,6 +345,8 @@ const PerFrameInFlight = struct {
     presented_fence: gpu.Fence,
 
     uniform_buffer: gpu.Buffer,
+    uniform_staging: gpu.Buffer,
+    uniform_mapping: *UniformData,
     resource_set: gpu.ResourceSet,
 
     pub fn init(app: *App, alloc: std.mem.Allocator) !@This() {
@@ -335,11 +364,21 @@ const PerFrameInFlight = struct {
         this.presented_fence = try app.device.initFence(true);
         errdefer this.presented_fence.deinit(&app.device);
 
-        this.uniform_buffer = try app.device.initBuffer(@sizeOf(mw.math.Mat4), .{
+        this.uniform_buffer = try app.device.initBuffer(.{ .loc = .device, .usage = .{
             .uniform = true,
-            .map_write = true,
-        });
+            .dst = true,
+        }, .size = @sizeOf(UniformData) });
         errdefer this.uniform_buffer.deinit(&app.device);
+
+        this.uniform_staging = try app.device.initBuffer(.{
+            .loc = .host,
+            .usage = .{ .src = true },
+            .size = this.uniform_buffer.size,
+        });
+        errdefer this.uniform_staging.unmap(&app.device);
+
+        this.uniform_mapping = @ptrCast(@alignCast(try this.uniform_staging.map(&app.device)));
+        errdefer this.uniform_staging.unmap(&app.device);
 
         this.resource_set = try .init(&app.device, &app.resource_layout);
         errdefer this.resource_set.deinit(&app.device);
@@ -348,7 +387,7 @@ const PerFrameInFlight = struct {
                 .binding = 0,
                 .data = .{
                     .uniform = &.{
-                        this.uniform_buffer.getRegion(),
+                        this.uniform_buffer.region(),
                     },
                 },
             },
@@ -363,6 +402,8 @@ const PerFrameInFlight = struct {
         this.render_finished_semaphore.deinit(&app.device);
         this.presented_fence.deinit(&app.device);
 
+        this.uniform_staging.unmap(&app.device);
+        this.uniform_staging.deinit(&app.device);
         this.uniform_buffer.deinit(&app.device);
         this.resource_set.deinit(&app.device);
     }
@@ -385,6 +426,10 @@ fn createShader(device: *gpu.Device, filepath: []const u8, stage: gpu.Shader.Sta
 const PerVertex = extern struct {
     pos: [2]f32,
     color: [3]f32,
+};
+
+const UniformData = extern struct {
+    mvp: math.Mat4,
 };
 
 const vertex_data: [4]PerVertex = .{
