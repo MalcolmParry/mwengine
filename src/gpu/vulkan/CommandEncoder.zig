@@ -73,22 +73,30 @@ pub const Stage = packed struct {
     pipeline_start: bool = false,
     pipeline_end: bool = false,
     color_attachment_output: bool = false,
+    transfer: bool = false,
+    vertex_shader: bool = false,
 
     pub fn _toNative(this: @This()) vk.PipelineStageFlags2KHR {
         return .{
             .top_of_pipe_bit = this.pipeline_start,
             .bottom_of_pipe_bit = this.pipeline_end,
             .color_attachment_output_bit = this.color_attachment_output,
+            .all_transfer_bit = this.transfer,
+            .vertex_shader_bit = this.vertex_shader,
         };
     }
 };
 
 pub const Access = packed struct {
     color_attachment_write: bool = false,
+    transfer_write: bool = false,
+    uniform_read: bool = false,
 
     pub fn _toNative(this: @This()) vk.AccessFlags2KHR {
         return .{
             .color_attachment_write_bit = this.color_attachment_write,
+            .transfer_write_bit = this.transfer_write,
+            .uniform_read_bit = this.uniform_read,
         };
     }
 };
@@ -103,6 +111,13 @@ pub const MemoryBarrier = union(enum) {
         src_access: Access,
         dst_access: Access,
     },
+    buffer: struct {
+        region: Buffer.Region,
+        src_stage: Stage,
+        dst_stage: Stage,
+        src_access: Access,
+        dst_access: Access,
+    },
 };
 
 pub fn cmdMemoryBarrier(this: *@This(), device: *Device, memory_barriers: []const MemoryBarrier) void {
@@ -110,6 +125,9 @@ pub fn cmdMemoryBarrier(this: *@This(), device: *Device, memory_barriers: []cons
 
     var image_buffer: [max]vk.ImageMemoryBarrier2KHR = undefined;
     var image_barriers: std.ArrayList(vk.ImageMemoryBarrier2KHR) = .initBuffer(&image_buffer);
+
+    var buffer_buffer: [max]vk.BufferMemoryBarrier2KHR = undefined;
+    var buffer_barriers: std.ArrayList(vk.BufferMemoryBarrier2KHR) = .initBuffer(&buffer_buffer);
 
     for (memory_barriers) |barrier| {
         switch (barrier) {
@@ -131,12 +149,25 @@ pub fn cmdMemoryBarrier(this: *@This(), device: *Device, memory_barriers: []cons
                     .layer_count = 1,
                 },
             }),
+            .buffer => |buffer| buffer_barriers.appendAssumeCapacity(.{
+                .buffer = buffer.region.buffer._buffer,
+                .size = buffer.region.size,
+                .offset = buffer.region.offset,
+                .src_stage_mask = buffer.src_stage._toNative(),
+                .dst_stage_mask = buffer.dst_stage._toNative(),
+                .src_access_mask = buffer.src_access._toNative(),
+                .dst_access_mask = buffer.dst_access._toNative(),
+                .src_queue_family_index = device._queue_family_index,
+                .dst_queue_family_index = device._queue_family_index,
+            }),
         }
     }
 
     device._device.cmdPipelineBarrier2KHR(this._command_buffer, &.{
         .image_memory_barrier_count = @intCast(image_barriers.items.len),
         .p_image_memory_barriers = image_barriers.items.ptr,
+        .buffer_memory_barrier_count = @intCast(buffer_barriers.items.len),
+        .p_buffer_memory_barriers = buffer_barriers.items.ptr,
     });
 }
 

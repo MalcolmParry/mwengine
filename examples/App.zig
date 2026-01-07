@@ -246,7 +246,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     });
 
     per_frame.uniform_mapping.* = .{
-        .mvp = mvp,
+        .mvp = math.toArray(mvp),
     };
 
     try per_frame.cmd_encoder.begin(&this.device);
@@ -265,6 +265,13 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
             .dst_stage = .{ .color_attachment_output = true },
             .src_access = .{},
             .dst_access = .{ .color_attachment_write = true },
+        } },
+        .{ .buffer = .{
+            .region = per_frame.uniform_buffer.region(),
+            .src_stage = .{ .transfer = true },
+            .dst_stage = .{ .vertex_shader = true },
+            .src_access = .{ .transfer_write = true },
+            .dst_access = .{ .uniform_read = true },
         } },
     });
 
@@ -364,10 +371,14 @@ const PerFrameInFlight = struct {
         this.presented_fence = try app.device.initFence(true);
         errdefer this.presented_fence.deinit(&app.device);
 
-        this.uniform_buffer = try app.device.initBuffer(.{ .loc = .device, .usage = .{
-            .uniform = true,
-            .dst = true,
-        }, .size = @sizeOf(UniformData) });
+        this.uniform_buffer = try app.device.initBuffer(.{
+            .loc = .device,
+            .usage = .{
+                .uniform = true,
+                .dst = true,
+            },
+            .size = @sizeOf(UniformData),
+        });
         errdefer this.uniform_buffer.deinit(&app.device);
 
         this.uniform_staging = try app.device.initBuffer(.{
@@ -429,7 +440,7 @@ const PerVertex = extern struct {
 };
 
 const UniformData = extern struct {
-    mvp: math.Mat4,
+    mvp: [16]f32,
 };
 
 const vertex_data: [4]PerVertex = .{
