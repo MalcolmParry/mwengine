@@ -1,0 +1,16 @@
+.{
+    .name = .mwengine_example,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.15.2",
+    .paths = .{""},
+    .dependencies = .{
+        .mwengine = .{
+            .path = "../",
+        },
+        .tracy = .{
+            .url = "git+https://github.com/Games-by-Mason/tracy_zig.git#81acd22b8218668ad1215835fb21d63bf04ae6b4",
+            .hash = "tracy-0.0.0-R7l8BSJIAQCSQWVPOIr-kFep8eSZzkD60a2h5O0gt3S2",
+        },
+    },
+    .fingerprint = 0x6c891e0ede8c1b69,
+}
