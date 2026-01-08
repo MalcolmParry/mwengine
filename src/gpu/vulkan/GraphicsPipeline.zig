@@ -17,11 +17,11 @@ pub const CreateInfo = struct {
 _pipeline: vk.Pipeline,
 _pipeline_layout: vk.PipelineLayout,
 
-pub fn init(create_info: CreateInfo) !@This() {
+pub fn init(info: CreateInfo) !@This() {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    const native_device = create_info.device._device;
-    const native_descriptor_set_layouts = try ResourceSet.Layout._nativesFromSlice(create_info.resource_layouts, create_info.alloc);
-    defer create_info.alloc.free(native_descriptor_set_layouts);
+    const native_device = info.device._device;
+    const native_descriptor_set_layouts = try ResourceSet.Layout._nativesFromSlice(info.resource_layouts, info.alloc);
+    defer info.alloc.free(native_descriptor_set_layouts);
 
     // TODO: could be separated into different objects
     const pipeline_layout = try native_device.createPipelineLayout(&.{
@@ -36,12 +36,12 @@ pub fn init(create_info: CreateInfo) !@This() {
     const shader_stages: [2]vk.PipelineShaderStageCreateInfo = .{
         .{
             .stage = .{ .vertex_bit = true },
-            .module = create_info.shader_set.vertex._shader_module,
+            .module = info.shader_set.vertex._shader_module,
             .p_name = "main",
         },
         .{
             .stage = .{ .fragment_bit = true },
-            .module = create_info.shader_set.pixel._shader_module,
+            .module = info.shader_set.pixel._shader_module,
             .p_name = "main",
         },
     };
@@ -51,8 +51,8 @@ pub fn init(create_info: CreateInfo) !@This() {
         .scissor,
     };
     const extent: vk.Extent2D = .{
-        .width = create_info.framebuffer_size[0],
-        .height = create_info.framebuffer_size[1],
+        .width = info.framebuffer_size[0],
+        .height = info.framebuffer_size[1],
     };
 
     const viewport: vk.Viewport = .{
@@ -86,8 +86,9 @@ pub fn init(create_info: CreateInfo) !@This() {
     };
 
     var attribute_offset: u32 = 0;
-    const vertex_attribute_descriptions = try create_info.alloc.alloc(vk.VertexInputAttributeDescription, create_info.shader_set._per_vertex.len);
-    for (create_info.shader_set._per_vertex, 0..) |format, i| {
+    const vertex_attribute_descriptions = try info.alloc.alloc(vk.VertexInputAttributeDescription, info.shader_set._per_vertex.len);
+    defer info.alloc.free(vertex_attribute_descriptions);
+    for (info.shader_set._per_vertex, 0..) |format, i| {
         vertex_attribute_descriptions[i] = .{
             .binding = 0,
             .location = @intCast(i),
@@ -109,7 +110,7 @@ pub fn init(create_info: CreateInfo) !@This() {
     const rendering_create_info: vk.PipelineRenderingCreateInfo = .{
         .color_attachment_count = 1,
         .p_color_attachment_formats = &.{
-            create_info.render_target_desc.color_format._toNative(),
+            info.render_target_desc.color_format._toNative(),
         },
         .depth_attachment_format = .undefined,
         .stencil_attachment_format = .undefined,
