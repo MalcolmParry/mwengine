@@ -140,7 +140,6 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
         },
         .shader_set = this.shader_set,
         .resource_layouts = &.{this.resource_layout},
-        .framebuffer_size = this.display.image_size,
     });
     errdefer this.graphics_pipeline.deinit(&this.device);
 

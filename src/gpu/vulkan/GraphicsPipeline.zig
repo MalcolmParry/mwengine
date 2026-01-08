@@ -11,7 +11,6 @@ pub const CreateInfo = struct {
     render_target_desc: RenderTarget.Desc,
     shader_set: Shader.Set,
     resource_layouts: []const ResourceSet.Layout,
-    framebuffer_size: @Vector(2, u32),
 };
 
 _pipeline: vk.Pipeline,
@@ -49,24 +48,6 @@ pub fn init(info: CreateInfo) !@This() {
     const dynamic_states: [2]vk.DynamicState = .{
         .viewport,
         .scissor,
-    };
-    const extent: vk.Extent2D = .{
-        .width = info.framebuffer_size[0],
-        .height = info.framebuffer_size[1],
-    };
-
-    const viewport: vk.Viewport = .{
-        .x = 0,
-        .y = 0,
-        .width = @floatFromInt(extent.width),
-        .height = @floatFromInt(extent.height),
-        .min_depth = 0,
-        .max_depth = 1,
-    };
-
-    const scissor: vk.Rect2D = .{
-        .extent = extent,
-        .offset = .{ .x = 0, .y = 0 },
     };
 
     const color_blend_attachment: vk.PipelineColorBlendAttachmentState = .{
@@ -138,9 +119,9 @@ pub fn init(info: CreateInfo) !@This() {
         },
         .p_viewport_state = &.{
             .viewport_count = 1,
-            .p_viewports = @ptrCast(&viewport),
+            .p_viewports = null,
             .scissor_count = 1,
-            .p_scissors = @ptrCast(&scissor),
+            .p_scissors = null,
         },
         .p_rasterization_state = &.{
             .depth_clamp_enable = .false,
