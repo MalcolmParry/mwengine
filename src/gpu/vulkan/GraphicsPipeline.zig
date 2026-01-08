@@ -1,5 +1,4 @@
 const std = @import("std");
-const tracy = @import("tracy");
 const vk = @import("vulkan");
 const Device = @import("Device.zig");
 const Shader = @import("Shader.zig");
@@ -19,11 +18,6 @@ _pipeline: vk.Pipeline,
 _pipeline_layout: vk.PipelineLayout,
 
 pub fn init(create_info: CreateInfo) !@This() {
-    const zone = tracy.Zone.begin(.{
-        .src = @src(),
-    });
-    defer zone.end();
-
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const native_device = create_info.device._device;
     const native_descriptor_set_layouts = try ResourceSet.Layout._nativesFromSlice(create_info.resource_layouts, create_info.alloc);
@@ -220,11 +214,6 @@ pub fn init(create_info: CreateInfo) !@This() {
 }
 
 pub fn deinit(this: *@This(), device: *Device) void {
-    const zone = tracy.Zone.begin(.{
-        .src = @src(),
-    });
-    defer zone.end();
-
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     device._device.destroyPipeline(this._pipeline, vk_alloc);
     device._device.destroyPipelineLayout(this._pipeline_layout, vk_alloc);

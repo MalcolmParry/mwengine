@@ -18,12 +18,6 @@ pub fn build(b: *Build) !void {
     options.addOption(bool, "use_glfw", use_glfw);
     module.addOptions("build_options", options);
 
-    const tracy = b.dependency("tracy", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    module.addImport("tracy", tracy.module("tracy"));
-
     const vulkan = b.dependency("vulkan", .{
         .registry = b.dependency("vulkan_headers", .{}).path("registry/vk.xml"),
         .target = b.graph.host,

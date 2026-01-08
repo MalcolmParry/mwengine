@@ -33,13 +33,13 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.event_queue = try .init(alloc);
     errdefer this.event_queue.deinit();
 
-    this.window = try mw.Window.init(alloc, "diamond example", .{ 100, 100 }, &this.event_queue);
+    this.window = try mw.Window.init(alloc, "example", .{ 100, 100 }, &this.event_queue);
     errdefer this.window.deinit();
 
     this.instance = try gpu.Instance.init(true, alloc);
     errdefer this.instance.deinit(alloc);
 
-    const physical_device = try this.instance.bestPhysicalDevice(alloc);
+    const physical_device = try this.instance.bestPhysicalDevice();
     this.device = try this.instance.initDevice(&physical_device, alloc);
     errdefer this.device.deinit(alloc);
 

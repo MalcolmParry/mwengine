@@ -1,5 +1,4 @@
 const std = @import("std");
-const tracy = @import("tracy");
 const platform = @import("../../platform.zig");
 const vk = @import("vulkan");
 const Instance = @import("Instance.zig");
@@ -19,11 +18,6 @@ _instance: vk.InstanceProxy,
 _device: *Device,
 
 pub fn init(device: *Device, window: *platform.Window, alloc: std.mem.Allocator) !@This() {
-    const zone = tracy.Zone.begin(.{
-        .src = @src(),
-    });
-    defer zone.end();
-
     const instance = device.instance;
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     // TODO: change createSurface function to accept ?*vk.AllocationCallbacks
@@ -49,11 +43,6 @@ pub fn init(device: *Device, window: *platform.Window, alloc: std.mem.Allocator)
 }
 
 pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
-    const zone = tracy.Zone.begin(.{
-        .src = @src(),
-    });
-    defer zone.end();
-
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     this.deinitSwapchain(alloc);
     this._device._device.destroySwapchainKHR(this._swapchain, vk_alloc);

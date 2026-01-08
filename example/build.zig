@@ -8,13 +8,7 @@ pub fn build(b: *Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const enable_tracy = b.option(bool, "tracy", "Build with tracy") orelse false;
     const mwengine = b.dependency("mwengine", .{}).module("mwengine");
-
-    const tracy = b.dependency("tracy", .{
-        .target = target,
-        .optimize = optimize,
-    });
 
     const exe = b.addExecutable(.{
         .name = "mwengine_example",
@@ -27,20 +21,9 @@ pub fn build(b: *Build) !void {
                     .name = "mwengine",
                     .module = mwengine,
                 },
-                .{
-                    .name = "tracy",
-                    .module = tracy.module("tracy"),
-                },
             },
         }),
     });
-
-    exe.root_module.addImport("tracy", tracy.module("tracy"));
-    if (enable_tracy) {
-        exe.root_module.addImport("tracy_impl", tracy.module("tracy_impl_enabled"));
-    } else {
-        exe.root_module.addImport("tracy_impl", tracy.module("tracy_impl_disabled"));
-    }
 
     // build
     const build_step = &b.install_tls.step;

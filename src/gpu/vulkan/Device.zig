@@ -1,5 +1,4 @@
 const std = @import("std");
-const tracy = @import("tracy");
 const vk = @import("vulkan");
 const Instance = @import("Instance.zig");
 const Display = @import("Display.zig");
@@ -33,11 +32,6 @@ _queue_family_index: u32,
 _command_pool: vk.CommandPool,
 
 pub fn init(instance: *Instance, physical_device: *const Physical, alloc: std.mem.Allocator) !@This() {
-    const zone = tracy.Zone.begin(.{
-        .src = @src(),
-    });
-    defer zone.end();
-
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const queue_priority: f32 = 1;
     const queue_family_index: u32 = blk: {
@@ -111,11 +105,6 @@ pub fn init(instance: *Instance, physical_device: *const Physical, alloc: std.me
 }
 
 pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
-    const zone = tracy.Zone.begin(.{
-        .src = @src(),
-    });
-    defer zone.end();
-
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     this._device.destroyCommandPool(this._command_pool, vk_alloc);
     this._device.destroyDevice(vk_alloc);

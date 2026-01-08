@@ -1,5 +1,4 @@
 const std = @import("std");
-const tracy = @import("tracy");
 const vk = @import("vulkan");
 const Device = @import("Device.zig");
 const platform = @import("../../platform.zig");
@@ -22,11 +21,6 @@ _physical_devices: []Device.Physical,
 
 //  TODO: add app version to paramerers
 pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
-    const zone = tracy.Zone.begin(.{
-        .src = @src(),
-    });
-    defer zone.end();
-
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     var platform_wrapper = try platform.vulkan.Wrapper.init();
     const vkb = try platform_wrapper.getBaseWrapper();
@@ -122,11 +116,6 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
 }
 
 pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
-    const zone = tracy.Zone.begin(.{
-        .src = @src(),
-    });
-    defer zone.end();
-
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     alloc.free(this._physical_devices);
     if (this._maybe_debug_messenger) |debug_messenger|
@@ -138,14 +127,7 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
 
 pub const initDevice = Device.init;
 
-pub fn bestPhysicalDevice(this: *const @This(), alloc: std.mem.Allocator) !Device.Physical {
-    const zone = tracy.Zone.begin(.{
-        .src = @src(),
-    });
-    defer zone.end();
-
-    _ = alloc;
-
+pub fn bestPhysicalDevice(this: *const @This()) !Device.Physical {
     var best_device: ?Device.Physical = null;
     var best_score: i32 = -1;
     for (this._physical_devices) |device| {
