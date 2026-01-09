@@ -66,46 +66,13 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     });
     errdefer this.index_buffer.deinit(&this.device);
 
-    {
-        var staging = try this.device.initBuffer(.{
-            .size = this.vertex_buffer.size + this.index_buffer.size,
-            .loc = .host,
-            .usage = .{
-                .src = true,
-            },
-        });
-        defer staging.deinit(&this.device);
-        const vertex_staging_region: gpu.Buffer.Region = .{
-            .buffer = &staging,
-            .size = this.vertex_buffer.size,
-            .offset = 0,
-        };
-        const index_staging_region: gpu.Buffer.Region = .{
-            .buffer = &staging,
-            .size = this.index_buffer.size,
-            .offset = vertex_staging_region.size,
-        };
-
-        {
-            const mapping = try staging.map(&this.device);
-            defer staging.unmap(&this.device);
-            const vertex_region = mapping[0..vertex_staging_region.size];
-            const index_region = mapping[index_staging_region.offset .. index_staging_region.offset + index_staging_region.size];
-            @memcpy(vertex_region, std.mem.sliceAsBytes(&vertex_data));
-            @memcpy(index_region, std.mem.sliceAsBytes(&indices));
-        }
-
-        var fence = try gpu.Fence.init(&this.device, false);
-        defer fence.deinit(&this.device);
-        var tmp_cmd_encoder = try gpu.CommandEncoder.init(&this.device);
-        defer tmp_cmd_encoder.deinit(&this.device);
-        try tmp_cmd_encoder.begin(&this.device);
-        tmp_cmd_encoder.cmdCopyBuffer(&this.device, vertex_staging_region, this.vertex_buffer.region());
-        tmp_cmd_encoder.cmdCopyBuffer(&this.device, index_staging_region, this.index_buffer.region());
-        try tmp_cmd_encoder.end(&this.device);
-        try tmp_cmd_encoder.submit(&this.device, &.{}, &.{}, fence);
-        try fence.wait(&this.device, std.time.ns_per_s);
-    }
+    try this.device.setBufferRegions(&.{
+        this.vertex_buffer.region(),
+        this.index_buffer.region(),
+    }, &.{
+        std.mem.sliceAsBytes(&vertex_data),
+        std.mem.sliceAsBytes(&indices),
+    });
 
     this.vertex_shader = try createShader(&this.device, "res/shaders/triangle.vert.spv", .vertex, alloc);
     errdefer this.vertex_shader.deinit(&this.device);
@@ -236,7 +203,6 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         }
     }
 
-    // _ = aspect_ratio;
     const mvp = math.matMulMany(.{
         math.perspective(aspect_ratio, this.cam_fov, 0.1, 50),
         math.translate(-this.cam_pos),
@@ -443,22 +409,10 @@ const UniformData = extern struct {
 };
 
 const vertex_data: [4]PerVertex = .{
-    .{
-        .pos = .{ -0.5, -0.5 },
-        .color = .{ 1, 0, 0 },
-    },
-    .{
-        .pos = .{ 0.5, -0.5 },
-        .color = .{ 0, 1, 0 },
-    },
-    .{
-        .pos = .{ -0.5, 0.5 },
-        .color = .{ 0, 0, 1 },
-    },
-    .{
-        .pos = .{ 0.5, 0.5 },
-        .color = .{ 0, 0, 0 },
-    },
+    .{ .pos = .{ -0.5, -0.5 }, .color = .{ 1, 0, 0 } },
+    .{ .pos = .{ 0.5, -0.5 }, .color = .{ 0, 1, 0 } },
+    .{ .pos = .{ -0.5, 0.5 }, .color = .{ 0, 0, 1 } },
+    .{ .pos = .{ 0.5, 0.5 }, .color = .{ 0, 0, 0 } },
 };
 
 const indices: [6]u16 = .{ 0, 1, 2, 1, 2, 3 };

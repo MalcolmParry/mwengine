@@ -123,6 +123,52 @@ pub const initCommandEncoder = CommandEncoder.init;
 pub const initSemaphore = wait_objects.Semaphore.init;
 pub const initFence = wait_objects.Fence.init;
 
+pub fn setBufferRegions(device: *@This(), regions: []const Buffer.Region, data: []const []const u8) !void {
+    var offset: usize = 0;
+    for (data, regions) |x, r| {
+        std.debug.assert(x.len == r.size);
+        offset += x.len;
+    }
+
+    var staging = try device.initBuffer(.{
+        .loc = .host,
+        .usage = .{ .src = true },
+        .size = offset,
+    });
+    defer staging.deinit(device);
+    const mapping = try staging.map(device);
+    defer staging.unmap(device);
+
+    offset = 0;
+    for (data) |x| {
+        @memcpy(mapping[offset .. offset + x.len], x);
+        offset += x.len;
+    }
+
+    var fence = try device.initFence(false);
+    defer fence.deinit(device);
+    var command_encoder = try device.initCommandEncoder();
+    defer command_encoder.deinit(device);
+
+    try command_encoder.begin(device);
+    offset = 0;
+    for (regions) |r| {
+        command_encoder.cmdCopyBuffer(device, .{
+            .buffer = &staging,
+            .size = r.size,
+            .offset = offset,
+        }, .{
+            .buffer = r.buffer,
+            .size = r.size,
+            .offset = r.offset,
+        });
+        offset += r.size;
+    }
+    try command_encoder.end(device);
+    try command_encoder.submit(device, &.{}, &.{}, fence);
+    try fence.wait(device, std.time.ns_per_s);
+}
+
 pub const _MemoryRegion = struct {
     memory: vk.DeviceMemory,
     offset: Size,

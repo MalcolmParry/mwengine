@@ -101,37 +101,3 @@ pub const Region = struct {
         device._device.unmapMemory(this.buffer._memory_region.memory);
     }
 };
-
-pub const _Staging = struct {
-    _buffer: vk.Buffer,
-    _memory_region: Device._MemoryRegion,
-
-    pub fn init(device: *Device, size: Size, read: bool, write: bool) !@This() {
-        const vk_alloc: ?*vk.AllocationCallbacks = null;
-        const buffer = try device._device.createBuffer(&.{
-            .size = size,
-            .usage = .{
-                .transfer_src_bit = write,
-                .transfer_dst_bit = read,
-            },
-            .sharing_mode = .exclusive,
-        }, vk_alloc);
-        errdefer device._device.destroyBuffer(buffer, vk_alloc);
-
-        const properties: vk.MemoryPropertyFlags = .{ .host_visible_bit = true };
-        const mem_region = try device._allocateMemory(device._device.getBufferMemoryRequirements(buffer), properties);
-        errdefer device._freeMemory(mem_region);
-        try device._device.bindBufferMemory(buffer, mem_region.memory, mem_region.offset);
-
-        return .{
-            ._buffer = buffer,
-            ._memory_region = mem_region,
-        };
-    }
-
-    pub fn deinit(this: *@This(), device: *Device) void {
-        const vk_alloc: ?*vk.AllocationCallbacks = null;
-        device._device.destroyBuffer(this._buffer, vk_alloc);
-        device._freeMemory(this._memory_region);
-    }
-};
