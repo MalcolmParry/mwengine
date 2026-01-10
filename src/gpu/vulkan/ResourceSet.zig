@@ -1,24 +1,24 @@
 const std = @import("std");
+const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
-const Device = @import("Device.zig");
 const Buffer = @import("Buffer.zig");
 const Shader = @import("Shader.zig");
 
 _descriptor_pool: vk.DescriptorPool,
 _descriptor_set: vk.DescriptorSet,
 
-pub fn init(device: *Device, layout: *Layout) !@This() {
+pub fn init(device: gpu.Device, layout: *Layout) !@This() {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
 
-    const descriptor_pool = try device._device.createDescriptorPool(&.{
+    const descriptor_pool = try device.vk.device.createDescriptorPool(&.{
         .pool_size_count = @intCast(layout._sizes.len),
         .p_pool_sizes = layout._sizes.ptr,
         .max_sets = 1,
     }, vk_alloc);
-    errdefer device._device.destroyDescriptorPool(descriptor_pool, vk_alloc);
+    errdefer device.vk.device.destroyDescriptorPool(descriptor_pool, vk_alloc);
 
     var descriptor_set: vk.DescriptorSet = undefined;
-    try device._device.allocateDescriptorSets(&.{
+    try device.vk.device.allocateDescriptorSets(&.{
         .descriptor_pool = descriptor_pool,
         .descriptor_set_count = 1,
         .p_set_layouts = @ptrCast(&layout._layout),
@@ -30,9 +30,9 @@ pub fn init(device: *Device, layout: *Layout) !@This() {
     };
 }
 
-pub fn deinit(this: *@This(), device: *Device) void {
+pub fn deinit(this: *@This(), device: gpu.Device) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    device._device.destroyDescriptorPool(this._descriptor_pool, vk_alloc);
+    device.vk.device.destroyDescriptorPool(this._descriptor_pool, vk_alloc);
 }
 
 const Write = struct {
@@ -42,7 +42,7 @@ const Write = struct {
     },
 };
 
-pub fn update(this: *@This(), device: *Device, writes: []const Write, alloc: std.mem.Allocator) !void {
+pub fn update(this: *@This(), device: gpu.Device, writes: []const Write, alloc: std.mem.Allocator) !void {
     const descriptor_writes = try alloc.alloc(vk.WriteDescriptorSet, writes.len);
     defer alloc.free(descriptor_writes);
 
@@ -84,7 +84,7 @@ pub fn update(this: *@This(), device: *Device, writes: []const Write, alloc: std
         };
     }
 
-    device._device.updateDescriptorSets(
+    device.vk.device.updateDescriptorSets(
         @intCast(writes.len),
         descriptor_writes.ptr,
         0,
@@ -124,7 +124,7 @@ pub const Layout = struct {
         descriptors: []const Descriptor,
     };
 
-    pub fn init(device: *Device, info: CreateInfo) !@This() {
+    pub fn init(device: gpu.Device, info: CreateInfo) !@This() {
         const bindings = try info.alloc.alloc(vk.DescriptorSetLayoutBinding, info.descriptors.len);
         defer info.alloc.free(bindings);
 
@@ -154,7 +154,7 @@ pub const Layout = struct {
         }
 
         const vk_alloc: ?*vk.AllocationCallbacks = null;
-        const layout = try device._device.createDescriptorSetLayout(&.{
+        const layout = try device.vk.device.createDescriptorSetLayout(&.{
             .binding_count = @intCast(bindings.len),
             .p_bindings = @ptrCast(bindings.ptr),
         }, vk_alloc);
@@ -165,9 +165,9 @@ pub const Layout = struct {
         };
     }
 
-    pub fn deinit(this: @This(), device: *Device, alloc: std.mem.Allocator) void {
+    pub fn deinit(this: @This(), device: gpu.Device, alloc: std.mem.Allocator) void {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
-        device._device.destroyDescriptorSetLayout(this._layout, vk_alloc);
+        device.vk.device.destroyDescriptorSetLayout(this._layout, vk_alloc);
         alloc.free(this._sizes);
     }
 

@@ -128,7 +128,7 @@ pub fn deinit(this: gpu.Instance, alloc: std.mem.Allocator) void {
     alloc.destroy(this.vk);
 }
 
-pub fn bestPhysicalDevice(this: gpu.Instance) !Device.Physical {
+pub fn bestPhysicalDevice(this: gpu.Instance) !gpu.Device.Physical {
     var best_device: ?Device.Physical = null;
     var best_score: i32 = -1;
     for (this.vk.physical_devices) |device| {
@@ -156,7 +156,9 @@ pub fn bestPhysicalDevice(this: gpu.Instance) !Device.Physical {
     if (best_score == -1) best_device = null;
     const properties = this.vk.instance.getPhysicalDeviceProperties(best_device.?._device);
     std.log.info("{s}\n", .{properties.device_name});
-    return best_device orelse error.NoDeviceAvailable;
+    return .{
+        .vk = best_device orelse return error.NoDeviceAvailable,
+    };
 }
 
 fn debugMessengerCallback(message_severity: vk.DebugUtilsMessageSeverityFlagsEXT, message_type: vk.DebugUtilsMessageTypeFlagsEXT, callback_data: ?*const vk.DebugUtilsMessengerCallbackDataEXT, context: ?*anyopaque) callconv(.c) vk.Bool32 {

@@ -40,7 +40,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     errdefer this.instance.deinit(alloc);
 
     const physical_device = try this.instance.bestPhysicalDevice();
-    this.device = try this.instance.initDevice(&physical_device, alloc);
+    this.device = try this.instance.initDevice(physical_device, alloc);
     errdefer this.device.deinit(alloc);
 
     this.display = try this.device.initDisplay(&this.window, alloc);
@@ -54,7 +54,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
             .dst = true,
         },
     });
-    errdefer this.vertex_buffer.deinit(&this.device);
+    errdefer this.vertex_buffer.deinit(this.device);
 
     this.index_buffer = try this.device.initBuffer(.{
         .size = @sizeOf(@TypeOf(indices)),
@@ -64,7 +64,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
             .dst = true,
         },
     });
-    errdefer this.index_buffer.deinit(&this.device);
+    errdefer this.index_buffer.deinit(this.device);
 
     try this.device.setBufferRegions(&.{
         this.vertex_buffer.region(),
@@ -74,11 +74,11 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
         std.mem.sliceAsBytes(&indices),
     });
 
-    this.vertex_shader = try createShader(&this.device, "res/shaders/triangle.vert.spv", .vertex, alloc);
-    errdefer this.vertex_shader.deinit(&this.device);
+    this.vertex_shader = try createShader(this.device, "res/shaders/triangle.vert.spv", .vertex, alloc);
+    errdefer this.vertex_shader.deinit(this.device);
 
-    this.pixel_shader = try createShader(&this.device, "res/shaders/triangle.frag.spv", .pixel, alloc);
-    errdefer this.pixel_shader.deinit(&this.device);
+    this.pixel_shader = try createShader(this.device, "res/shaders/triangle.frag.spv", .pixel, alloc);
+    errdefer this.pixel_shader.deinit(this.device);
 
     this.shader_set = try gpu.Shader.Set.init(this.vertex_shader, this.pixel_shader, &.{
         .float32x2,
@@ -97,18 +97,17 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
             },
         },
     });
-    errdefer this.resource_layout.deinit(&this.device, alloc);
+    errdefer this.resource_layout.deinit(this.device, alloc);
 
-    this.graphics_pipeline = try gpu.GraphicsPipeline.init(.{
+    this.graphics_pipeline = try this.device.initGraphicsPipeline(.{
         .alloc = alloc,
-        .device = &this.device,
         .render_target_desc = .{
             .color_format = this.display.image_format,
         },
         .shader_set = this.shader_set,
         .resource_layouts = &.{this.resource_layout},
     });
-    errdefer this.graphics_pipeline.deinit(&this.device);
+    errdefer this.graphics_pipeline.deinit(this.device);
 
     this.frame_in_flight = 0;
     this.frames_in_flight_data = try alloc.alloc(PerFrameInFlight, this.display.images.len);
@@ -129,13 +128,13 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
     for (this.frames_in_flight_data) |*x| x.deinit(this);
     alloc.free(this.frames_in_flight_data);
 
-    this.graphics_pipeline.deinit(&this.device);
-    this.resource_layout.deinit(&this.device, alloc);
+    this.graphics_pipeline.deinit(this.device);
+    this.resource_layout.deinit(this.device, alloc);
     this.shader_set.deinit(alloc);
-    this.pixel_shader.deinit(&this.device);
-    this.vertex_shader.deinit(&this.device);
-    this.index_buffer.deinit(&this.device);
-    this.vertex_buffer.deinit(&this.device);
+    this.pixel_shader.deinit(this.device);
+    this.vertex_shader.deinit(this.device);
+    this.index_buffer.deinit(this.device);
+    this.vertex_buffer.deinit(this.device);
 
     this.display.deinit(alloc);
     this.device.deinit(alloc);
@@ -147,8 +146,8 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
 pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     var rebuild: bool = false;
     const per_frame = &this.frames_in_flight_data[this.frame_in_flight];
-    try per_frame.presented_fence.wait(&this.device, std.time.ns_per_s);
-    try per_frame.presented_fence.reset(&this.device);
+    try per_frame.presented_fence.wait(this.device, std.time.ns_per_s);
+    try per_frame.presented_fence.reset(this.device);
 
     const image_index = blk: {
         for (0..3) |_| {
@@ -214,14 +213,14 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         .mvp = math.toArray(mvp),
     };
 
-    try per_frame.cmd_encoder.begin(&this.device);
+    try per_frame.cmd_encoder.begin(this.device);
     per_frame.cmd_encoder.cmdCopyBuffer(
-        &this.device,
+        this.device,
         per_frame.uniform_staging.region(),
         per_frame.uniform_buffer.region(),
     );
 
-    per_frame.cmd_encoder.cmdMemoryBarrier(&this.device, &.{
+    per_frame.cmd_encoder.cmdMemoryBarrier(this.device, &.{
         .{ .image = .{
             .image = &this.display.images[image_index],
             .old_layout = .undefined,
@@ -241,7 +240,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     });
 
     var render_pass = per_frame.cmd_encoder.cmdBeginRenderPass(.{
-        .device = &this.device,
+        .device = this.device,
         .image_size = this.display.image_size,
         .target = .{
             .color_clear_value = @splat(0),
@@ -249,18 +248,18 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         },
     });
 
-    render_pass.cmdBindPipeline(&this.device, this.graphics_pipeline, this.display.image_size);
-    render_pass.cmdBindVertexBuffer(&this.device, this.vertex_buffer.region());
-    render_pass.cmdBindIndexBuffer(&this.device, this.index_buffer.region(), .uint16);
-    render_pass.cmdBindResourceSets(&this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0);
+    render_pass.cmdBindPipeline(this.device, this.graphics_pipeline, this.display.image_size);
+    render_pass.cmdBindVertexBuffer(this.device, this.vertex_buffer.region());
+    render_pass.cmdBindIndexBuffer(this.device, this.index_buffer.region(), .uint16);
+    render_pass.cmdBindResourceSets(this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0);
     render_pass.cmdDraw(.{
-        .device = &this.device,
+        .device = this.device,
         .vertex_count = 6,
         .indexed = true,
     });
-    render_pass.cmdEnd(&this.device);
+    render_pass.cmdEnd(this.device);
 
-    per_frame.cmd_encoder.cmdMemoryBarrier(&this.device, &.{
+    per_frame.cmd_encoder.cmdMemoryBarrier(this.device, &.{
         .{ .image = .{
             .image = &this.display.images[image_index],
             .old_layout = .color_attachment,
@@ -272,8 +271,8 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         } },
     });
 
-    try per_frame.cmd_encoder.end(&this.device);
-    try per_frame.cmd_encoder.submit(&this.device, &.{per_frame.image_available_semaphore}, &.{per_frame.render_finished_semaphore}, null);
+    try per_frame.cmd_encoder.end(this.device);
+    try per_frame.cmd_encoder.submit(this.device, &.{per_frame.image_available_semaphore}, &.{per_frame.render_finished_semaphore}, null);
 
     switch (try this.display.presentImage(image_index, &.{per_frame.render_finished_semaphore}, per_frame.presented_fence)) {
         .success => {},
@@ -325,16 +324,16 @@ const PerFrameInFlight = struct {
         var this: @This() = undefined;
 
         this.cmd_encoder = try app.device.initCommandEncoder();
-        errdefer this.cmd_encoder.deinit(&app.device);
+        errdefer this.cmd_encoder.deinit(app.device);
 
         this.image_available_semaphore = try app.device.initSemaphore();
-        errdefer this.image_available_semaphore.deinit(&app.device);
+        errdefer this.image_available_semaphore.deinit(app.device);
 
         this.render_finished_semaphore = try app.device.initSemaphore();
-        errdefer this.render_finished_semaphore.deinit(&app.device);
+        errdefer this.render_finished_semaphore.deinit(app.device);
 
         this.presented_fence = try app.device.initFence(true);
-        errdefer this.presented_fence.deinit(&app.device);
+        errdefer this.presented_fence.deinit(app.device);
 
         this.uniform_buffer = try app.device.initBuffer(.{
             .loc = .device,
@@ -344,21 +343,21 @@ const PerFrameInFlight = struct {
             },
             .size = @sizeOf(UniformData),
         });
-        errdefer this.uniform_buffer.deinit(&app.device);
+        errdefer this.uniform_buffer.deinit(app.device);
 
         this.uniform_staging = try app.device.initBuffer(.{
             .loc = .host,
             .usage = .{ .src = true },
             .size = this.uniform_buffer.size,
         });
-        errdefer this.uniform_staging.unmap(&app.device);
+        errdefer this.uniform_staging.unmap(app.device);
 
-        this.uniform_mapping = @ptrCast(@alignCast(try this.uniform_staging.map(&app.device)));
-        errdefer this.uniform_staging.unmap(&app.device);
+        this.uniform_mapping = @ptrCast(@alignCast(try this.uniform_staging.map(app.device)));
+        errdefer this.uniform_staging.unmap(app.device);
 
-        this.resource_set = try .init(&app.device, &app.resource_layout);
-        errdefer this.resource_set.deinit(&app.device);
-        try this.resource_set.update(&app.device, &.{
+        this.resource_set = try .init(app.device, &app.resource_layout);
+        errdefer this.resource_set.deinit(app.device);
+        try this.resource_set.update(app.device, &.{
             .{
                 .binding = 0,
                 .data = .{
@@ -373,19 +372,19 @@ const PerFrameInFlight = struct {
     }
 
     pub fn deinit(this: *@This(), app: *App) void {
-        this.cmd_encoder.deinit(&app.device);
-        this.image_available_semaphore.deinit(&app.device);
-        this.render_finished_semaphore.deinit(&app.device);
-        this.presented_fence.deinit(&app.device);
+        this.cmd_encoder.deinit(app.device);
+        this.image_available_semaphore.deinit(app.device);
+        this.render_finished_semaphore.deinit(app.device);
+        this.presented_fence.deinit(app.device);
 
-        this.uniform_staging.unmap(&app.device);
-        this.uniform_staging.deinit(&app.device);
-        this.uniform_buffer.deinit(&app.device);
-        this.resource_set.deinit(&app.device);
+        this.uniform_staging.unmap(app.device);
+        this.uniform_staging.deinit(app.device);
+        this.uniform_buffer.deinit(app.device);
+        this.resource_set.deinit(app.device);
     }
 };
 
-fn createShader(device: *gpu.Device, filepath: []const u8, stage: gpu.Shader.Stage, alloc: std.mem.Allocator) !gpu.Shader {
+fn createShader(device: gpu.Device, filepath: []const u8, stage: gpu.Shader.Stage, alloc: std.mem.Allocator) !gpu.Shader {
     const file = try std.fs.cwd().openFile(filepath, .{ .mode = .read_only });
     defer file.close();
 

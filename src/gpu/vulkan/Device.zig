@@ -2,11 +2,11 @@ const std = @import("std");
 const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
 const Instance = @import("Instance.zig");
-const Display = @import("Display.zig");
 const Buffer = @import("Buffer.zig");
-const ResourceSet = @import("ResourceSet.zig");
-const wait_objects = @import("wait_objects.zig");
 const CommandEncoder = @import("CommandEncoder.zig");
+
+const Device = @This();
+pub const Handle = *Device;
 
 pub const required_extensions: [8][*:0]const u8 = .{
     vk.extensions.khr_synchronization_2.name,
@@ -26,17 +26,22 @@ pub const Physical = struct {
 pub const Size = u64;
 
 instance: *Instance,
-_phys: vk.PhysicalDevice,
-_device: vk.DeviceProxy,
-_queue: vk.Queue,
-_queue_family_index: u32,
-_command_pool: vk.CommandPool,
+phys: vk.PhysicalDevice,
+device: vk.DeviceProxy,
+queue: vk.Queue,
+queue_family_index: u32,
+command_pool: vk.CommandPool,
 
-pub fn init(instance: gpu.Instance, physical_device: *const Physical, alloc: std.mem.Allocator) !@This() {
+pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc: std.mem.Allocator) !gpu.Device {
+    const this = try alloc.create(Device);
+    errdefer alloc.destroy(this);
+    this.instance = instance.vk;
+    this.phys = physical_device.vk._device;
+
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const queue_priority: f32 = 1;
-    const queue_family_index: u32 = blk: {
-        const queue_familes = try instance.vk.instance.getPhysicalDeviceQueueFamilyPropertiesAlloc(physical_device._device, alloc);
+    this.queue_family_index = blk: {
+        const queue_familes = try instance.vk.instance.getPhysicalDeviceQueueFamilyPropertiesAlloc(this.phys, alloc);
         defer alloc.free(queue_familes);
 
         for (queue_familes, 0..) |prop, i| {
@@ -48,7 +53,7 @@ pub fn init(instance: gpu.Instance, physical_device: *const Physical, alloc: std
     };
 
     const queue_create_info: vk.DeviceQueueCreateInfo = .{
-        .queue_family_index = queue_family_index,
+        .queue_family_index = this.queue_family_index,
         .queue_count = 1,
         .p_queue_priorities = @ptrCast(&queue_priority),
     };
@@ -68,7 +73,7 @@ pub fn init(instance: gpu.Instance, physical_device: *const Physical, alloc: std
     };
 
     // TODO: check extention support
-    const device_handle = try instance.vk.instance.createDevice(physical_device._device, &.{
+    const device_handle = try instance.vk.instance.createDevice(this.phys, &.{
         .p_queue_create_infos = @ptrCast(&queue_create_info),
         .queue_create_info_count = 1,
         .enabled_extension_count = required_extensions.len,
@@ -84,102 +89,43 @@ pub fn init(instance: gpu.Instance, physical_device: *const Physical, alloc: std
     const device_wrapper = try alloc.create(vk.DeviceWrapper);
     errdefer alloc.destroy(device_wrapper);
     device_wrapper.* = .load(device_handle, instance.vk.instance.wrapper.dispatch.vkGetDeviceProcAddr orelse return error.CantLoadVulkan);
-    const device = vk.DeviceProxy.init(device_handle, device_wrapper);
-    errdefer device.destroyDevice(vk_alloc);
+    this.device = vk.DeviceProxy.init(device_handle, device_wrapper);
+    errdefer this.device.destroyDevice(vk_alloc);
 
-    const queue = device.getDeviceQueue(queue_family_index, 0);
-    const command_pool = try device.createCommandPool(&.{
-        .queue_family_index = queue_family_index,
+    this.queue = this.device.getDeviceQueue(this.queue_family_index, 0);
+    this.command_pool = try this.device.createCommandPool(&.{
+        .queue_family_index = this.queue_family_index,
         .flags = .{
             .reset_command_buffer_bit = true,
         },
     }, vk_alloc);
+    errdefer this.device.destroyCommandPool(this.command_pool, vk_alloc);
 
-    return .{
-        ._phys = physical_device._device,
-        ._device = device,
-        ._queue = queue,
-        ._queue_family_index = queue_family_index,
-        ._command_pool = command_pool,
-        .instance = instance.vk,
-    };
+    return .{ .vk = this };
 }
 
-pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
+pub fn deinit(this: gpu.Device, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    this._device.destroyCommandPool(this._command_pool, vk_alloc);
-    this._device.destroyDevice(vk_alloc);
-    alloc.destroy(this._device.wrapper);
+    this.vk.device.destroyCommandPool(this.vk.command_pool, vk_alloc);
+    this.vk.device.destroyDevice(vk_alloc);
+    alloc.destroy(this.vk.device.wrapper);
+    alloc.destroy(this.vk);
 }
 
-pub fn waitUntilIdle(this: *const @This()) void {
-    this._device.deviceWaitIdle() catch @panic("failed to wait for device");
+pub fn waitUntilIdle(this: gpu.Device) void {
+    this.vk.device.deviceWaitIdle() catch @panic("failed to wait for device");
 }
 
-pub const initDisplay = Display.init;
-pub const initBuffer = Buffer.init;
-pub const initResouceLayout = ResourceSet.Layout.init;
-pub const initResouceSet = ResourceSet.init;
-pub const initCommandEncoder = CommandEncoder.init;
-pub const initSemaphore = wait_objects.Semaphore.init;
-pub const initFence = wait_objects.Fence.init;
-
-pub fn setBufferRegions(device: *@This(), regions: []const Buffer.Region, data: []const []const u8) !void {
-    var offset: usize = 0;
-    for (data, regions) |x, r| {
-        std.debug.assert(x.len == r.size);
-        offset += x.len;
-    }
-
-    var staging = try device.initBuffer(.{
-        .loc = .host,
-        .usage = .{ .src = true },
-        .size = offset,
-    });
-    defer staging.deinit(device);
-    const mapping = try staging.map(device);
-    defer staging.unmap(device);
-
-    offset = 0;
-    for (data) |x| {
-        @memcpy(mapping[offset .. offset + x.len], x);
-        offset += x.len;
-    }
-
-    var fence = try device.initFence(false);
-    defer fence.deinit(device);
-    var command_encoder = try device.initCommandEncoder();
-    defer command_encoder.deinit(device);
-
-    try command_encoder.begin(device);
-    offset = 0;
-    for (regions) |r| {
-        command_encoder.cmdCopyBuffer(device, .{
-            .buffer = &staging,
-            .size = r.size,
-            .offset = offset,
-        }, .{
-            .buffer = r.buffer,
-            .size = r.size,
-            .offset = r.offset,
-        });
-        offset += r.size;
-    }
-    try command_encoder.end(device);
-    try command_encoder.submit(device, &.{}, &.{}, fence);
-    try fence.wait(device, std.time.ns_per_s);
-}
-
-pub const _MemoryRegion = struct {
+pub const MemoryRegion = struct {
     memory: vk.DeviceMemory,
     offset: Size,
     size: Size,
 };
 
-pub fn _allocateMemory(this: *@This(), requirements: vk.MemoryRequirements, properties: vk.MemoryPropertyFlags) !_MemoryRegion {
+pub fn allocateMemory(this: *Device, requirements: vk.MemoryRequirements, properties: vk.MemoryPropertyFlags) !MemoryRegion {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const mem_index: u32 = blk: {
-        const mem_properties = this.instance.instance.getPhysicalDeviceMemoryProperties(this._phys);
+        const mem_properties = this.instance.instance.getPhysicalDeviceMemoryProperties(this.phys);
         for (mem_properties.memory_types[0..mem_properties.memory_type_count], 0..) |mem_type, i| {
             const mem_type_bit = @as(Size, 1) << @intCast(i);
             if (mem_type_bit & requirements.memory_type_bits == 0) continue;
@@ -190,7 +136,7 @@ pub fn _allocateMemory(this: *@This(), requirements: vk.MemoryRequirements, prop
         return error.NoSuitableMemoryType;
     };
 
-    const memory = try this._device.allocateMemory(&.{
+    const memory = try this.device.allocateMemory(&.{
         .allocation_size = requirements.size,
         .memory_type_index = mem_index,
     }, vk_alloc);
@@ -202,7 +148,7 @@ pub fn _allocateMemory(this: *@This(), requirements: vk.MemoryRequirements, prop
     };
 }
 
-pub fn _freeMemory(this: *@This(), memory_region: _MemoryRegion) void {
+pub fn freeMemory(this: *Device, memory_region: MemoryRegion) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    this._device.freeMemory(memory_region.memory, vk_alloc);
+    this.device.freeMemory(memory_region.memory, vk_alloc);
 }

@@ -1,9 +1,9 @@
 const std = @import("std");
+const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
-const Device = @import("Device.zig");
+const MemoryRegion = @import("Device.zig").MemoryRegion;
 
 const Buffer = @This();
-const Size = Device.Size;
 
 pub const Location = enum {
     host,
@@ -24,14 +24,14 @@ pub const Usage = packed struct {
 pub const CreateInfo = struct {
     loc: Location,
     usage: Usage,
-    size: Size,
+    size: gpu.Size,
 };
 
 _buffer: vk.Buffer,
-_memory_region: Device._MemoryRegion,
-size: Size,
+_memory_region: MemoryRegion,
+size: gpu.Size,
 
-pub fn init(device: *Device, info: CreateInfo) !@This() {
+pub fn init(device: gpu.Device, info: CreateInfo) !@This() {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const vk_usage: vk.BufferUsageFlags = .{
         .vertex_buffer_bit = info.usage.vertex,
@@ -41,21 +41,21 @@ pub fn init(device: *Device, info: CreateInfo) !@This() {
         .transfer_dst_bit = info.usage.dst,
     };
 
-    const buffer = try device._device.createBuffer(&.{
+    const buffer = try device.vk.device.createBuffer(&.{
         .size = info.size,
         .usage = vk_usage,
         .sharing_mode = .exclusive,
     }, vk_alloc);
-    errdefer device._device.destroyBuffer(buffer, vk_alloc);
+    errdefer device.vk.device.destroyBuffer(buffer, vk_alloc);
 
     const properties: vk.MemoryPropertyFlags = switch (info.loc) {
         .host => .{ .host_visible_bit = true },
         .device => .{ .device_local_bit = true },
     };
 
-    const mem_region = try device._allocateMemory(device._device.getBufferMemoryRequirements(buffer), properties);
-    errdefer device._freeMemory(mem_region);
-    try device._device.bindBufferMemory(buffer, mem_region.memory, mem_region.offset);
+    const mem_region = try device.vk.allocateMemory(device.vk.device.getBufferMemoryRequirements(buffer), properties);
+    errdefer device.vk.freeMemory(mem_region);
+    try device.vk.device.bindBufferMemory(buffer, mem_region.memory, mem_region.offset);
 
     return .{
         ._buffer = buffer,
@@ -64,17 +64,17 @@ pub fn init(device: *Device, info: CreateInfo) !@This() {
     };
 }
 
-pub fn deinit(this: *@This(), device: *Device) void {
+pub fn deinit(this: *@This(), device: gpu.Device) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    device._device.destroyBuffer(this._buffer, vk_alloc);
-    device._freeMemory(this._memory_region);
+    device.vk.device.destroyBuffer(this._buffer, vk_alloc);
+    device.vk.freeMemory(this._memory_region);
 }
 
-pub fn map(this: *@This(), device: *Device) ![]u8 {
+pub fn map(this: *@This(), device: gpu.Device) ![]u8 {
     return this.region().map(device);
 }
 
-pub fn unmap(this: *@This(), device: *Device) void {
+pub fn unmap(this: *@This(), device: gpu.Device) void {
     this.region().unmap(device);
 }
 
@@ -88,16 +88,16 @@ pub fn region(this: *@This()) Region {
 
 pub const Region = struct {
     buffer: *Buffer,
-    offset: Size,
-    size: Size,
+    offset: gpu.Size,
+    size: gpu.Size,
 
-    pub fn map(this: @This(), device: *Device) ![]u8 {
-        const data = (try device._device.mapMemory(this.buffer._memory_region.memory, this.offset, this.size, .{})).?;
+    pub fn map(this: @This(), device: gpu.Device) ![]u8 {
+        const data = (try device.vk.device.mapMemory(this.buffer._memory_region.memory, this.offset, this.size, .{})).?;
         const many_ptr: [*]u8 = @ptrCast(data);
         return many_ptr[0..this.size];
     }
 
-    pub fn unmap(this: @This(), device: *Device) void {
-        device._device.unmapMemory(this.buffer._memory_region.memory);
+    pub fn unmap(this: @This(), device: gpu.Device) void {
+        device.vk.device.unmapMemory(this.buffer._memory_region.memory);
     }
 };

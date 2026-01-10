@@ -1,13 +1,12 @@
 const std = @import("std");
+const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
-const Device = @import("Device.zig");
 const Shader = @import("Shader.zig");
 const ResourceSet = @import("ResourceSet.zig");
 const RenderTarget = @import("RenderTarget.zig");
 
 pub const CreateInfo = struct {
     alloc: std.mem.Allocator,
-    device: *Device,
     render_target_desc: RenderTarget.Desc,
     shader_set: Shader.Set,
     resource_layouts: []const ResourceSet.Layout,
@@ -16,9 +15,9 @@ pub const CreateInfo = struct {
 _pipeline: vk.Pipeline,
 _pipeline_layout: vk.PipelineLayout,
 
-pub fn init(info: CreateInfo) !@This() {
+pub fn init(device: gpu.Device, info: CreateInfo) !@This() {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    const native_device = info.device._device;
+    const native_device = device.vk.device;
     const native_descriptor_set_layouts = try ResourceSet.Layout._nativesFromSlice(info.resource_layouts, info.alloc);
     defer info.alloc.free(native_descriptor_set_layouts);
 
@@ -195,8 +194,8 @@ pub fn init(info: CreateInfo) !@This() {
     };
 }
 
-pub fn deinit(this: *@This(), device: *Device) void {
+pub fn deinit(this: *@This(), device: gpu.Device) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    device._device.destroyPipeline(this._pipeline, vk_alloc);
-    device._device.destroyPipelineLayout(this._pipeline_layout, vk_alloc);
+    device.vk.device.destroyPipeline(this._pipeline, vk_alloc);
+    device.vk.device.destroyPipelineLayout(this._pipeline_layout, vk_alloc);
 }

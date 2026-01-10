@@ -1,15 +1,15 @@
 const std = @import("std");
+const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
-const Device = @import("Device.zig");
 
 const Shader = @This();
 
 _shader_module: vk.ShaderModule,
 _stage: vk.ShaderStageFlags,
 
-pub fn fromSpirv(device: *Device, stage: Stage, spirvByteCode: []const u32) !@This() {
+pub fn fromSpirv(device: gpu.Device, stage: Stage, spirvByteCode: []const u32) !@This() {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    const shader_module = try device._device.createShaderModule(&.{
+    const shader_module = try device.vk.device.createShaderModule(&.{
         .code_size = spirvByteCode.len * @sizeOf(u32),
         .p_code = spirvByteCode.ptr,
     }, vk_alloc);
@@ -23,9 +23,9 @@ pub fn fromSpirv(device: *Device, stage: Stage, spirvByteCode: []const u32) !@Th
     };
 }
 
-pub fn deinit(this: *@This(), device: *Device) void {
+pub fn deinit(this: *@This(), device: gpu.Device) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    device._device.destroyShaderModule(this._shader_module, vk_alloc);
+    device.vk.device.destroyShaderModule(this._shader_module, vk_alloc);
 }
 
 pub const Stage = enum {
@@ -201,7 +201,7 @@ fn _shaderDataTypeToVk(types: []const DataType, alloc: std.mem.Allocator) ![]vk.
     return vk_types;
 }
 
-pub fn _vkTypeSize(t: vk.Format) Device.Size {
+pub fn _vkTypeSize(t: vk.Format) gpu.Size {
     return switch (t) {
         .r8_uint => 1,
         .r8g8_uint => 2,
