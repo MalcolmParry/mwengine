@@ -1,4 +1,5 @@
 const std = @import("std");
+const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
 const Instance = @import("Instance.zig");
 const Display = @import("Display.zig");
@@ -31,11 +32,11 @@ _queue: vk.Queue,
 _queue_family_index: u32,
 _command_pool: vk.CommandPool,
 
-pub fn init(instance: *Instance, physical_device: *const Physical, alloc: std.mem.Allocator) !@This() {
+pub fn init(instance: gpu.Instance, physical_device: *const Physical, alloc: std.mem.Allocator) !@This() {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const queue_priority: f32 = 1;
     const queue_family_index: u32 = blk: {
-        const queue_familes = try instance._instance.getPhysicalDeviceQueueFamilyPropertiesAlloc(physical_device._device, alloc);
+        const queue_familes = try instance.vk.instance.getPhysicalDeviceQueueFamilyPropertiesAlloc(physical_device._device, alloc);
         defer alloc.free(queue_familes);
 
         for (queue_familes, 0..) |prop, i| {
@@ -67,7 +68,7 @@ pub fn init(instance: *Instance, physical_device: *const Physical, alloc: std.me
     };
 
     // TODO: check extention support
-    const device_handle = try instance._instance.createDevice(physical_device._device, &.{
+    const device_handle = try instance.vk.instance.createDevice(physical_device._device, &.{
         .p_queue_create_infos = @ptrCast(&queue_create_info),
         .queue_create_info_count = 1,
         .enabled_extension_count = required_extensions.len,
@@ -82,7 +83,7 @@ pub fn init(instance: *Instance, physical_device: *const Physical, alloc: std.me
 
     const device_wrapper = try alloc.create(vk.DeviceWrapper);
     errdefer alloc.destroy(device_wrapper);
-    device_wrapper.* = .load(device_handle, instance._instance.wrapper.dispatch.vkGetDeviceProcAddr orelse return error.CantLoadVulkan);
+    device_wrapper.* = .load(device_handle, instance.vk.instance.wrapper.dispatch.vkGetDeviceProcAddr orelse return error.CantLoadVulkan);
     const device = vk.DeviceProxy.init(device_handle, device_wrapper);
     errdefer device.destroyDevice(vk_alloc);
 
@@ -100,7 +101,7 @@ pub fn init(instance: *Instance, physical_device: *const Physical, alloc: std.me
         ._queue = queue,
         ._queue_family_index = queue_family_index,
         ._command_pool = command_pool,
-        .instance = instance,
+        .instance = instance.vk,
     };
 }
 
@@ -178,7 +179,7 @@ pub const _MemoryRegion = struct {
 pub fn _allocateMemory(this: *@This(), requirements: vk.MemoryRequirements, properties: vk.MemoryPropertyFlags) !_MemoryRegion {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const mem_index: u32 = blk: {
-        const mem_properties = this.instance._instance.getPhysicalDeviceMemoryProperties(this._phys);
+        const mem_properties = this.instance.instance.getPhysicalDeviceMemoryProperties(this._phys);
         for (mem_properties.memory_types[0..mem_properties.memory_type_count], 0..) |mem_type, i| {
             const mem_type_bit = @as(Size, 1) << @intCast(i);
             if (mem_type_bit & requirements.memory_type_bits == 0) continue;

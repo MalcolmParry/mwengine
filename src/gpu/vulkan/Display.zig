@@ -21,10 +21,10 @@ pub fn init(device: *Device, window: *platform.Window, alloc: std.mem.Allocator)
     const instance = device.instance;
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     // TODO: change createSurface function to accept ?*vk.AllocationCallbacks
-    const surface = try platform.vulkan.createSurface(window, instance._instance);
-    errdefer instance._instance.destroySurfaceKHR(surface, vk_alloc);
+    const surface = try platform.vulkan.createSurface(window, instance.instance);
+    errdefer instance.instance.destroySurfaceKHR(surface, vk_alloc);
 
-    const surface_format = try chooseSurfaceFormat(instance._instance.wrapper, device._phys, surface, alloc);
+    const surface_format = try chooseSurfaceFormat(instance.instance.wrapper, device._phys, surface, alloc);
     var this: @This() = .{
         .image_size = undefined,
         .image_format = Image.Format._fromNative(surface_format.format),
@@ -33,7 +33,7 @@ pub fn init(device: *Device, window: *platform.Window, alloc: std.mem.Allocator)
         ._swapchain = .null_handle,
         ._surface = surface,
         ._surface_format = surface_format,
-        ._instance = instance._instance,
+        ._instance = instance.instance,
         ._device = device,
     };
 

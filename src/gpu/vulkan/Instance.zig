@@ -1,7 +1,11 @@
 const std = @import("std");
+const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
 const Device = @import("Device.zig");
 const platform = @import("../../platform.zig");
+
+const Instance = @This();
+pub const Handle = *Instance;
 
 const extra_required_extensions: [3][*:0]const u8 = .{
     vk.extensions.khr_get_surface_capabilities_2.name,
@@ -14,16 +18,19 @@ const debug_extensions: [1][*:0]const u8 = .{
     vk.extensions.ext_debug_utils.name,
 };
 
-_platform_wrapper: platform.vulkan.Wrapper,
-_instance: vk.InstanceProxy,
-_maybe_debug_messenger: ?vk.DebugUtilsMessengerEXT,
-_physical_devices: []Device.Physical,
+platform_wrapper: platform.vulkan.Wrapper,
+instance: vk.InstanceProxy,
+maybe_debug_messenger: ?vk.DebugUtilsMessengerEXT,
+physical_devices: []Device.Physical,
 
 //  TODO: add app version to paramerers
-pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
+pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !gpu.Instance {
+    const this = try alloc.create(Instance);
+    errdefer alloc.destroy(this);
+
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    var platform_wrapper = try platform.vulkan.Wrapper.init();
-    const vkb = try platform_wrapper.getBaseWrapper();
+    this.platform_wrapper = try platform.vulkan.Wrapper.init();
+    const vkb = try this.platform_wrapper.getBaseWrapper();
 
     // TODO: check extention support
     var extensions: std.ArrayList([*:0]const u8) = .empty;
@@ -52,11 +59,11 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
     const instance_wrapper = try alloc.create(vk.InstanceWrapper);
     errdefer alloc.destroy(instance_wrapper);
     instance_wrapper.* = .load(instance_handle, vkb.dispatch.vkGetInstanceProcAddr orelse return error.CantLoadVulkan);
-    const instance: vk.InstanceProxy = .init(instance_handle, instance_wrapper);
-    errdefer instance.destroyInstance(vk_alloc);
+    this.instance = .init(instance_handle, instance_wrapper);
+    errdefer this.instance.destroyInstance(vk_alloc);
 
-    const maybe_debug_messenger = if (debug_logging) blk: {
-        break :blk try instance.createDebugUtilsMessengerEXT(&.{
+    this.maybe_debug_messenger = if (debug_logging) blk: {
+        break :blk try this.instance.createDebugUtilsMessengerEXT(&.{
             .message_severity = .{
                 .verbose_bit_ext = true,
                 .warning_bit_ext = true,
@@ -72,18 +79,18 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
         }, vk_alloc);
     } else null;
 
-    errdefer if (maybe_debug_messenger) |debug_messenger|
-        instance.destroyDebugUtilsMessengerEXT(debug_messenger, vk_alloc);
+    errdefer if (this.maybe_debug_messenger) |debug_messenger|
+        this.instance.destroyDebugUtilsMessengerEXT(debug_messenger, vk_alloc);
 
-    const native_phyical_devices = try instance.enumeratePhysicalDevicesAlloc(alloc);
+    const native_phyical_devices = try this.instance.enumeratePhysicalDevicesAlloc(alloc);
     defer alloc.free(native_phyical_devices);
-    const physical_devices = try alloc.alloc(Device.Physical, native_phyical_devices.len);
-    errdefer alloc.free(physical_devices);
+    this.physical_devices = try alloc.alloc(Device.Physical, native_phyical_devices.len);
+    errdefer alloc.free(this.physical_devices);
 
-    for (physical_devices, native_phyical_devices) |*phys_dev, native| {
+    for (this.physical_devices, native_phyical_devices) |*phys_dev, native| {
         phys_dev.* = .{ ._device = native };
 
-        const queue_families = try instance.getPhysicalDeviceQueueFamilyPropertiesAlloc(native, alloc);
+        const queue_families = try this.instance.getPhysicalDeviceQueueFamilyPropertiesAlloc(native, alloc);
         defer alloc.free(queue_families);
 
         std.debug.print("\n", .{});
@@ -107,33 +114,27 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !@This() {
     }
     std.debug.print("\n", .{});
 
-    return .{
-        ._platform_wrapper = platform_wrapper,
-        ._instance = instance,
-        ._maybe_debug_messenger = maybe_debug_messenger,
-        ._physical_devices = physical_devices,
-    };
+    return .{ .vk = this };
 }
 
-pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
+pub fn deinit(this: gpu.Instance, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    alloc.free(this._physical_devices);
-    if (this._maybe_debug_messenger) |debug_messenger|
-        this._instance.destroyDebugUtilsMessengerEXT(debug_messenger, vk_alloc);
-    this._instance.destroyInstance(vk_alloc);
-    alloc.destroy(this._instance.wrapper);
-    this._platform_wrapper.deinit();
+    alloc.free(this.vk.physical_devices);
+    if (this.vk.maybe_debug_messenger) |debug_messenger|
+        this.vk.instance.destroyDebugUtilsMessengerEXT(debug_messenger, vk_alloc);
+    this.vk.instance.destroyInstance(vk_alloc);
+    alloc.destroy(this.vk.instance.wrapper);
+    this.vk.platform_wrapper.deinit();
+    alloc.destroy(this.vk);
 }
 
-pub const initDevice = Device.init;
-
-pub fn bestPhysicalDevice(this: *const @This()) !Device.Physical {
+pub fn bestPhysicalDevice(this: gpu.Instance) !Device.Physical {
     var best_device: ?Device.Physical = null;
     var best_score: i32 = -1;
-    for (this._physical_devices) |device| {
+    for (this.vk.physical_devices) |device| {
         const native = device._device;
-        const features = this._instance.getPhysicalDeviceFeatures(native);
-        const properties = this._instance.getPhysicalDeviceProperties(native);
+        const features = this.vk.instance.getPhysicalDeviceFeatures(native);
+        const properties = this.vk.instance.getPhysicalDeviceProperties(native);
         _ = features;
 
         var score: i32 = 0;
@@ -153,7 +154,7 @@ pub fn bestPhysicalDevice(this: *const @This()) !Device.Physical {
     }
 
     if (best_score == -1) best_device = null;
-    const properties = this._instance.getPhysicalDeviceProperties(best_device.?._device);
+    const properties = this.vk.instance.getPhysicalDeviceProperties(best_device.?._device);
     std.log.info("{s}\n", .{properties.device_name});
     return best_device orelse error.NoDeviceAvailable;
 }
