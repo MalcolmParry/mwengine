@@ -8,3 +8,4 @@ pub const Semaphore = @import("vulkan/wait_objects.zig").Semaphore;
 pub const Fence = @import("vulkan/wait_objects.zig").Fence;
 pub const Buffer = @import("vulkan/Buffer.zig");
 pub const ResourceSet = @import("vulkan/ResourceSet.zig");
+pub const Image = @import("vulkan/Image.zig");

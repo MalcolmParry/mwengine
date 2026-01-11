@@ -8,60 +8,49 @@ const Semaphore = @import("wait_objects.zig").Semaphore;
 const Fence = @import("wait_objects.zig").Fence;
 const Image = @import("Image.zig");
 
+const Display = @This();
+pub const Handle = *Display;
+
 image_size: @Vector(2, u32),
-image_format: Image.Format,
 images: []Image,
 image_views: []Image.View,
-_swapchain: vk.SwapchainKHR,
-_surface: vk.SurfaceKHR,
-_surface_format: vk.SurfaceFormatKHR,
-_instance: vk.InstanceProxy,
-_device: *Device,
+swapchain: vk.SwapchainKHR,
+surface: vk.SurfaceKHR,
+surface_format: vk.SurfaceFormatKHR,
+instance: vk.InstanceProxy,
+device: *Device,
 
-pub fn init(device: gpu.Device, window: *platform.Window, alloc: std.mem.Allocator) !@This() {
-    const instance = device.vk.instance;
+pub fn init(device: gpu.Device, window: *platform.Window, alloc: std.mem.Allocator) !gpu.Display {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    // TODO: change createSurface function to accept ?*vk.AllocationCallbacks
-    const surface = try platform.vulkan.createSurface(window, instance.instance);
-    errdefer instance.instance.destroySurfaceKHR(surface, vk_alloc);
+    const this = try alloc.create(Display);
+    errdefer alloc.destroy(this);
 
-    const surface_format = try chooseSurfaceFormat(instance.instance.wrapper, device.vk.phys, surface, alloc);
-    var this: @This() = .{
-        .image_size = undefined,
-        .image_format = Image.Format._fromNative(surface_format.format),
-        .images = &.{},
-        .image_views = &.{},
-        ._swapchain = .null_handle,
-        ._surface = surface,
-        ._surface_format = surface_format,
-        ._instance = instance.instance,
-        ._device = device.vk,
-    };
+    this.instance = device.vk.instance.instance;
+    this.device = device.vk;
+    this.surface = try platform.vulkan.createSurface(window, this.instance);
+    this.swapchain = .null_handle;
+    errdefer this.instance.destroySurfaceKHR(this.surface, vk_alloc);
+
+    this.surface_format = try chooseSurfaceFormat(this.instance.wrapper, device.vk.phys, this.surface, alloc);
 
     try this.initSwapchain(window.getFramebufferSize(), alloc);
 
-    return this;
+    return .{ .vk = this };
 }
 
-pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
+pub fn deinit(this: gpu.Display, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    this.deinitSwapchain(alloc);
-    this._device.device.destroySwapchainKHR(this._swapchain, vk_alloc);
-    this._instance.destroySurfaceKHR(this._surface, vk_alloc);
+    this.vk.deinitSwapchain(alloc);
+    this.vk.device.device.destroySwapchainKHR(this.vk.swapchain, vk_alloc);
+    this.vk.instance.destroySurfaceKHR(this.vk.surface, vk_alloc);
+    alloc.destroy(this.vk);
 }
 
-pub const ImageIndex = u32;
-const AcquireImageIndexResult = union(PresentResult) {
-    success: ImageIndex,
-    suboptimal: ImageIndex,
-    out_of_date: void,
-};
-
-pub fn acquireImageIndex(this: *@This(), maybe_signal_semaphore: ?Semaphore, maybe_signal_fence: ?Fence, timeout_ns: u64) !AcquireImageIndexResult {
+pub fn acquireImageIndex(this: gpu.Display, maybe_signal_semaphore: ?Semaphore, maybe_signal_fence: ?Fence, timeout_ns: u64) !gpu.Display.AcquireImageIndexResult {
     const native_semaphore = if (maybe_signal_semaphore) |x| x._semaphore else .null_handle;
     const native_fence = if (maybe_signal_fence) |x| x._fence else .null_handle;
 
-    const result = this._device.device.acquireNextImageKHR(this._swapchain, timeout_ns, native_semaphore, native_fence) catch |err| switch (err) {
+    const result = this.vk.device.device.acquireNextImageKHR(this.vk.swapchain, timeout_ns, native_semaphore, native_fence) catch |err| switch (err) {
         error.OutOfDateKHR => return .out_of_date,
         else => return err,
     };
@@ -75,30 +64,17 @@ pub fn acquireImageIndex(this: *@This(), maybe_signal_semaphore: ?Semaphore, may
     };
 }
 
-pub fn releaseImageIndex(this: *@This(), index: u32) !void {
-    try this._device._device.releaseSwapchainImagesEXT(&.{
-        .image_index_count = 1,
-        .p_image_indices = &index,
-    });
-}
-
-const PresentResult = enum {
-    success,
-    suboptimal,
-    out_of_date,
-};
-
-pub fn presentImage(this: *@This(), index: u32, wait_semaphores: []const Semaphore, maybe_signal_fence: ?Fence) !PresentResult {
+pub fn presentImage(this: gpu.Display, index: u32, wait_semaphores: []const Semaphore, maybe_signal_fence: ?Fence) !gpu.Display.PresentResult {
     const maybe_fence_info: ?vk.SwapchainPresentFenceInfoEXT = if (maybe_signal_fence) |fence| .{
         .swapchain_count = 1,
         .p_fences = @ptrCast(&fence._fence),
     } else null;
 
-    const result = this._device.device.queuePresentKHR(this._device.queue, &.{
+    const result = this.vk.device.device.queuePresentKHR(this.vk.device.queue, &.{
         .wait_semaphore_count = @intCast(wait_semaphores.len),
         .p_wait_semaphores = Semaphore._nativesFromSlice(wait_semaphores),
         .swapchain_count = 1,
-        .p_swapchains = @ptrCast(&this._swapchain),
+        .p_swapchains = @ptrCast(&this.vk.swapchain),
         .p_image_indices = @ptrCast(&index),
         .p_results = null,
         .p_next = if (maybe_fence_info) |x| @ptrCast(&x) else null,
@@ -114,20 +90,40 @@ pub fn presentImage(this: *@This(), index: u32, wait_semaphores: []const Semapho
     };
 }
 
-pub fn rebuild(this: *@This(), image_size: @Vector(2, u32), alloc: std.mem.Allocator) !void {
+pub fn rebuild(this: gpu.Display, image_size: @Vector(2, u32), alloc: std.mem.Allocator) !void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    const old_swapchain = this._swapchain;
-    this.deinitSwapchain(alloc);
-    try this.initSwapchain(image_size, alloc);
-    this._device.device.destroySwapchainKHR(old_swapchain, vk_alloc);
+    const old_swapchain = this.vk.swapchain;
+    this.vk.deinitSwapchain(alloc);
+    try this.vk.initSwapchain(image_size, alloc);
+    this.vk.device.device.destroySwapchainKHR(old_swapchain, vk_alloc);
 }
 
-fn initSwapchain(this: *@This(), image_size: @Vector(2, u32), alloc: std.mem.Allocator) !void {
+pub fn imageFormat(this: gpu.Display) Image.Format {
+    return Image.Format._fromNative(this.vk.surface_format.format);
+}
+
+pub fn imageCount(this: gpu.Display) usize {
+    return this.vk.images.len;
+}
+
+pub fn imageSize(this: gpu.Display) @Vector(2, u32) {
+    return this.vk.image_size;
+}
+
+pub fn image(this: gpu.Display, index: gpu.Display.ImageIndex) Image {
+    return this.vk.images[index];
+}
+
+pub fn imageView(this: gpu.Display, index: gpu.Display.ImageIndex) Image.View {
+    return this.vk.image_views[index];
+}
+
+fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.Allocator) !void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    const old_swapchain: vk.SwapchainKHR = this._swapchain;
+    const old_swapchain: vk.SwapchainKHR = this.swapchain;
     this.image_size = image_size;
 
-    const capabilities = try this._instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this._device.phys, this._surface);
+    const capabilities = try this.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this.device.phys, this.surface);
 
     var min_image_count = capabilities.min_image_count + 1;
     if (capabilities.max_image_count > 0 and min_image_count > capabilities.max_image_count) {
@@ -135,11 +131,11 @@ fn initSwapchain(this: *@This(), image_size: @Vector(2, u32), alloc: std.mem.All
     }
 
     const extent = try this.chooseSwapExtent(image_size);
-    this._swapchain = try this._device.device.createSwapchainKHR(&.{
-        .surface = this._surface,
+    this.swapchain = try this.device.device.createSwapchainKHR(&.{
+        .surface = this.surface,
         .min_image_count = min_image_count,
-        .image_format = this._surface_format.format,
-        .image_color_space = this._surface_format.color_space,
+        .image_format = this.surface_format.format,
+        .image_color_space = this.surface_format.color_space,
         .image_extent = extent,
         .image_array_layers = 1,
         .image_usage = .{
@@ -158,18 +154,18 @@ fn initSwapchain(this: *@This(), image_size: @Vector(2, u32), alloc: std.mem.All
         .old_swapchain = old_swapchain,
     }, vk_alloc);
 
-    const images = try this._device.device.getSwapchainImagesAllocKHR(this._swapchain, alloc);
+    const images = try this.device.device.getSwapchainImagesAllocKHR(this.swapchain, alloc);
     errdefer alloc.free(images);
     this.images = @ptrCast(images);
 
     const image_views = try alloc.alloc(vk.ImageView, images.len);
     errdefer alloc.free(this.image_views);
     this.image_views = @ptrCast(image_views);
-    for (images, image_views) |image, *image_view| {
-        image_view.* = try this._device.device.createImageView(&.{
-            .image = image,
+    for (images, image_views) |img, *img_view| {
+        img_view.* = try this.device.device.createImageView(&.{
+            .image = img,
             .view_type = .@"2d", // TODO: allow for different types
-            .format = this._surface_format.format,
+            .format = this.surface_format.format,
             .components = .{
                 .r = .identity,
                 .b = .identity,
@@ -189,11 +185,11 @@ fn initSwapchain(this: *@This(), image_size: @Vector(2, u32), alloc: std.mem.All
     }
 }
 
-fn deinitSwapchain(this: *@This(), alloc: std.mem.Allocator) void {
+fn deinitSwapchain(this: *Display, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
 
     for (this.image_views) |image_view| {
-        this._device.device.destroyImageView(image_view._image_view, vk_alloc);
+        this.device.device.destroyImageView(image_view._image_view, vk_alloc);
     }
 
     alloc.free(this.image_views);
@@ -213,8 +209,8 @@ fn chooseSurfaceFormat(dispatch: *const vk.InstanceWrapper, phys: vk.PhysicalDev
     return formats[0];
 }
 
-fn chooseSwapExtent(this: *const @This(), image_size: @Vector(2, u32)) !vk.Extent2D {
-    const capabilities = try this._instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this._device.phys, this._surface);
+fn chooseSwapExtent(this: *Display, image_size: @Vector(2, u32)) !vk.Extent2D {
+    const capabilities = try this.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this.device.phys, this.surface);
 
     if (capabilities.current_extent.width != std.math.maxInt(u32))
         return capabilities.current_extent;

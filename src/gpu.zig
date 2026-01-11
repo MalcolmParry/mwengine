@@ -1,7 +1,7 @@
 const std = @import("std");
+const platform = @import("platform.zig");
 const vk = @import("gpu/vulkan.zig");
 
-pub const Display = vk.Display;
 pub const Shader = vk.Shader;
 pub const GraphicsPipeline = vk.GraphicsPipeline;
 pub const CommandEncoder = vk.CommandEncoder;
@@ -9,6 +9,7 @@ pub const Semaphore = vk.Semaphore;
 pub const Fence = vk.Fence;
 pub const Buffer = vk.Buffer;
 pub const ResourceSet = vk.ResourceSet;
+pub const Image = vk.Image;
 
 pub const Size = u64;
 pub const Api = enum {
@@ -110,6 +111,63 @@ pub const Device = union(Api) {
     pub const initSemaphore = Semaphore.init;
     pub const initFence = Fence.init;
     pub const initGraphicsPipeline = GraphicsPipeline.init;
+};
+
+pub const Display = union(Api) {
+    vk: vk.Display.Handle,
+
+    pub fn init(device: Device, window: *platform.Window, alloc: std.mem.Allocator) anyerror!Display {
+        return call(device, @src(), "Display", .{ device, window, alloc });
+    }
+
+    pub fn deinit(this: Display, alloc: std.mem.Allocator) void {
+        return call(this, @src(), "Display", .{ this, alloc });
+    }
+
+    pub const ImageIndex = u32;
+    pub const AcquireImageIndexResult = union(PresentResult) {
+        success: ImageIndex,
+        suboptimal: ImageIndex,
+        out_of_date: void,
+    };
+
+    pub fn acquireImageIndex(this: Display, maybe_signal_semaphore: ?Semaphore, maybe_signal_fence: ?Fence, timeout_ns: u64) anyerror!AcquireImageIndexResult {
+        return call(this, @src(), "Display", .{ this, maybe_signal_semaphore, maybe_signal_fence, timeout_ns });
+    }
+
+    pub const PresentResult = enum {
+        success,
+        suboptimal,
+        out_of_date,
+    };
+
+    pub fn presentImage(this: Display, index: u32, wait_semaphores: []const Semaphore, maybe_signal_fence: ?Fence) anyerror!PresentResult {
+        return call(this, @src(), "Display", .{ this, index, wait_semaphores, maybe_signal_fence });
+    }
+
+    pub fn rebuild(this: Display, image_size: @Vector(2, u32), alloc: std.mem.Allocator) anyerror!void {
+        return call(this, @src(), "Display", .{ this, image_size, alloc });
+    }
+
+    pub fn imageFormat(this: Display) Image.Format {
+        return call(this, @src(), "Display", .{this});
+    }
+
+    pub fn imageCount(this: Display) usize {
+        return call(this, @src(), "Display", .{this});
+    }
+
+    pub fn imageSize(this: Display) @Vector(2, u32) {
+        return call(this, @src(), "Display", .{this});
+    }
+
+    pub fn image(this: Display, index: Display.ImageIndex) Image {
+        return call(this, @src(), "Display", .{ this, index });
+    }
+
+    pub fn imageView(this: Display, index: Display.ImageIndex) Image.View {
+        return call(this, @src(), "Display", .{ this, index });
+    }
 };
 
 fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: []const u8, args: anytype) CallRetType(src, type_name) {

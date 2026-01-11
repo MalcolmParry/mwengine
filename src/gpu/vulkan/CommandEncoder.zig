@@ -103,7 +103,7 @@ pub const Access = packed struct {
 
 pub const MemoryBarrier = union(enum) {
     image: struct {
-        image: *Image,
+        image: *const Image,
         old_layout: Image.Layout,
         new_layout: Image.Layout,
         src_stage: Stage,

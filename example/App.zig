@@ -102,7 +102,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.graphics_pipeline = try this.device.initGraphicsPipeline(.{
         .alloc = alloc,
         .render_target_desc = .{
-            .color_format = this.display.image_format,
+            .color_format = this.display.imageFormat(),
         },
         .shader_set = this.shader_set,
         .resource_layouts = &.{this.resource_layout},
@@ -110,7 +110,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     errdefer this.graphics_pipeline.deinit(this.device);
 
     this.frame_in_flight = 0;
-    this.frames_in_flight_data = try alloc.alloc(PerFrameInFlight, this.display.images.len);
+    this.frames_in_flight_data = try alloc.alloc(PerFrameInFlight, this.display.imageCount());
     errdefer alloc.free(this.frames_in_flight_data);
 
     for (this.frames_in_flight_data, 0..) |*x, i| {
@@ -222,7 +222,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     per_frame.cmd_encoder.cmdMemoryBarrier(this.device, &.{
         .{ .image = .{
-            .image = &this.display.images[image_index],
+            .image = &this.display.image(image_index),
             .old_layout = .undefined,
             .new_layout = .color_attachment,
             .src_stage = .{ .pipeline_start = true },
@@ -241,14 +241,14 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     var render_pass = per_frame.cmd_encoder.cmdBeginRenderPass(.{
         .device = this.device,
-        .image_size = this.display.image_size,
+        .image_size = this.display.imageSize(),
         .target = .{
             .color_clear_value = @splat(0),
-            .color_image_view = this.display.image_views[image_index],
+            .color_image_view = this.display.imageView(image_index),
         },
     });
 
-    render_pass.cmdBindPipeline(this.device, this.graphics_pipeline, this.display.image_size);
+    render_pass.cmdBindPipeline(this.device, this.graphics_pipeline, this.display.imageSize());
     render_pass.cmdBindVertexBuffer(this.device, this.vertex_buffer.region());
     render_pass.cmdBindIndexBuffer(this.device, this.index_buffer.region(), .uint16);
     render_pass.cmdBindResourceSets(this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0);
@@ -261,7 +261,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     per_frame.cmd_encoder.cmdMemoryBarrier(this.device, &.{
         .{ .image = .{
-            .image = &this.display.images[image_index],
+            .image = &this.display.image(image_index),
             .old_layout = .color_attachment,
             .new_layout = .present_src,
             .src_stage = .{ .color_attachment_output = true },
