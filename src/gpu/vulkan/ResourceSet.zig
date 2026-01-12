@@ -114,7 +114,7 @@ pub const Layout = struct {
 
     pub const Descriptor = struct {
         t: Type,
-        stage: Shader.StageFlags,
+        stage: gpu.Shader.StageFlags,
         binding: u32,
         count: u32,
     };

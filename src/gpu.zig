@@ -2,7 +2,6 @@ const std = @import("std");
 const platform = @import("platform.zig");
 const vk = @import("gpu/vulkan.zig");
 
-pub const Shader = vk.Shader;
 pub const GraphicsPipeline = vk.GraphicsPipeline;
 pub const CommandEncoder = vk.CommandEncoder;
 pub const Semaphore = vk.Semaphore;
@@ -170,20 +169,144 @@ pub const Display = union(Api) {
     }
 };
 
-fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: []const u8, args: anytype) CallRetType(src, type_name) {
+pub const Shader = union {
+    vk: vk.Shader.Handle,
+
+    pub fn fromSpirv(device: Device, stage: Stage, spirvByteCode: []const u32, alloc: std.mem.Allocator) anyerror!Shader {
+        return call(device, @src(), "Shader", .{ device, stage, spirvByteCode, alloc });
+    }
+
+    pub fn deinit(this: Shader, device: Device, alloc: std.mem.Allocator) void {
+        return call(device, @src(), "Shader", .{ this, device, alloc });
+    }
+
+    pub const Stage = enum {
+        vertex,
+        pixel,
+    };
+
+    pub const StageFlags = packed struct {
+        vertex: bool = false,
+        pixel: bool = false,
+    };
+
+    pub const Set = union {
+        vk: vk.Shader.Set.Handle,
+
+        pub fn init(device: Device, vertex: Shader, pixel: Shader, per_vertex: []const DataType, alloc: std.mem.Allocator) anyerror!Set {
+            return call(device, @src(), .{ "Shader", "Set" }, .{ device, vertex, pixel, per_vertex, alloc });
+        }
+
+        pub fn deinit(this: Set, device: Device, alloc: std.mem.Allocator) void {
+            return call(device, @src(), .{ "Shader", "Set" }, .{ this, device, alloc });
+        }
+    };
+
+    pub const DataType = enum {
+        uint8,
+        uint8x2,
+        uint8x3,
+        uint8x4,
+        uint16,
+        uint16x2,
+        uint16x3,
+        uint16x4,
+        uint32,
+        uint32x2,
+        uint32x3,
+        uint32x4,
+        sint8,
+        sint8x2,
+        sint8x3,
+        sint8x4,
+        sint16,
+        sint16x2,
+        sint16x3,
+        sint16x4,
+        sint32,
+        sint32x2,
+        sint32x3,
+        sint32x4,
+        float16,
+        float16x2,
+        float16x3,
+        float16x4,
+        float32,
+        float32x2,
+        float32x3,
+        float32x4,
+        float32x4x4,
+
+        pub fn size(this: @This()) usize {
+            return switch (this) {
+                .uint8 => 1,
+                .uint8x2 => 2,
+                .uint8x3 => 3,
+                .uint8x4 => 4,
+                .uint16 => 2,
+                .uint16x2 => 4,
+                .uint16x3 => 6,
+                .uint16x4 => 8,
+                .uint32 => 4,
+                .uint32x2 => 8,
+                .uint32x3 => 12,
+                .uint32x4 => 16,
+                .uint64 => 8,
+                .uint64x2 => 16,
+                .uint64x3 => 24,
+                .uint64x4 => 32,
+                .sint8 => 1,
+                .sint8x2 => 2,
+                .sint8x3 => 3,
+                .sint8x4 => 4,
+                .sint16 => 2,
+                .sint16x2 => 4,
+                .sint16x3 => 6,
+                .sint16x4 => 8,
+                .sint32 => 4,
+                .sint32x2 => 8,
+                .sint32x3 => 12,
+                .sint32x4 => 16,
+                .float32 => 4,
+                .float32x2 => 8,
+                .float32x3 => 12,
+                .float32x4 => 16,
+                .float32x4x4 => 64,
+            };
+        }
+    };
+};
+
+fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: anytype, args: anytype) CallRetType(src, type_name) {
     const fn_name = src.fn_name;
 
     switch (api) {
         .vk => {
-            const func = @field(@field(vk, type_name), fn_name);
+            const T = GetTypeFromName(vk, type_name);
+
+            const func = @field(T, fn_name);
             return @call(.auto, func, args);
         },
     }
 }
 
-fn CallRetType(comptime src: std.builtin.SourceLocation, comptime type_name: []const u8) type {
+fn CallRetType(comptime src: std.builtin.SourceLocation, comptime type_name: anytype) type {
     const fn_name = src.fn_name;
-    const T = @field(@This(), type_name);
+    const T = GetTypeFromName(@This(), type_name);
     const func = @field(T, fn_name);
     return @typeInfo(@TypeOf(func)).@"fn".return_type.?;
+}
+
+fn GetTypeFromName(Base: type, comptime type_name: anytype) type {
+    return switch (@typeInfo(@TypeOf(type_name))) {
+        .@"struct" => |x| blk: {
+            var T = Base;
+            for (x.fields) |field| {
+                const name = @field(type_name, field.name);
+                T = @field(T, name);
+            }
+            break :blk T;
+        },
+        else => @field(Base, type_name),
+    };
 }

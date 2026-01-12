@@ -75,16 +75,16 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     });
 
     this.vertex_shader = try createShader(this.device, "res/shaders/triangle.vert.spv", .vertex, alloc);
-    errdefer this.vertex_shader.deinit(this.device);
+    errdefer this.vertex_shader.deinit(this.device, alloc);
 
     this.pixel_shader = try createShader(this.device, "res/shaders/triangle.frag.spv", .pixel, alloc);
-    errdefer this.pixel_shader.deinit(this.device);
+    errdefer this.pixel_shader.deinit(this.device, alloc);
 
-    this.shader_set = try gpu.Shader.Set.init(this.vertex_shader, this.pixel_shader, &.{
+    this.shader_set = try gpu.Shader.Set.init(this.device, this.vertex_shader, this.pixel_shader, &.{
         .float32x2,
         .float32x3,
     }, alloc);
-    errdefer this.shader_set.deinit(alloc);
+    errdefer this.shader_set.deinit(this.device, alloc);
 
     this.resource_layout = try this.device.initResouceLayout(.{
         .alloc = alloc,
@@ -130,9 +130,9 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
 
     this.graphics_pipeline.deinit(this.device);
     this.resource_layout.deinit(this.device, alloc);
-    this.shader_set.deinit(alloc);
-    this.pixel_shader.deinit(this.device);
-    this.vertex_shader.deinit(this.device);
+    this.shader_set.deinit(this.device, alloc);
+    this.pixel_shader.deinit(this.device, alloc);
+    this.vertex_shader.deinit(this.device, alloc);
     this.index_buffer.deinit(this.device);
     this.vertex_buffer.deinit(this.device);
 
@@ -299,14 +299,12 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         }
     }
 
-    if (rebuild) try this.rebuildDisplay(alloc);
+    if (rebuild) {
+        this.device.waitUntilIdle();
+        try this.display.rebuild(this.window.getFramebufferSize(), alloc);
+    }
 
     return !this.window.shouldClose();
-}
-
-fn rebuildDisplay(this: *@This(), alloc: std.mem.Allocator) !void {
-    this.device.waitUntilIdle();
-    try this.display.rebuild(this.window.getFramebufferSize(), alloc);
 }
 
 const PerFrameInFlight = struct {
@@ -395,7 +393,7 @@ fn createShader(device: gpu.Device, filepath: []const u8, stage: gpu.Shader.Stag
     const read = try file.readAll(std.mem.sliceAsBytes(buffer));
     if (read != fileSize)
         return error.CouldntReadShaderFile;
-    return gpu.Shader.fromSpirv(device, stage, buffer);
+    return gpu.Shader.fromSpirv(device, stage, buffer, alloc);
 }
 
 const PerVertex = extern struct {

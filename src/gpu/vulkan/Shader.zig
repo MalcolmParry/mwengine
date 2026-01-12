@@ -3,137 +3,61 @@ const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
 
 const Shader = @This();
+pub const Handle = *Shader;
 
-_shader_module: vk.ShaderModule,
-_stage: vk.ShaderStageFlags,
+shader_module: vk.ShaderModule,
+stage: vk.ShaderStageFlags,
 
-pub fn fromSpirv(device: gpu.Device, stage: Stage, spirvByteCode: []const u32) !@This() {
+pub fn fromSpirv(device: gpu.Device, stage: gpu.Shader.Stage, spirvByteCode: []const u32, alloc: std.mem.Allocator) !gpu.Shader {
+    const this = try alloc.create(Shader);
+    errdefer alloc.destroy(this);
+    this.stage = switch (stage) {
+        .vertex => .{ .vertex_bit = true },
+        .pixel => .{ .fragment_bit = true },
+    };
+
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    const shader_module = try device.vk.device.createShaderModule(&.{
+    this.shader_module = try device.vk.device.createShaderModule(&.{
         .code_size = spirvByteCode.len * @sizeOf(u32),
         .p_code = spirvByteCode.ptr,
     }, vk_alloc);
 
-    return .{
-        ._shader_module = shader_module,
-        ._stage = switch (stage) {
-            .vertex => .{ .vertex_bit = true },
-            .pixel => .{ .fragment_bit = true },
-        },
-    };
+    return .{ .vk = this };
 }
 
-pub fn deinit(this: *@This(), device: gpu.Device) void {
+pub fn deinit(this: gpu.Shader, device: gpu.Device, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    device.vk.device.destroyShaderModule(this._shader_module, vk_alloc);
+    device.vk.device.destroyShaderModule(this.vk.shader_module, vk_alloc);
+    alloc.destroy(this.vk);
 }
-
-pub const Stage = enum {
-    vertex,
-    pixel,
-};
-
-pub const StageFlags = packed struct {
-    vertex: bool = false,
-    pixel: bool = false,
-};
 
 pub const Set = struct {
-    vertex: Shader,
-    pixel: Shader,
-    _per_vertex: []const vk.Format,
+    pub const Handle = *Set;
 
-    pub fn init(vertex: Shader, pixel: Shader, per_vertex: []const DataType, alloc: std.mem.Allocator) !@This() {
-        std.debug.assert(vertex._stage.vertex_bit);
-        std.debug.assert(pixel._stage.fragment_bit);
+    vertex: gpu.Shader,
+    pixel: gpu.Shader,
+    per_vertex: []const vk.Format,
 
-        return .{
-            .vertex = vertex,
-            .pixel = pixel,
-            ._per_vertex = try _shaderDataTypeToVk(per_vertex, alloc),
-        };
+    pub fn init(_: gpu.Device, vertex: gpu.Shader, pixel: gpu.Shader, per_vertex: []const gpu.Shader.DataType, alloc: std.mem.Allocator) !gpu.Shader.Set {
+        std.debug.assert(vertex.vk.stage.vertex_bit);
+        std.debug.assert(pixel.vk.stage.fragment_bit);
+
+        const this = try alloc.create(Set);
+        errdefer alloc.destroy(this);
+        this.per_vertex = try shaderDataTypeToVk(per_vertex, alloc);
+        this.vertex = vertex;
+        this.pixel = pixel;
+
+        return .{ .vk = this };
     }
 
-    pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
-        alloc.free(this._per_vertex);
-    }
-};
-
-pub const DataType = enum {
-    uint8,
-    uint8x2,
-    uint8x3,
-    uint8x4,
-    uint16,
-    uint16x2,
-    uint16x3,
-    uint16x4,
-    uint32,
-    uint32x2,
-    uint32x3,
-    uint32x4,
-    sint8,
-    sint8x2,
-    sint8x3,
-    sint8x4,
-    sint16,
-    sint16x2,
-    sint16x3,
-    sint16x4,
-    sint32,
-    sint32x2,
-    sint32x3,
-    sint32x4,
-    float16,
-    float16x2,
-    float16x3,
-    float16x4,
-    float32,
-    float32x2,
-    float32x3,
-    float32x4,
-    float32x4x4,
-
-    pub fn size(this: @This()) usize {
-        return switch (this) {
-            .uint8 => 1,
-            .uint8x2 => 2,
-            .uint8x3 => 3,
-            .uint8x4 => 4,
-            .uint16 => 2,
-            .uint16x2 => 4,
-            .uint16x3 => 6,
-            .uint16x4 => 8,
-            .uint32 => 4,
-            .uint32x2 => 8,
-            .uint32x3 => 12,
-            .uint32x4 => 16,
-            .uint64 => 8,
-            .uint64x2 => 16,
-            .uint64x3 => 24,
-            .uint64x4 => 32,
-            .sint8 => 1,
-            .sint8x2 => 2,
-            .sint8x3 => 3,
-            .sint8x4 => 4,
-            .sint16 => 2,
-            .sint16x2 => 4,
-            .sint16x3 => 6,
-            .sint16x4 => 8,
-            .sint32 => 4,
-            .sint32x2 => 8,
-            .sint32x3 => 12,
-            .sint32x4 => 16,
-            .float32 => 4,
-            .float32x2 => 8,
-            .float32x3 => 12,
-            .float32x4 => 16,
-            .float32x4x4 => 64,
-        };
+    pub fn deinit(this: gpu.Shader.Set, _: gpu.Device, alloc: std.mem.Allocator) void {
+        alloc.free(this.vk.per_vertex);
+        alloc.destroy(this.vk);
     }
 };
 
-fn _shaderDataTypeToVk(types: []const DataType, alloc: std.mem.Allocator) ![]vk.Format {
+fn shaderDataTypeToVk(types: []const gpu.Shader.DataType, alloc: std.mem.Allocator) ![]vk.Format {
     var count: u32 = 0;
 
     for (types) |x| {
@@ -201,7 +125,7 @@ fn _shaderDataTypeToVk(types: []const DataType, alloc: std.mem.Allocator) ![]vk.
     return vk_types;
 }
 
-pub fn _vkTypeSize(t: vk.Format) gpu.Size {
+pub fn vkTypeSize(t: vk.Format) gpu.Size {
     return switch (t) {
         .r8_uint => 1,
         .r8g8_uint => 2,

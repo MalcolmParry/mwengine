@@ -8,7 +8,7 @@ const RenderTarget = @import("RenderTarget.zig");
 pub const CreateInfo = struct {
     alloc: std.mem.Allocator,
     render_target_desc: RenderTarget.Desc,
-    shader_set: Shader.Set,
+    shader_set: gpu.Shader.Set,
     resource_layouts: []const ResourceSet.Layout,
 };
 
@@ -34,12 +34,12 @@ pub fn init(device: gpu.Device, info: CreateInfo) !@This() {
     const shader_stages: [2]vk.PipelineShaderStageCreateInfo = .{
         .{
             .stage = .{ .vertex_bit = true },
-            .module = info.shader_set.vertex._shader_module,
+            .module = info.shader_set.vk.vertex.vk.shader_module,
             .p_name = "main",
         },
         .{
             .stage = .{ .fragment_bit = true },
-            .module = info.shader_set.pixel._shader_module,
+            .module = info.shader_set.vk.pixel.vk.shader_module,
             .p_name = "main",
         },
     };
@@ -66,9 +66,9 @@ pub fn init(device: gpu.Device, info: CreateInfo) !@This() {
     };
 
     var attribute_offset: u32 = 0;
-    const vertex_attribute_descriptions = try info.alloc.alloc(vk.VertexInputAttributeDescription, info.shader_set._per_vertex.len);
+    const vertex_attribute_descriptions = try info.alloc.alloc(vk.VertexInputAttributeDescription, info.shader_set.vk.per_vertex.len);
     defer info.alloc.free(vertex_attribute_descriptions);
-    for (info.shader_set._per_vertex, 0..) |format, i| {
+    for (info.shader_set.vk.per_vertex, 0..) |format, i| {
         vertex_attribute_descriptions[i] = .{
             .binding = 0,
             .location = @intCast(i),
@@ -76,7 +76,7 @@ pub fn init(device: gpu.Device, info: CreateInfo) !@This() {
             .offset = attribute_offset,
         };
 
-        attribute_offset += @intCast(Shader._vkTypeSize(format));
+        attribute_offset += @intCast(Shader.vkTypeSize(format));
     }
 
     const vertex_bindings: [1]vk.VertexInputBindingDescription = .{
