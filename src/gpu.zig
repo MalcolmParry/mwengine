@@ -3,8 +3,6 @@ const platform = @import("platform.zig");
 const vk = @import("gpu/vulkan.zig");
 
 pub const CommandEncoder = vk.CommandEncoder;
-pub const Semaphore = vk.Semaphore;
-pub const Fence = vk.Fence;
 pub const Buffer = vk.Buffer;
 pub const ResourceSet = vk.ResourceSet;
 pub const Image = vk.Image;
@@ -303,6 +301,48 @@ pub const RenderTarget = struct {
     pub const Descriptor = struct {
         color_format: Image.Format,
     };
+};
+
+pub const Semaphore = union {
+    vk: vk.Semaphore.Handle,
+
+    pub fn init(device: Device) anyerror!Semaphore {
+        return call(device, @src(), "Semaphore", .{device});
+    }
+
+    pub fn deinit(this: Semaphore, device: Device) void {
+        return call(device, @src(), "Semaphore", .{ this, device });
+    }
+};
+
+pub const Fence = struct {
+    vk: vk.Fence.Handle,
+
+    pub fn init(device: Device, signaled: bool) anyerror!Fence {
+        return call(device, @src(), "Fence", .{ device, signaled });
+    }
+
+    pub fn deinit(this: Fence, device: Device) void {
+        return call(device, @src(), "Fence", .{ this, device });
+    }
+
+    pub fn reset(this: Fence, device: Device) anyerror!void {
+        return call(device, @src(), "Fence", .{ this, device });
+    }
+
+    pub const WaitForEnum = enum { single, all };
+
+    pub fn waitMany(these: []const Fence, device: Device, how_many: WaitForEnum, timeout_ns: ?u64) anyerror!void {
+        return call(device, @src(), "Fence", .{ these, device, how_many, timeout_ns });
+    }
+
+    pub fn wait(this: Fence, device: Device, timeout_ns: ?u64) anyerror!void {
+        try waitMany(&.{this}, device, .all, timeout_ns);
+    }
+
+    pub fn checkSignaled(this: Fence, device: Device) bool {
+        return call(device, @src(), "Fence", .{ this, device });
+    }
 };
 
 fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: anytype, args: anytype) CallRetType(src, type_name) {

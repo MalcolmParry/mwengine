@@ -5,7 +5,6 @@ const vk = @import("vulkan");
 const Instance = @import("Instance.zig");
 const Device = @import("Device.zig");
 const Semaphore = @import("wait_objects.zig").Semaphore;
-const Fence = @import("wait_objects.zig").Fence;
 const Image = @import("Image.zig");
 
 const Display = @This();
@@ -46,9 +45,9 @@ pub fn deinit(this: gpu.Display, alloc: std.mem.Allocator) void {
     alloc.destroy(this.vk);
 }
 
-pub fn acquireImageIndex(this: gpu.Display, maybe_signal_semaphore: ?Semaphore, maybe_signal_fence: ?Fence, timeout_ns: u64) !gpu.Display.AcquireImageIndexResult {
-    const native_semaphore = if (maybe_signal_semaphore) |x| x._semaphore else .null_handle;
-    const native_fence = if (maybe_signal_fence) |x| x._fence else .null_handle;
+pub fn acquireImageIndex(this: gpu.Display, maybe_signal_semaphore: ?gpu.Semaphore, maybe_signal_fence: ?gpu.Fence, timeout_ns: u64) !gpu.Display.AcquireImageIndexResult {
+    const native_semaphore = if (maybe_signal_semaphore) |x| x.vk.semaphore else .null_handle;
+    const native_fence = if (maybe_signal_fence) |x| x.vk.fence else .null_handle;
 
     const result = this.vk.device.device.acquireNextImageKHR(this.vk.swapchain, timeout_ns, native_semaphore, native_fence) catch |err| switch (err) {
         error.OutOfDateKHR => return .out_of_date,
@@ -64,15 +63,15 @@ pub fn acquireImageIndex(this: gpu.Display, maybe_signal_semaphore: ?Semaphore, 
     };
 }
 
-pub fn presentImage(this: gpu.Display, index: u32, wait_semaphores: []const Semaphore, maybe_signal_fence: ?Fence) !gpu.Display.PresentResult {
+pub fn presentImage(this: gpu.Display, index: u32, wait_semaphores: []const gpu.Semaphore, maybe_signal_fence: ?gpu.Fence) !gpu.Display.PresentResult {
     const maybe_fence_info: ?vk.SwapchainPresentFenceInfoEXT = if (maybe_signal_fence) |fence| .{
         .swapchain_count = 1,
-        .p_fences = @ptrCast(&fence._fence),
+        .p_fences = @ptrCast(&fence.vk.fence),
     } else null;
 
     const result = this.vk.device.device.queuePresentKHR(this.vk.device.queue, &.{
         .wait_semaphore_count = @intCast(wait_semaphores.len),
-        .p_wait_semaphores = Semaphore._nativesFromSlice(wait_semaphores),
+        .p_wait_semaphores = Semaphore.nativesFromSlice(wait_semaphores),
         .swapchain_count = 1,
         .p_swapchains = @ptrCast(&this.vk.swapchain),
         .p_image_indices = @ptrCast(&index),

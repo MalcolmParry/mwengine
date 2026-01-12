@@ -2,7 +2,6 @@ const std = @import("std");
 const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
 const Semaphore = @import("wait_objects.zig").Semaphore;
-const Fence = @import("wait_objects.zig").Fence;
 const Buffer = @import("Buffer.zig");
 const ResourceSet = @import("ResourceSet.zig");
 const Image = @import("Image.zig");
@@ -37,7 +36,7 @@ pub fn end(this: *@This(), device: gpu.Device) !void {
     try device.vk.device.endCommandBuffer(this._command_buffer);
 }
 
-pub fn submit(this: *@This(), device: gpu.Device, wait_semaphores: []const Semaphore, signal_semaphores: []const Semaphore, signal_fence: ?Fence) !void {
+pub fn submit(this: *@This(), device: gpu.Device, wait_semaphores: []const gpu.Semaphore, signal_semaphores: []const gpu.Semaphore, signal_fence: ?gpu.Fence) !void {
     // really cursed temporary solution
     const wait_dst_stage_mask: [5]vk.PipelineStageFlags = @splat(.{
         .color_attachment_output_bit = true,
@@ -47,13 +46,13 @@ pub fn submit(this: *@This(), device: gpu.Device, wait_semaphores: []const Semap
         .command_buffer_count = 1,
         .p_command_buffers = @ptrCast(&this._command_buffer),
         .wait_semaphore_count = @intCast(wait_semaphores.len),
-        .p_wait_semaphores = Semaphore._nativesFromSlice(wait_semaphores),
+        .p_wait_semaphores = Semaphore.nativesFromSlice(wait_semaphores),
         .p_wait_dst_stage_mask = @ptrCast(&wait_dst_stage_mask),
         .signal_semaphore_count = @intCast(signal_semaphores.len),
-        .p_signal_semaphores = Semaphore._nativesFromSlice(signal_semaphores),
+        .p_signal_semaphores = Semaphore.nativesFromSlice(signal_semaphores),
     };
 
-    try device.vk.device.queueSubmit(device.vk.queue, 1, @ptrCast(&submit_info), if (signal_fence) |fence| fence._fence else .null_handle);
+    try device.vk.device.queueSubmit(device.vk.queue, 1, @ptrCast(&submit_info), if (signal_fence) |fence| fence.vk.fence else .null_handle);
 }
 
 pub fn cmdCopyBuffer(this: *@This(), device: gpu.Device, src: Buffer.Region, dst: Buffer.Region) void {
