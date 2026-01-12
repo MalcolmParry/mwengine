@@ -3,7 +3,6 @@ const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
 const Shader = @import("Shader.zig");
 const ResourceSet = @import("ResourceSet.zig");
-const RenderTarget = @import("RenderTarget.zig");
 
 const GraphicsPipeline = @This();
 pub const Handle = *GraphicsPipeline;

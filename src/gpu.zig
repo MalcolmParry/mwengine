@@ -8,7 +8,6 @@ pub const Fence = vk.Fence;
 pub const Buffer = vk.Buffer;
 pub const ResourceSet = vk.ResourceSet;
 pub const Image = vk.Image;
-pub const RenderTarget = vk.RenderTarget;
 
 pub const Size = u64;
 pub const Api = enum {
@@ -294,6 +293,16 @@ pub const GraphicsPipeline = union {
     pub fn deinit(this: GraphicsPipeline, device: Device, alloc: std.mem.Allocator) void {
         return call(device, @src(), "GraphicsPipeline", .{ this, device, alloc });
     }
+};
+
+pub const RenderTarget = struct {
+    color_clear_value: @Vector(4, f32),
+    color_image_view: Image.View,
+
+    pub const Desc = Descriptor;
+    pub const Descriptor = struct {
+        color_format: Image.Format,
+    };
 };
 
 fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: anytype, args: anytype) CallRetType(src, type_name) {

@@ -5,7 +5,6 @@ const Semaphore = @import("wait_objects.zig").Semaphore;
 const Fence = @import("wait_objects.zig").Fence;
 const Buffer = @import("Buffer.zig");
 const ResourceSet = @import("ResourceSet.zig");
-const RenderTarget = @import("RenderTarget.zig");
 const Image = @import("Image.zig");
 
 const CommandEncoder = @This();
@@ -176,7 +175,7 @@ pub const RenderPassEncoder = struct {
 
     pub const RenderPassBeginInfo = struct {
         device: gpu.Device,
-        target: RenderTarget,
+        target: gpu.RenderTarget,
         image_size: @Vector(2, u32),
     };
 
