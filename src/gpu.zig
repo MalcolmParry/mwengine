@@ -2,13 +2,13 @@ const std = @import("std");
 const platform = @import("platform.zig");
 const vk = @import("gpu/vulkan.zig");
 
-pub const GraphicsPipeline = vk.GraphicsPipeline;
 pub const CommandEncoder = vk.CommandEncoder;
 pub const Semaphore = vk.Semaphore;
 pub const Fence = vk.Fence;
 pub const Buffer = vk.Buffer;
 pub const ResourceSet = vk.ResourceSet;
 pub const Image = vk.Image;
+pub const RenderTarget = vk.RenderTarget;
 
 pub const Size = u64;
 pub const Api = enum {
@@ -275,6 +275,25 @@ pub const Shader = union {
             };
         }
     };
+};
+
+pub const GraphicsPipeline = union {
+    vk: vk.GraphicsPipeline.Handle,
+
+    pub const CreateInfo = struct {
+        alloc: std.mem.Allocator,
+        render_target_desc: RenderTarget.Desc,
+        shader_set: Shader.Set,
+        resource_layouts: []const ResourceSet.Layout,
+    };
+
+    pub fn init(device: Device, info: CreateInfo) anyerror!GraphicsPipeline {
+        return call(device, @src(), "GraphicsPipeline", .{ device, info });
+    }
+
+    pub fn deinit(this: GraphicsPipeline, device: Device, alloc: std.mem.Allocator) void {
+        return call(device, @src(), "GraphicsPipeline", .{ this, device, alloc });
+    }
 };
 
 fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: anytype, args: anytype) CallRetType(src, type_name) {

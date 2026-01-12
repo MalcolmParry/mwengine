@@ -1,7 +1,6 @@
 const std = @import("std");
 const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
-const GraphicsPipeline = @import("GraphicsPipeline.zig");
 const Semaphore = @import("wait_objects.zig").Semaphore;
 const Fence = @import("wait_objects.zig").Fence;
 const Buffer = @import("Buffer.zig");
@@ -222,8 +221,8 @@ pub const RenderPassEncoder = struct {
         device.vk.device.cmdEndRenderingKHR(this.command_encoder._command_buffer);
     }
 
-    pub fn cmdBindPipeline(this: @This(), device: gpu.Device, graphics_pipeline: GraphicsPipeline, image_size: @Vector(2, u32)) void {
-        device.vk.device.cmdBindPipeline(this.command_encoder._command_buffer, .graphics, graphics_pipeline._pipeline);
+    pub fn cmdBindPipeline(this: @This(), device: gpu.Device, graphics_pipeline: gpu.GraphicsPipeline, image_size: @Vector(2, u32)) void {
+        device.vk.device.cmdBindPipeline(this.command_encoder._command_buffer, .graphics, graphics_pipeline.vk.pipeline);
 
         const viewport: vk.Viewport = .{
             .x = 0,
@@ -262,7 +261,7 @@ pub const RenderPassEncoder = struct {
         });
     }
 
-    pub fn cmdBindResourceSets(this: @This(), device: gpu.Device, pipeline: *GraphicsPipeline, resource_sets: []const ResourceSet, first: u32) void {
+    pub fn cmdBindResourceSets(this: @This(), device: gpu.Device, pipeline: gpu.GraphicsPipeline, resource_sets: []const ResourceSet, first: u32) void {
         var buffer: [64]u8 = undefined;
         var alloc = std.heap.FixedBufferAllocator.init(&buffer);
         const natives = ResourceSet._nativesFromSlice(resource_sets, alloc.allocator()) catch unreachable;
@@ -270,7 +269,7 @@ pub const RenderPassEncoder = struct {
         device.vk.device.cmdBindDescriptorSets(
             this.command_encoder._command_buffer,
             .graphics,
-            pipeline._pipeline_layout,
+            pipeline.vk.pipeline_layout,
             first,
             @intCast(resource_sets.len),
             natives.ptr,

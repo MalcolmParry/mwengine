@@ -107,7 +107,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
         .shader_set = this.shader_set,
         .resource_layouts = &.{this.resource_layout},
     });
-    errdefer this.graphics_pipeline.deinit(this.device);
+    errdefer this.graphics_pipeline.deinit(this.device, alloc);
 
     this.frame_in_flight = 0;
     this.frames_in_flight_data = try alloc.alloc(PerFrameInFlight, this.display.imageCount());
@@ -128,7 +128,7 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
     for (this.frames_in_flight_data) |*x| x.deinit(this);
     alloc.free(this.frames_in_flight_data);
 
-    this.graphics_pipeline.deinit(this.device);
+    this.graphics_pipeline.deinit(this.device, alloc);
     this.resource_layout.deinit(this.device, alloc);
     this.shader_set.deinit(this.device, alloc);
     this.pixel_shader.deinit(this.device, alloc);
@@ -251,7 +251,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     render_pass.cmdBindPipeline(this.device, this.graphics_pipeline, this.display.imageSize());
     render_pass.cmdBindVertexBuffer(this.device, this.vertex_buffer.region());
     render_pass.cmdBindIndexBuffer(this.device, this.index_buffer.region(), .uint16);
-    render_pass.cmdBindResourceSets(this.device, &this.graphics_pipeline, &.{per_frame.resource_set}, 0);
+    render_pass.cmdBindResourceSets(this.device, this.graphics_pipeline, &.{per_frame.resource_set}, 0);
     render_pass.cmdDraw(.{
         .device = this.device,
         .vertex_count = 6,

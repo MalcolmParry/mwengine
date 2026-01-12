@@ -5,30 +5,29 @@ const Shader = @import("Shader.zig");
 const ResourceSet = @import("ResourceSet.zig");
 const RenderTarget = @import("RenderTarget.zig");
 
-pub const CreateInfo = struct {
-    alloc: std.mem.Allocator,
-    render_target_desc: RenderTarget.Desc,
-    shader_set: gpu.Shader.Set,
-    resource_layouts: []const ResourceSet.Layout,
-};
+const GraphicsPipeline = @This();
+pub const Handle = *GraphicsPipeline;
 
-_pipeline: vk.Pipeline,
-_pipeline_layout: vk.PipelineLayout,
+pipeline: vk.Pipeline,
+pipeline_layout: vk.PipelineLayout,
 
-pub fn init(device: gpu.Device, info: CreateInfo) !@This() {
+pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.GraphicsPipeline {
+    const this = try info.alloc.create(GraphicsPipeline);
+    errdefer info.alloc.destroy(this);
+
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const native_device = device.vk.device;
     const native_descriptor_set_layouts = try ResourceSet.Layout._nativesFromSlice(info.resource_layouts, info.alloc);
     defer info.alloc.free(native_descriptor_set_layouts);
 
     // TODO: could be separated into different objects
-    const pipeline_layout = try native_device.createPipelineLayout(&.{
+    this.pipeline_layout = try native_device.createPipelineLayout(&.{
         .set_layout_count = @intCast(native_descriptor_set_layouts.len),
         .p_set_layouts = native_descriptor_set_layouts.ptr,
         .push_constant_range_count = 0,
         .p_push_constant_ranges = null,
     }, vk_alloc);
-    errdefer native_device.destroyPipelineLayout(pipeline_layout, vk_alloc);
+    errdefer native_device.destroyPipelineLayout(this.pipeline_layout, vk_alloc);
 
     // TODO: add per vertex data
     const shader_stages: [2]vk.PipelineShaderStageCreateInfo = .{
@@ -99,7 +98,7 @@ pub fn init(device: gpu.Device, info: CreateInfo) !@This() {
 
     const pipeline_create_info: vk.GraphicsPipelineCreateInfo = .{
         .subpass = 0,
-        .layout = pipeline_layout,
+        .layout = this.pipeline_layout,
         .render_pass = .null_handle,
         .base_pipeline_handle = .null_handle,
         .base_pipeline_index = -1,
@@ -185,17 +184,15 @@ pub fn init(device: gpu.Device, info: CreateInfo) !@This() {
 
     // the only way for pipeline creation to return a non zig error is
     // if we requested lazy compilation in flags
-    var pipeline: vk.Pipeline = .null_handle;
-    if (try native_device.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_create_info), vk_alloc, @ptrCast(&pipeline)) != .success) return error.Unknown;
+    this.pipeline = .null_handle;
+    if (try native_device.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_create_info), vk_alloc, @ptrCast(&this.pipeline)) != .success) return error.Unknown;
 
-    return .{
-        ._pipeline = pipeline,
-        ._pipeline_layout = pipeline_layout,
-    };
+    return .{ .vk = this };
 }
 
-pub fn deinit(this: *@This(), device: gpu.Device) void {
+pub fn deinit(this: gpu.GraphicsPipeline, device: gpu.Device, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    device.vk.device.destroyPipeline(this._pipeline, vk_alloc);
-    device.vk.device.destroyPipelineLayout(this._pipeline_layout, vk_alloc);
+    device.vk.device.destroyPipeline(this.vk.pipeline, vk_alloc);
+    device.vk.device.destroyPipelineLayout(this.vk.pipeline_layout, vk_alloc);
+    alloc.destroy(this.vk);
 }
