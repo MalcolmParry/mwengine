@@ -259,10 +259,10 @@ pub const RenderPassEncoder = struct {
         });
     }
 
-    pub fn cmdBindResourceSets(this: @This(), device: gpu.Device, pipeline: gpu.GraphicsPipeline, resource_sets: []const ResourceSet, first: u32) void {
+    pub fn cmdBindResourceSets(this: @This(), device: gpu.Device, pipeline: gpu.GraphicsPipeline, resource_sets: []const gpu.ResourceSet, first: u32) void {
         var buffer: [64]u8 = undefined;
         var alloc = std.heap.FixedBufferAllocator.init(&buffer);
-        const natives = ResourceSet._nativesFromSlice(resource_sets, alloc.allocator()) catch unreachable;
+        const natives = ResourceSet.nativesFromSlice(resource_sets, alloc.allocator()) catch unreachable;
 
         device.vk.device.cmdBindDescriptorSets(
             this.command_encoder._command_buffer,

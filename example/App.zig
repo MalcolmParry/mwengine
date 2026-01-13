@@ -114,7 +114,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     errdefer alloc.free(this.frames_in_flight_data);
 
     for (this.frames_in_flight_data, 0..) |*x, i| {
-        errdefer for (this.frames_in_flight_data[0 .. i - 1]) |*x2| x2.deinit(this);
+        errdefer for (this.frames_in_flight_data[0 .. i - 1]) |*x2| x2.deinit(this, alloc);
         x.* = try .init(this, alloc);
     }
 
@@ -125,7 +125,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
 pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
     this.device.waitUntilIdle();
 
-    for (this.frames_in_flight_data) |*x| x.deinit(this);
+    for (this.frames_in_flight_data) |*x| x.deinit(this, alloc);
     alloc.free(this.frames_in_flight_data);
 
     this.graphics_pipeline.deinit(this.device, alloc);
@@ -353,8 +353,8 @@ const PerFrameInFlight = struct {
         this.uniform_mapping = @ptrCast(@alignCast(try this.uniform_staging.map(app.device)));
         errdefer this.uniform_staging.unmap(app.device);
 
-        this.resource_set = try .init(app.device, &app.resource_layout);
-        errdefer this.resource_set.deinit(app.device);
+        this.resource_set = try .init(app.device, app.resource_layout, alloc);
+        errdefer this.resource_set.deinit(app.device, alloc);
         try this.resource_set.update(app.device, &.{
             .{
                 .binding = 0,
@@ -369,7 +369,7 @@ const PerFrameInFlight = struct {
         return this;
     }
 
-    pub fn deinit(this: *@This(), app: *App) void {
+    pub fn deinit(this: *@This(), app: *App, alloc: std.mem.Allocator) void {
         this.cmd_encoder.deinit(app.device);
         this.image_available_semaphore.deinit(app.device);
         this.render_finished_semaphore.deinit(app.device);
@@ -378,7 +378,7 @@ const PerFrameInFlight = struct {
         this.uniform_staging.unmap(app.device);
         this.uniform_staging.deinit(app.device);
         this.uniform_buffer.deinit(app.device);
-        this.resource_set.deinit(app.device);
+        this.resource_set.deinit(app.device, alloc);
     }
 };
 

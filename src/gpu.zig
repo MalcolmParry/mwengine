@@ -4,7 +4,6 @@ const vk = @import("gpu/vulkan.zig");
 
 pub const CommandEncoder = vk.CommandEncoder;
 pub const Buffer = vk.Buffer;
-pub const ResourceSet = vk.ResourceSet;
 pub const Image = vk.Image;
 
 pub const Size = u64;
@@ -315,7 +314,7 @@ pub const Semaphore = union {
     }
 };
 
-pub const Fence = struct {
+pub const Fence = union {
     vk: vk.Fence.Handle,
 
     pub fn init(device: Device, signaled: bool) anyerror!Fence {
@@ -343,6 +342,58 @@ pub const Fence = struct {
     pub fn checkSignaled(this: Fence, device: Device) bool {
         return call(device, @src(), "Fence", .{ this, device });
     }
+};
+
+pub const ResourceSet = union {
+    vk: vk.ResourceSet.Handle,
+
+    pub fn init(device: Device, layout: Layout, alloc: std.mem.Allocator) anyerror!ResourceSet {
+        return call(device, @src(), "ResourceSet", .{ device, layout, alloc });
+    }
+
+    pub fn deinit(this: ResourceSet, device: Device, alloc: std.mem.Allocator) void {
+        return call(device, @src(), "ResourceSet", .{ this, device, alloc });
+    }
+
+    pub const Write = struct {
+        binding: u32,
+        data: union(Type) {
+            uniform: []const Buffer.Region,
+        },
+    };
+
+    pub fn update(this: ResourceSet, device: Device, writes: []const Write, alloc: std.mem.Allocator) anyerror!void {
+        return call(device, @src(), "ResourceSet", .{ this, device, writes, alloc });
+    }
+
+    pub const Type = enum {
+        uniform,
+        // image,
+    };
+
+    pub const Layout = union {
+        vk: vk.ResourceSet.Layout.Handle,
+
+        pub const Descriptor = struct {
+            t: Type,
+            stage: Shader.StageFlags,
+            binding: u32,
+            count: u32,
+        };
+
+        pub const CreateInfo = struct {
+            alloc: std.mem.Allocator,
+            descriptors: []const Descriptor,
+        };
+
+        pub fn init(device: Device, info: CreateInfo) anyerror!Layout {
+            return call(device, @src(), .{ "ResourceSet", "Layout" }, .{ device, info });
+        }
+
+        pub fn deinit(this: @This(), device: Device, alloc: std.mem.Allocator) void {
+            return call(device, @src(), .{ "ResourceSet", "Layout" }, .{ this, device, alloc });
+        }
+    };
 };
 
 fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: anytype, args: anytype) CallRetType(src, type_name) {

@@ -16,7 +16,7 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
 
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const native_device = device.vk.device;
-    const native_descriptor_set_layouts = try ResourceSet.Layout._nativesFromSlice(info.resource_layouts, info.alloc);
+    const native_descriptor_set_layouts = try ResourceSet.Layout.nativesFromSlice(info.resource_layouts, info.alloc);
     defer info.alloc.free(native_descriptor_set_layouts);
 
     // TODO: could be separated into different objects

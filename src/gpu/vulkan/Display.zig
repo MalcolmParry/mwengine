@@ -2,7 +2,6 @@ const std = @import("std");
 const gpu = @import("../../gpu.zig");
 const platform = @import("../../platform.zig");
 const vk = @import("vulkan");
-const Instance = @import("Instance.zig");
 const Device = @import("Device.zig");
 const Semaphore = @import("wait_objects.zig").Semaphore;
 const Image = @import("Image.zig");
