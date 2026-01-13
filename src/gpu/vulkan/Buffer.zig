@@ -4,35 +4,17 @@ const vk = @import("vulkan");
 const MemoryRegion = @import("Device.zig").MemoryRegion;
 
 const Buffer = @This();
+pub const Handle = *Buffer;
 
-pub const Location = enum {
-    host,
-    device,
-};
+buffer: vk.Buffer,
+memory_region: MemoryRegion,
+size_: gpu.Size,
 
-pub const Usage = packed struct {
-    const BackingInt = @typeInfo(@TypeOf(@This())).@"struct".backing_integer.?;
-    const all: Usage = @bitCast(std.math.maxInt(BackingInt));
-
-    src: bool = false,
-    dst: bool = false,
-    vertex: bool = false,
-    index: bool = false,
-    uniform: bool = false,
-};
-
-pub const CreateInfo = struct {
-    loc: Location,
-    usage: Usage,
-    size: gpu.Size,
-};
-
-_buffer: vk.Buffer,
-_memory_region: MemoryRegion,
-size: gpu.Size,
-
-pub fn init(device: gpu.Device, info: CreateInfo) !@This() {
+pub fn init(device: gpu.Device, info: gpu.Buffer.CreateInfo) !gpu.Buffer {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
+    const this = try info.alloc.create(Buffer);
+    errdefer info.alloc.destroy(this);
+
     const vk_usage: vk.BufferUsageFlags = .{
         .vertex_buffer_bit = info.usage.vertex,
         .index_buffer_bit = info.usage.index,
@@ -41,63 +23,50 @@ pub fn init(device: gpu.Device, info: CreateInfo) !@This() {
         .transfer_dst_bit = info.usage.dst,
     };
 
-    const buffer = try device.vk.device.createBuffer(&.{
+    this.size_ = info.size;
+    this.buffer = try device.vk.device.createBuffer(&.{
         .size = info.size,
         .usage = vk_usage,
         .sharing_mode = .exclusive,
     }, vk_alloc);
-    errdefer device.vk.device.destroyBuffer(buffer, vk_alloc);
+    errdefer device.vk.device.destroyBuffer(this.buffer, vk_alloc);
 
     const properties: vk.MemoryPropertyFlags = switch (info.loc) {
         .host => .{ .host_visible_bit = true },
         .device => .{ .device_local_bit = true },
     };
 
-    const mem_region = try device.vk.allocateMemory(device.vk.device.getBufferMemoryRequirements(buffer), properties);
-    errdefer device.vk.freeMemory(mem_region);
-    try device.vk.device.bindBufferMemory(buffer, mem_region.memory, mem_region.offset);
+    this.memory_region = try device.vk.allocateMemory(device.vk.device.getBufferMemoryRequirements(this.buffer), properties);
+    errdefer device.vk.freeMemory(this.memory_region);
+    try device.vk.device.bindBufferMemory(this.buffer, this.memory_region.memory, this.memory_region.offset);
 
-    return .{
-        ._buffer = buffer,
-        ._memory_region = mem_region,
-        .size = info.size,
-    };
+    return .{ .vk = this };
 }
 
-pub fn deinit(this: *@This(), device: gpu.Device) void {
+pub fn deinit(this: gpu.Buffer, device: gpu.Device, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    device.vk.device.destroyBuffer(this._buffer, vk_alloc);
-    device.vk.freeMemory(this._memory_region);
+    device.vk.device.destroyBuffer(this.vk.buffer, vk_alloc);
+    device.vk.freeMemory(this.vk.memory_region);
+    alloc.destroy(this.vk);
 }
 
-pub fn map(this: *@This(), device: gpu.Device) ![]u8 {
-    return this.region().map(device);
-}
-
-pub fn unmap(this: *@This(), device: gpu.Device) void {
-    this.region().unmap(device);
-}
-
-pub fn region(this: *@This()) Region {
-    return .{
-        .buffer = this,
-        .offset = 0,
-        .size = this.size,
-    };
+pub fn size(this: gpu.Buffer, _: gpu.Device) gpu.Size {
+    return this.vk.size_;
 }
 
 pub const Region = struct {
-    buffer: *Buffer,
-    offset: gpu.Size,
-    size: gpu.Size,
+    pub fn map(this: gpu.Buffer.Region, device: gpu.Device) ![]u8 {
+        const size_ = switch (this.size_or_whole) {
+            .size => |x| x,
+            .whole => vk.WHOLE_SIZE,
+        };
 
-    pub fn map(this: @This(), device: gpu.Device) ![]u8 {
-        const data = (try device.vk.device.mapMemory(this.buffer._memory_region.memory, this.offset, this.size, .{})).?;
+        const data = (try device.vk.device.mapMemory(this.buffer.vk.memory_region.memory, this.offset, size_, .{})).?;
         const many_ptr: [*]u8 = @ptrCast(data);
-        return many_ptr[0..this.size];
+        return many_ptr[0..size_];
     }
 
-    pub fn unmap(this: @This(), device: gpu.Device) void {
-        device.vk.device.unmapMemory(this.buffer._memory_region.memory);
+    pub fn unmap(this: gpu.Buffer.Region, device: gpu.Device) void {
+        device.vk.device.unmapMemory(this.buffer.vk.memory_region.memory);
     }
 };

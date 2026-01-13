@@ -55,9 +55,12 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
 
                 for (buffer_regions) |buffer_region| {
                     all_buffer_infos.appendAssumeCapacity(.{
-                        .buffer = buffer_region.buffer._buffer,
+                        .buffer = buffer_region.buffer.vk.buffer,
                         .offset = buffer_region.offset,
-                        .range = buffer_region.size,
+                        .range = switch (buffer_region.size_or_whole) {
+                            .size => |x| x,
+                            .whole => vk.WHOLE_SIZE,
+                        },
                     });
                 }
 

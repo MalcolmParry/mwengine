@@ -2,7 +2,6 @@ const std = @import("std");
 const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
 const Semaphore = @import("wait_objects.zig").Semaphore;
-const Buffer = @import("Buffer.zig");
 const ResourceSet = @import("ResourceSet.zig");
 const Image = @import("Image.zig");
 
@@ -55,15 +54,15 @@ pub fn submit(this: *@This(), device: gpu.Device, wait_semaphores: []const gpu.S
     try device.vk.device.queueSubmit(device.vk.queue, 1, @ptrCast(&submit_info), if (signal_fence) |fence| fence.vk.fence else .null_handle);
 }
 
-pub fn cmdCopyBuffer(this: *@This(), device: gpu.Device, src: Buffer.Region, dst: Buffer.Region) void {
-    std.debug.assert(src.size == dst.size);
+pub fn cmdCopyBuffer(this: *@This(), device: gpu.Device, src: gpu.Buffer.Region, dst: gpu.Buffer.Region) void {
+    std.debug.assert(src.size(device) == dst.size(device));
     const copy_region: vk.BufferCopy = .{
-        .size = src.size,
+        .size = src.size(device),
         .src_offset = src.offset,
         .dst_offset = dst.offset,
     };
 
-    device.vk.device.cmdCopyBuffer(this._command_buffer, src.buffer._buffer, dst.buffer._buffer, 1, @ptrCast(&copy_region));
+    device.vk.device.cmdCopyBuffer(this._command_buffer, src.buffer.vk.buffer, dst.buffer.vk.buffer, 1, @ptrCast(&copy_region));
 }
 
 pub const Stage = packed struct {
@@ -109,7 +108,7 @@ pub const MemoryBarrier = union(enum) {
         dst_access: Access,
     },
     buffer: struct {
-        region: Buffer.Region,
+        region: gpu.Buffer.Region,
         src_stage: Stage,
         dst_stage: Stage,
         src_access: Access,
@@ -147,8 +146,11 @@ pub fn cmdMemoryBarrier(this: *@This(), device: gpu.Device, memory_barriers: []c
                 },
             }),
             .buffer => |buffer| buffer_barriers.appendAssumeCapacity(.{
-                .buffer = buffer.region.buffer._buffer,
-                .size = buffer.region.size,
+                .buffer = buffer.region.buffer.vk.buffer,
+                .size = switch (buffer.region.size_or_whole) {
+                    .size => |x| x,
+                    .whole => vk.WHOLE_SIZE,
+                },
                 .offset = buffer.region.offset,
                 .src_stage_mask = buffer.src_stage._toNative(),
                 .dst_stage_mask = buffer.dst_stage._toNative(),
@@ -241,10 +243,10 @@ pub const RenderPassEncoder = struct {
         device.vk.device.cmdSetScissor(this.command_encoder._command_buffer, 0, 1, @ptrCast(&scissor));
     }
 
-    pub fn cmdBindVertexBuffer(this: @This(), device: gpu.Device, buffer_region: Buffer.Region) void {
+    pub fn cmdBindVertexBuffer(this: @This(), device: gpu.Device, buffer_region: gpu.Buffer.Region) void {
         const first_binding = 0;
         const offset = buffer_region.offset;
-        device.vk.device.cmdBindVertexBuffers(this.command_encoder._command_buffer, first_binding, 1, @ptrCast(&buffer_region.buffer._buffer), @ptrCast(&offset));
+        device.vk.device.cmdBindVertexBuffers(this.command_encoder._command_buffer, first_binding, 1, @ptrCast(&buffer_region.buffer.vk.buffer), @ptrCast(&offset));
     }
 
     const IndexType = enum {
@@ -252,8 +254,8 @@ pub const RenderPassEncoder = struct {
         uint32,
     };
 
-    pub fn cmdBindIndexBuffer(this: @This(), device: gpu.Device, buffer_region: Buffer.Region, index_type: IndexType) void {
-        device.vk.device.cmdBindIndexBuffer(this.command_encoder._command_buffer, buffer_region.buffer._buffer, buffer_region.offset, switch (index_type) {
+    pub fn cmdBindIndexBuffer(this: @This(), device: gpu.Device, buffer_region: gpu.Buffer.Region, index_type: IndexType) void {
+        device.vk.device.cmdBindIndexBuffer(this.command_encoder._command_buffer, buffer_region.buffer.vk.buffer, buffer_region.offset, switch (index_type) {
             .uint16 => .uint16,
             .uint32 => .uint32,
         });

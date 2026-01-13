@@ -3,10 +3,14 @@ const platform = @import("platform.zig");
 const vk = @import("gpu/vulkan.zig");
 
 pub const CommandEncoder = vk.CommandEncoder;
-pub const Buffer = vk.Buffer;
 pub const Image = vk.Image;
 
 pub const Size = u64;
+pub const SizeOrWhole = union(enum) {
+    size: Size,
+    whole,
+};
+
 pub const Api = enum {
     vk,
 };
@@ -53,18 +57,23 @@ pub const Device = union(Api) {
     }
 
     pub fn setBufferRegions(device: Device, regions: []const Buffer.Region, data: []const []const u8) !void {
+        var alloc_buffer: [64]u8 = undefined;
+        var alloc_obj = std.heap.FixedBufferAllocator.init(&alloc_buffer);
+        const alloc = alloc_obj.allocator();
+
         var offset: usize = 0;
         for (data, regions) |x, r| {
-            std.debug.assert(x.len == r.size);
+            std.debug.assert(x.len == r.size(device));
             offset += x.len;
         }
 
         var staging = try device.initBuffer(.{
+            .alloc = alloc,
             .loc = .host,
             .usage = .{ .src = true },
             .size = offset,
         });
-        defer staging.deinit(device);
+        defer staging.deinit(device, alloc);
         const mapping = try staging.map(device);
         defer staging.unmap(device);
 
@@ -82,16 +91,13 @@ pub const Device = union(Api) {
         try command_encoder.begin(device);
         offset = 0;
         for (regions) |r| {
+            const size = r.size(device);
             command_encoder.cmdCopyBuffer(device, .{
-                .buffer = &staging,
-                .size = r.size,
+                .buffer = staging,
+                .size_or_whole = .{ .size = size },
                 .offset = offset,
-            }, .{
-                .buffer = r.buffer,
-                .size = r.size,
-                .offset = r.offset,
-            });
-            offset += r.size;
+            }, r);
+            offset += size;
         }
         try command_encoder.end(device);
         try command_encoder.submit(device, &.{}, &.{}, fence);
@@ -392,6 +398,82 @@ pub const ResourceSet = union {
 
         pub fn deinit(this: @This(), device: Device, alloc: std.mem.Allocator) void {
             return call(device, @src(), .{ "ResourceSet", "Layout" }, .{ this, device, alloc });
+        }
+    };
+};
+
+pub const Buffer = union {
+    vk: vk.Buffer.Handle,
+
+    pub const Location = enum {
+        host,
+        device,
+    };
+
+    pub const Usage = packed struct {
+        const BackingInt = @typeInfo(@TypeOf(@This())).@"struct".backing_integer.?;
+        const all: Usage = @bitCast(std.math.maxInt(BackingInt));
+
+        src: bool = false,
+        dst: bool = false,
+        vertex: bool = false,
+        index: bool = false,
+        uniform: bool = false,
+    };
+
+    pub const CreateInfo = struct {
+        alloc: std.mem.Allocator,
+        loc: Location,
+        usage: Usage,
+        size: Size,
+    };
+
+    pub fn init(device: Device, info: CreateInfo) anyerror!Buffer {
+        return call(device, @src(), "Buffer", .{ device, info });
+    }
+
+    pub fn deinit(this: Buffer, device: Device, alloc: std.mem.Allocator) void {
+        return call(device, @src(), "Buffer", .{ this, device, alloc });
+    }
+
+    pub fn map(this: Buffer, device: Device) ![]u8 {
+        return this.region().map(device);
+    }
+
+    pub fn unmap(this: Buffer, device: Device) void {
+        this.region().unmap(device);
+    }
+
+    pub fn size(this: Buffer, device: Device) Size {
+        return call(device, @src(), "Buffer", .{ this, device });
+    }
+
+    pub fn region(this: Buffer) Region {
+        return .{
+            .buffer = this,
+            .offset = 0,
+            .size_or_whole = .whole,
+        };
+    }
+
+    pub const Region = struct {
+        buffer: Buffer,
+        offset: Size,
+        size_or_whole: SizeOrWhole,
+
+        pub fn map(this: Region, device: Device) anyerror![]u8 {
+            return call(device, @src(), .{ "Buffer", "Region" }, .{ this, device });
+        }
+
+        pub fn unmap(this: Region, device: Device) void {
+            return call(device, @src(), .{ "Buffer", "Region" }, .{ this, device });
+        }
+
+        pub fn size(this: Region, device: Device) Size {
+            return switch (this.size_or_whole) {
+                .size => |x| x,
+                .whole => this.buffer.size(device),
+            };
         }
     };
 };

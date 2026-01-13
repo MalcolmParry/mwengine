@@ -47,6 +47,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     errdefer this.display.deinit(alloc);
 
     this.vertex_buffer = try this.device.initBuffer(.{
+        .alloc = alloc,
         .size = @sizeOf(@TypeOf(vertex_data)),
         .loc = .device,
         .usage = .{
@@ -54,9 +55,10 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
             .dst = true,
         },
     });
-    errdefer this.vertex_buffer.deinit(this.device);
+    errdefer this.vertex_buffer.deinit(this.device, alloc);
 
     this.index_buffer = try this.device.initBuffer(.{
+        .alloc = alloc,
         .size = @sizeOf(@TypeOf(indices)),
         .loc = .device,
         .usage = .{
@@ -64,7 +66,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
             .dst = true,
         },
     });
-    errdefer this.index_buffer.deinit(this.device);
+    errdefer this.index_buffer.deinit(this.device, alloc);
 
     try this.device.setBufferRegions(&.{
         this.vertex_buffer.region(),
@@ -133,8 +135,8 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
     this.shader_set.deinit(this.device, alloc);
     this.pixel_shader.deinit(this.device, alloc);
     this.vertex_shader.deinit(this.device, alloc);
-    this.index_buffer.deinit(this.device);
-    this.vertex_buffer.deinit(this.device);
+    this.index_buffer.deinit(this.device, alloc);
+    this.vertex_buffer.deinit(this.device, alloc);
 
     this.display.deinit(alloc);
     this.device.deinit(alloc);
@@ -334,6 +336,7 @@ const PerFrameInFlight = struct {
         errdefer this.presented_fence.deinit(app.device);
 
         this.uniform_buffer = try app.device.initBuffer(.{
+            .alloc = alloc,
             .loc = .device,
             .usage = .{
                 .uniform = true,
@@ -341,12 +344,13 @@ const PerFrameInFlight = struct {
             },
             .size = @sizeOf(UniformData),
         });
-        errdefer this.uniform_buffer.deinit(app.device);
+        errdefer this.uniform_buffer.deinit(app.device, alloc);
 
         this.uniform_staging = try app.device.initBuffer(.{
+            .alloc = alloc,
             .loc = .host,
             .usage = .{ .src = true },
-            .size = this.uniform_buffer.size,
+            .size = this.uniform_buffer.size(app.device),
         });
         errdefer this.uniform_staging.unmap(app.device);
 
@@ -376,8 +380,8 @@ const PerFrameInFlight = struct {
         this.presented_fence.deinit(app.device);
 
         this.uniform_staging.unmap(app.device);
-        this.uniform_staging.deinit(app.device);
-        this.uniform_buffer.deinit(app.device);
+        this.uniform_staging.deinit(app.device, alloc);
+        this.uniform_buffer.deinit(app.device, alloc);
         this.resource_set.deinit(app.device, alloc);
     }
 };
