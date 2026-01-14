@@ -2,8 +2,6 @@ const std = @import("std");
 const platform = @import("platform.zig");
 const vk = @import("gpu/vulkan.zig");
 
-pub const CommandEncoder = vk.CommandEncoder;
-
 pub const Size = u64;
 pub const SizeOrWhole = union(enum) {
     size: Size,
@@ -494,6 +492,122 @@ pub const Image = union {
         color_attachment,
         present_src,
     };
+};
+
+pub const CommandEncoder = union {
+    vk: vk.CommandEncoder.Handle,
+
+    pub fn init(device: Device) anyerror!CommandEncoder {
+        return call(device, @src(), "CommandEncoder", .{device});
+    }
+
+    pub fn deinit(this: CommandEncoder, device: Device) void {
+        return call(device, @src(), "CommandEncoder", .{ this, device });
+    }
+
+    pub fn begin(this: CommandEncoder, device: Device) anyerror!void {
+        return call(device, @src(), "CommandEncoder", .{ this, device });
+    }
+
+    pub fn end(this: CommandEncoder, device: Device) anyerror!void {
+        return call(device, @src(), "CommandEncoder", .{ this, device });
+    }
+
+    pub fn submit(this: CommandEncoder, device: Device, wait_semaphores: []const Semaphore, signal_semaphores: []const Semaphore, signal_fence: ?Fence) anyerror!void {
+        return call(device, @src(), "CommandEncoder", .{ this, device, wait_semaphores, signal_semaphores, signal_fence });
+    }
+
+    pub fn cmdCopyBuffer(this: CommandEncoder, device: Device, src: Buffer.Region, dst: Buffer.Region) void {
+        return call(device, @src(), "CommandEncoder", .{ this, device, src, dst });
+    }
+
+    pub const Stage = packed struct {
+        pipeline_start: bool = false,
+        pipeline_end: bool = false,
+        color_attachment_output: bool = false,
+        transfer: bool = false,
+        vertex_shader: bool = false,
+    };
+
+    pub const Access = packed struct {
+        color_attachment_write: bool = false,
+        transfer_write: bool = false,
+        uniform_read: bool = false,
+    };
+
+    pub const MemoryBarrier = union(enum) {
+        image: struct {
+            image: Image,
+            old_layout: Image.Layout,
+            new_layout: Image.Layout,
+            src_stage: Stage,
+            dst_stage: Stage,
+            src_access: Access,
+            dst_access: Access,
+        },
+        buffer: struct {
+            region: Buffer.Region,
+            src_stage: Stage,
+            dst_stage: Stage,
+            src_access: Access,
+            dst_access: Access,
+        },
+    };
+
+    pub fn cmdMemoryBarrier(this: CommandEncoder, device: Device, memory_barriers: []const MemoryBarrier) void {
+        return call(device, @src(), "CommandEncoder", .{ this, device, memory_barriers });
+    }
+
+    pub const cmdBeginRenderPass = RenderPassEncoder.cmdBegin;
+};
+
+pub const RenderPassEncoder = union {
+    vk: vk.RenderPassEncoder.Handle,
+
+    pub const BeginInfo = struct {
+        device: Device,
+        target: RenderTarget,
+        image_size: @Vector(2, u32),
+    };
+
+    pub fn cmdBegin(command_encoder: CommandEncoder, info: BeginInfo) RenderPassEncoder {
+        return call(info.device, @src(), "RenderPassEncoder", .{ command_encoder, info });
+    }
+
+    pub fn cmdEnd(this: RenderPassEncoder, device: Device) void {
+        return call(device, @src(), "RenderPassEncoder", .{ this, device });
+    }
+
+    pub fn cmdBindPipeline(this: RenderPassEncoder, device: Device, graphics_pipeline: GraphicsPipeline, image_size: @Vector(2, u32)) void {
+        return call(device, @src(), "RenderPassEncoder", .{ this, device, graphics_pipeline, image_size });
+    }
+
+    pub fn cmdBindVertexBuffer(this: RenderPassEncoder, device: Device, buffer_region: Buffer.Region) void {
+        return call(device, @src(), "RenderPassEncoder", .{ this, device, buffer_region });
+    }
+
+    pub const IndexType = enum {
+        uint16,
+        uint32,
+    };
+
+    pub fn cmdBindIndexBuffer(this: RenderPassEncoder, device: Device, buffer_region: Buffer.Region, index_type: IndexType) void {
+        return call(device, @src(), "RenderPassEncoder", .{ this, device, buffer_region, index_type });
+    }
+
+    pub fn cmdBindResourceSets(this: RenderPassEncoder, device: Device, pipeline: GraphicsPipeline, resource_sets: []const ResourceSet, first: u32) void {
+        return call(device, @src(), "RenderPassEncoder", .{ this, device, pipeline, resource_sets, first });
+    }
+
+    pub const DrawInfo = struct {
+        device: Device,
+        vertex_count: u32,
+        indexed: bool,
+    };
+
+    pub fn cmdDraw(this: RenderPassEncoder, info: DrawInfo) void {
+        return call(info.device, @src(), "RenderPassEncoder", .{ this, info });
+    }
 };
 
 fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: anytype, args: anytype) CallRetType(src, type_name) {

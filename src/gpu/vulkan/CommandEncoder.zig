@@ -6,10 +6,11 @@ const ResourceSet = @import("ResourceSet.zig");
 const Image = @import("Image.zig");
 
 const CommandEncoder = @This();
+pub const Handle = CommandEncoder;
 
-_command_buffer: vk.CommandBuffer,
+command_buffer: vk.CommandBuffer,
 
-pub fn init(device: gpu.Device) !@This() {
+pub fn init(device: gpu.Device) !gpu.CommandEncoder {
     var command_buffer: vk.CommandBuffer = .null_handle;
     try device.vk.device.allocateCommandBuffers(&.{
         .command_pool = device.vk.command_pool,
@@ -17,25 +18,25 @@ pub fn init(device: gpu.Device) !@This() {
         .command_buffer_count = 1,
     }, @ptrCast(&command_buffer));
 
-    return .{ ._command_buffer = command_buffer };
+    return .{ .vk = .{ .command_buffer = command_buffer } };
 }
 
-pub fn deinit(this: *@This(), device: gpu.Device) void {
-    device.vk.device.freeCommandBuffers(device.vk.command_pool, 1, @ptrCast(&this._command_buffer));
+pub fn deinit(this: gpu.CommandEncoder, device: gpu.Device) void {
+    device.vk.device.freeCommandBuffers(device.vk.command_pool, 1, @ptrCast(&this.vk.command_buffer));
 }
 
-pub fn begin(this: *@This(), device: gpu.Device) !void {
-    try device.vk.device.resetCommandBuffer(this._command_buffer, .{});
-    try device.vk.device.beginCommandBuffer(this._command_buffer, &.{
+pub fn begin(this: gpu.CommandEncoder, device: gpu.Device) !void {
+    try device.vk.device.resetCommandBuffer(this.vk.command_buffer, .{});
+    try device.vk.device.beginCommandBuffer(this.vk.command_buffer, &.{
         .flags = .{},
     });
 }
 
-pub fn end(this: *@This(), device: gpu.Device) !void {
-    try device.vk.device.endCommandBuffer(this._command_buffer);
+pub fn end(this: gpu.CommandEncoder, device: gpu.Device) !void {
+    try device.vk.device.endCommandBuffer(this.vk.command_buffer);
 }
 
-pub fn submit(this: *@This(), device: gpu.Device, wait_semaphores: []const gpu.Semaphore, signal_semaphores: []const gpu.Semaphore, signal_fence: ?gpu.Fence) !void {
+pub fn submit(this: gpu.CommandEncoder, device: gpu.Device, wait_semaphores: []const gpu.Semaphore, signal_semaphores: []const gpu.Semaphore, signal_fence: ?gpu.Fence) !void {
     // really cursed temporary solution
     const wait_dst_stage_mask: [5]vk.PipelineStageFlags = @splat(.{
         .color_attachment_output_bit = true,
@@ -43,7 +44,7 @@ pub fn submit(this: *@This(), device: gpu.Device, wait_semaphores: []const gpu.S
 
     const submit_info: vk.SubmitInfo = .{
         .command_buffer_count = 1,
-        .p_command_buffers = @ptrCast(&this._command_buffer),
+        .p_command_buffers = @ptrCast(&this.vk.command_buffer),
         .wait_semaphore_count = @intCast(wait_semaphores.len),
         .p_wait_semaphores = Semaphore.nativesFromSlice(wait_semaphores),
         .p_wait_dst_stage_mask = @ptrCast(&wait_dst_stage_mask),
@@ -54,7 +55,7 @@ pub fn submit(this: *@This(), device: gpu.Device, wait_semaphores: []const gpu.S
     try device.vk.device.queueSubmit(device.vk.queue, 1, @ptrCast(&submit_info), if (signal_fence) |fence| fence.vk.fence else .null_handle);
 }
 
-pub fn cmdCopyBuffer(this: *@This(), device: gpu.Device, src: gpu.Buffer.Region, dst: gpu.Buffer.Region) void {
+pub fn cmdCopyBuffer(this: gpu.CommandEncoder, device: gpu.Device, src: gpu.Buffer.Region, dst: gpu.Buffer.Region) void {
     std.debug.assert(src.size(device) == dst.size(device));
     const copy_region: vk.BufferCopy = .{
         .size = src.size(device),
@@ -62,61 +63,28 @@ pub fn cmdCopyBuffer(this: *@This(), device: gpu.Device, src: gpu.Buffer.Region,
         .dst_offset = dst.offset,
     };
 
-    device.vk.device.cmdCopyBuffer(this._command_buffer, src.buffer.vk.buffer, dst.buffer.vk.buffer, 1, @ptrCast(&copy_region));
+    device.vk.device.cmdCopyBuffer(this.vk.command_buffer, src.buffer.vk.buffer, dst.buffer.vk.buffer, 1, @ptrCast(&copy_region));
 }
 
-pub const Stage = packed struct {
-    pipeline_start: bool = false,
-    pipeline_end: bool = false,
-    color_attachment_output: bool = false,
-    transfer: bool = false,
-    vertex_shader: bool = false,
+pub fn stageToNative(stage: gpu.CommandEncoder.Stage) vk.PipelineStageFlags2KHR {
+    return .{
+        .top_of_pipe_bit = stage.pipeline_start,
+        .bottom_of_pipe_bit = stage.pipeline_end,
+        .color_attachment_output_bit = stage.color_attachment_output,
+        .all_transfer_bit = stage.transfer,
+        .vertex_shader_bit = stage.vertex_shader,
+    };
+}
 
-    pub fn _toNative(this: @This()) vk.PipelineStageFlags2KHR {
-        return .{
-            .top_of_pipe_bit = this.pipeline_start,
-            .bottom_of_pipe_bit = this.pipeline_end,
-            .color_attachment_output_bit = this.color_attachment_output,
-            .all_transfer_bit = this.transfer,
-            .vertex_shader_bit = this.vertex_shader,
-        };
-    }
-};
+pub fn accessToNative(access: gpu.CommandEncoder.Access) vk.AccessFlags2KHR {
+    return .{
+        .color_attachment_write_bit = access.color_attachment_write,
+        .transfer_write_bit = access.transfer_write,
+        .uniform_read_bit = access.uniform_read,
+    };
+}
 
-pub const Access = packed struct {
-    color_attachment_write: bool = false,
-    transfer_write: bool = false,
-    uniform_read: bool = false,
-
-    pub fn _toNative(this: @This()) vk.AccessFlags2KHR {
-        return .{
-            .color_attachment_write_bit = this.color_attachment_write,
-            .transfer_write_bit = this.transfer_write,
-            .uniform_read_bit = this.uniform_read,
-        };
-    }
-};
-
-pub const MemoryBarrier = union(enum) {
-    image: struct {
-        image: gpu.Image,
-        old_layout: gpu.Image.Layout,
-        new_layout: gpu.Image.Layout,
-        src_stage: Stage,
-        dst_stage: Stage,
-        src_access: Access,
-        dst_access: Access,
-    },
-    buffer: struct {
-        region: gpu.Buffer.Region,
-        src_stage: Stage,
-        dst_stage: Stage,
-        src_access: Access,
-        dst_access: Access,
-    },
-};
-
-pub fn cmdMemoryBarrier(this: *@This(), device: gpu.Device, memory_barriers: []const MemoryBarrier) void {
+pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_barriers: []const gpu.CommandEncoder.MemoryBarrier) void {
     const max = 8;
 
     var image_buffer: [max]vk.ImageMemoryBarrier2KHR = undefined;
@@ -131,10 +99,10 @@ pub fn cmdMemoryBarrier(this: *@This(), device: gpu.Device, memory_barriers: []c
                 .image = image.image.vk.image,
                 .old_layout = Image.layoutToNative(image.old_layout),
                 .new_layout = Image.layoutToNative(image.new_layout),
-                .src_stage_mask = image.src_stage._toNative(),
-                .dst_stage_mask = image.dst_stage._toNative(),
-                .src_access_mask = image.src_access._toNative(),
-                .dst_access_mask = image.dst_access._toNative(),
+                .src_stage_mask = stageToNative(image.src_stage),
+                .dst_stage_mask = stageToNative(image.dst_stage),
+                .src_access_mask = accessToNative(image.src_access),
+                .dst_access_mask = accessToNative(image.dst_access),
                 .src_queue_family_index = device.vk.queue_family_index,
                 .dst_queue_family_index = device.vk.queue_family_index,
                 .subresource_range = .{
@@ -152,17 +120,17 @@ pub fn cmdMemoryBarrier(this: *@This(), device: gpu.Device, memory_barriers: []c
                     .whole => vk.WHOLE_SIZE,
                 },
                 .offset = buffer.region.offset,
-                .src_stage_mask = buffer.src_stage._toNative(),
-                .dst_stage_mask = buffer.dst_stage._toNative(),
-                .src_access_mask = buffer.src_access._toNative(),
-                .dst_access_mask = buffer.dst_access._toNative(),
+                .src_stage_mask = stageToNative(buffer.src_stage),
+                .dst_stage_mask = stageToNative(buffer.dst_stage),
+                .src_access_mask = accessToNative(buffer.src_access),
+                .dst_access_mask = accessToNative(buffer.dst_access),
                 .src_queue_family_index = device.vk.queue_family_index,
                 .dst_queue_family_index = device.vk.queue_family_index,
             }),
         }
     }
 
-    device.vk.device.cmdPipelineBarrier2KHR(this._command_buffer, &.{
+    device.vk.device.cmdPipelineBarrier2KHR(this.vk.command_buffer, &.{
         .image_memory_barrier_count = @intCast(image_barriers.items.len),
         .p_image_memory_barriers = image_barriers.items.ptr,
         .buffer_memory_barrier_count = @intCast(buffer_barriers.items.len),
@@ -172,15 +140,11 @@ pub fn cmdMemoryBarrier(this: *@This(), device: gpu.Device, memory_barriers: []c
 
 pub const cmdBeginRenderPass = RenderPassEncoder.cmdBegin;
 pub const RenderPassEncoder = struct {
-    command_encoder: *CommandEncoder,
+    pub const Handle = RenderPassEncoder;
 
-    pub const RenderPassBeginInfo = struct {
-        device: gpu.Device,
-        target: gpu.RenderTarget,
-        image_size: @Vector(2, u32),
-    };
+    command_encoder: gpu.CommandEncoder,
 
-    pub fn cmdBegin(command_encoder: *CommandEncoder, info: RenderPassBeginInfo) @This() {
+    pub fn cmdBegin(command_encoder: gpu.CommandEncoder, info: gpu.RenderPassEncoder.BeginInfo) gpu.RenderPassEncoder {
         const color_attachment: vk.RenderingAttachmentInfo = .{
             .image_layout = .attachment_optimal,
             .image_view = info.target.color_image_view.vk.image_view,
@@ -196,7 +160,7 @@ pub const RenderPassEncoder = struct {
             .resolve_mode = .{},
         };
 
-        info.device.vk.device.cmdBeginRenderingKHR(command_encoder._command_buffer, &.{
+        info.device.vk.device.cmdBeginRenderingKHR(command_encoder.vk.command_buffer, &.{
             .render_area = .{
                 .offset = .{
                     .x = 0,
@@ -214,15 +178,15 @@ pub const RenderPassEncoder = struct {
             .flags = .{},
         });
 
-        return .{ .command_encoder = command_encoder };
+        return .{ .vk = .{ .command_encoder = command_encoder } };
     }
 
-    pub fn cmdEnd(this: @This(), device: gpu.Device) void {
-        device.vk.device.cmdEndRenderingKHR(this.command_encoder._command_buffer);
+    pub fn cmdEnd(this: gpu.RenderPassEncoder, device: gpu.Device) void {
+        device.vk.device.cmdEndRenderingKHR(this.vk.command_encoder.vk.command_buffer);
     }
 
-    pub fn cmdBindPipeline(this: @This(), device: gpu.Device, graphics_pipeline: gpu.GraphicsPipeline, image_size: @Vector(2, u32)) void {
-        device.vk.device.cmdBindPipeline(this.command_encoder._command_buffer, .graphics, graphics_pipeline.vk.pipeline);
+    pub fn cmdBindPipeline(this: gpu.RenderPassEncoder, device: gpu.Device, graphics_pipeline: gpu.GraphicsPipeline, image_size: @Vector(2, u32)) void {
+        device.vk.device.cmdBindPipeline(this.vk.command_encoder.vk.command_buffer, .graphics, graphics_pipeline.vk.pipeline);
 
         const viewport: vk.Viewport = .{
             .x = 0,
@@ -233,41 +197,36 @@ pub const RenderPassEncoder = struct {
             .max_depth = 1,
         };
 
-        device.vk.device.cmdSetViewport(this.command_encoder._command_buffer, 0, 1, @ptrCast(&viewport));
+        device.vk.device.cmdSetViewport(this.vk.command_encoder.vk.command_buffer, 0, 1, @ptrCast(&viewport));
 
         const scissor: vk.Rect2D = .{
             .extent = .{ .width = image_size[0], .height = image_size[1] },
             .offset = .{ .x = 0, .y = 0 },
         };
 
-        device.vk.device.cmdSetScissor(this.command_encoder._command_buffer, 0, 1, @ptrCast(&scissor));
+        device.vk.device.cmdSetScissor(this.vk.command_encoder.vk.command_buffer, 0, 1, @ptrCast(&scissor));
     }
 
-    pub fn cmdBindVertexBuffer(this: @This(), device: gpu.Device, buffer_region: gpu.Buffer.Region) void {
+    pub fn cmdBindVertexBuffer(this: gpu.RenderPassEncoder, device: gpu.Device, buffer_region: gpu.Buffer.Region) void {
         const first_binding = 0;
         const offset = buffer_region.offset;
-        device.vk.device.cmdBindVertexBuffers(this.command_encoder._command_buffer, first_binding, 1, @ptrCast(&buffer_region.buffer.vk.buffer), @ptrCast(&offset));
+        device.vk.device.cmdBindVertexBuffers(this.vk.command_encoder.vk.command_buffer, first_binding, 1, @ptrCast(&buffer_region.buffer.vk.buffer), @ptrCast(&offset));
     }
 
-    const IndexType = enum {
-        uint16,
-        uint32,
-    };
-
-    pub fn cmdBindIndexBuffer(this: @This(), device: gpu.Device, buffer_region: gpu.Buffer.Region, index_type: IndexType) void {
-        device.vk.device.cmdBindIndexBuffer(this.command_encoder._command_buffer, buffer_region.buffer.vk.buffer, buffer_region.offset, switch (index_type) {
+    pub fn cmdBindIndexBuffer(this: gpu.RenderPassEncoder, device: gpu.Device, buffer_region: gpu.Buffer.Region, index_type: gpu.RenderPassEncoder.IndexType) void {
+        device.vk.device.cmdBindIndexBuffer(this.vk.command_encoder.vk.command_buffer, buffer_region.buffer.vk.buffer, buffer_region.offset, switch (index_type) {
             .uint16 => .uint16,
             .uint32 => .uint32,
         });
     }
 
-    pub fn cmdBindResourceSets(this: @This(), device: gpu.Device, pipeline: gpu.GraphicsPipeline, resource_sets: []const gpu.ResourceSet, first: u32) void {
+    pub fn cmdBindResourceSets(this: gpu.RenderPassEncoder, device: gpu.Device, pipeline: gpu.GraphicsPipeline, resource_sets: []const gpu.ResourceSet, first: u32) void {
         var buffer: [64]u8 = undefined;
         var alloc = std.heap.FixedBufferAllocator.init(&buffer);
         const natives = ResourceSet.nativesFromSlice(resource_sets, alloc.allocator()) catch unreachable;
 
         device.vk.device.cmdBindDescriptorSets(
-            this.command_encoder._command_buffer,
+            this.vk.command_encoder.vk.command_buffer,
             .graphics,
             pipeline.vk.pipeline_layout,
             first,
@@ -278,17 +237,11 @@ pub const RenderPassEncoder = struct {
         );
     }
 
-    const DrawInfo = struct {
-        device: gpu.Device,
-        vertex_count: u32,
-        indexed: bool,
-    };
-
-    pub fn cmdDraw(this: @This(), info: DrawInfo) void {
+    pub fn cmdDraw(this: gpu.RenderPassEncoder, info: gpu.RenderPassEncoder.DrawInfo) void {
         if (info.indexed) {
-            info.device.vk.device.cmdDrawIndexed(this.command_encoder._command_buffer, info.vertex_count, 1, 0, 0, 0);
+            info.device.vk.device.cmdDrawIndexed(this.vk.command_encoder.vk.command_buffer, info.vertex_count, 1, 0, 0, 0);
         } else {
-            info.device.vk.device.cmdDraw(this.command_encoder._command_buffer, info.vertex_count, 1, 0, 0);
+            info.device.vk.device.cmdDraw(this.vk.command_encoder.vk.command_buffer, info.vertex_count, 1, 0, 0);
         }
     }
 };

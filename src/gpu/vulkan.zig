@@ -4,6 +4,7 @@ pub const Display = @import("vulkan/Display.zig");
 pub const Shader = @import("vulkan/Shader.zig");
 pub const GraphicsPipeline = @import("vulkan/GraphicsPipeline.zig");
 pub const CommandEncoder = @import("vulkan/CommandEncoder.zig");
+pub const RenderPassEncoder = CommandEncoder.RenderPassEncoder;
 pub const Semaphore = @import("vulkan/wait_objects.zig").Semaphore;
 pub const Fence = @import("vulkan/wait_objects.zig").Fence;
 pub const Buffer = @import("vulkan/Buffer.zig");
