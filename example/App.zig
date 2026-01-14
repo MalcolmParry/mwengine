@@ -224,7 +224,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     per_frame.cmd_encoder.cmdMemoryBarrier(this.device, &.{
         .{ .image = .{
-            .image = &this.display.image(image_index),
+            .image = this.display.image(image_index),
             .old_layout = .undefined,
             .new_layout = .color_attachment,
             .src_stage = .{ .pipeline_start = true },
@@ -263,7 +263,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     per_frame.cmd_encoder.cmdMemoryBarrier(this.device, &.{
         .{ .image = .{
-            .image = &this.display.image(image_index),
+            .image = this.display.image(image_index),
             .old_layout = .color_attachment,
             .new_layout = .present_src,
             .src_stage = .{ .color_attachment_output = true },

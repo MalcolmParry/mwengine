@@ -3,6 +3,7 @@ const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
 const Shader = @import("Shader.zig");
 const ResourceSet = @import("ResourceSet.zig");
+const Image = @import("Image.zig");
 
 const GraphicsPipeline = @This();
 pub const Handle = *GraphicsPipeline;
@@ -88,7 +89,7 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
     const rendering_create_info: vk.PipelineRenderingCreateInfo = .{
         .color_attachment_count = 1,
         .p_color_attachment_formats = &.{
-            info.render_target_desc.color_format._toNative(),
+            Image.formatToNative(info.render_target_desc.color_format),
         },
         .depth_attachment_format = .undefined,
         .stencil_attachment_format = .undefined,

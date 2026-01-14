@@ -1,43 +1,35 @@
 const vk = @import("vulkan");
-const Device = @import("Device.zig");
+const gpu = @import("../../gpu.zig");
 
 const Image = @This();
+pub const Handle = Image;
 
-_image: vk.Image,
+image: vk.Image,
 
 pub const View = struct {
-    _image_view: vk.ImageView,
+    pub const Handle = View;
+
+    image_view: vk.ImageView,
 };
 
-pub const Format = enum {
-    bgra8_srgb,
-    unknown,
+pub fn formatToNative(format: gpu.Image.Format) vk.Format {
+    return switch (format) {
+        .bgra8_srgb => .b8g8r8a8_srgb,
+        .unknown => .undefined,
+    };
+}
 
-    pub fn _toNative(format: Format) vk.Format {
-        return switch (format) {
-            .bgra8_srgb => .b8g8r8a8_srgb,
-            .unknown => .undefined,
-        };
-    }
+pub fn formatFromNative(format: vk.Format) gpu.Image.Format {
+    return switch (format) {
+        .b8g8r8a8_srgb => .bgra8_srgb,
+        else => .unknown,
+    };
+}
 
-    pub fn _fromNative(format: vk.Format) Format {
-        return switch (format) {
-            .b8g8r8a8_srgb => .bgra8_srgb,
-            else => .unknown,
-        };
-    }
-};
-
-pub const Layout = enum {
-    undefined,
-    color_attachment,
-    present_src,
-
-    pub fn _toNative(layout: Layout) vk.ImageLayout {
-        return switch (layout) {
-            .undefined => .undefined,
-            .color_attachment => .color_attachment_optimal,
-            .present_src => .present_src_khr,
-        };
-    }
-};
+pub fn layoutToNative(layout: gpu.Image.Layout) vk.ImageLayout {
+    return switch (layout) {
+        .undefined => .undefined,
+        .color_attachment => .color_attachment_optimal,
+        .present_src => .present_src_khr,
+    };
+}

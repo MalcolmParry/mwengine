@@ -10,8 +10,8 @@ const Display = @This();
 pub const Handle = *Display;
 
 image_size: @Vector(2, u32),
-images: []Image,
-image_views: []Image.View,
+images: []gpu.Image,
+image_views: []gpu.Image.View,
 swapchain: vk.SwapchainKHR,
 surface: vk.SurfaceKHR,
 surface_format: vk.SurfaceFormatKHR,
@@ -96,8 +96,8 @@ pub fn rebuild(this: gpu.Display, image_size: @Vector(2, u32), alloc: std.mem.Al
     this.vk.device.device.destroySwapchainKHR(old_swapchain, vk_alloc);
 }
 
-pub fn imageFormat(this: gpu.Display) Image.Format {
-    return Image.Format._fromNative(this.vk.surface_format.format);
+pub fn imageFormat(this: gpu.Display) gpu.Image.Format {
+    return Image.formatFromNative(this.vk.surface_format.format);
 }
 
 pub fn imageCount(this: gpu.Display) usize {
@@ -108,11 +108,11 @@ pub fn imageSize(this: gpu.Display) @Vector(2, u32) {
     return this.vk.image_size;
 }
 
-pub fn image(this: gpu.Display, index: gpu.Display.ImageIndex) Image {
+pub fn image(this: gpu.Display, index: gpu.Display.ImageIndex) gpu.Image {
     return this.vk.images[index];
 }
 
-pub fn imageView(this: gpu.Display, index: gpu.Display.ImageIndex) Image.View {
+pub fn imageView(this: gpu.Display, index: gpu.Display.ImageIndex) gpu.Image.View {
     return this.vk.image_views[index];
 }
 
@@ -187,7 +187,7 @@ fn deinitSwapchain(this: *Display, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
 
     for (this.image_views) |image_view| {
-        this.device.device.destroyImageView(image_view._image_view, vk_alloc);
+        this.device.device.destroyImageView(image_view.vk.image_view, vk_alloc);
     }
 
     alloc.free(this.image_views);

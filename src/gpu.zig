@@ -3,7 +3,6 @@ const platform = @import("platform.zig");
 const vk = @import("gpu/vulkan.zig");
 
 pub const CommandEncoder = vk.CommandEncoder;
-pub const Image = vk.Image;
 
 pub const Size = u64;
 pub const SizeOrWhole = union(enum) {
@@ -475,6 +474,25 @@ pub const Buffer = union {
                 .whole => this.buffer.size(device),
             };
         }
+    };
+};
+
+pub const Image = union {
+    vk: vk.Image.Handle,
+
+    pub const View = union {
+        vk: vk.Image.View.Handle,
+    };
+
+    pub const Format = enum {
+        bgra8_srgb,
+        unknown,
+    };
+
+    pub const Layout = enum {
+        undefined,
+        color_attachment,
+        present_src,
     };
 };
 

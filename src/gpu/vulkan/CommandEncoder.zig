@@ -99,9 +99,9 @@ pub const Access = packed struct {
 
 pub const MemoryBarrier = union(enum) {
     image: struct {
-        image: *const Image,
-        old_layout: Image.Layout,
-        new_layout: Image.Layout,
+        image: gpu.Image,
+        old_layout: gpu.Image.Layout,
+        new_layout: gpu.Image.Layout,
         src_stage: Stage,
         dst_stage: Stage,
         src_access: Access,
@@ -128,9 +128,9 @@ pub fn cmdMemoryBarrier(this: *@This(), device: gpu.Device, memory_barriers: []c
     for (memory_barriers) |barrier| {
         switch (barrier) {
             .image => |image| image_barriers.appendAssumeCapacity(.{
-                .image = image.image._image,
-                .old_layout = image.old_layout._toNative(),
-                .new_layout = image.new_layout._toNative(),
+                .image = image.image.vk.image,
+                .old_layout = Image.layoutToNative(image.old_layout),
+                .new_layout = Image.layoutToNative(image.new_layout),
                 .src_stage_mask = image.src_stage._toNative(),
                 .dst_stage_mask = image.dst_stage._toNative(),
                 .src_access_mask = image.src_access._toNative(),
@@ -183,7 +183,7 @@ pub const RenderPassEncoder = struct {
     pub fn cmdBegin(command_encoder: *CommandEncoder, info: RenderPassBeginInfo) @This() {
         const color_attachment: vk.RenderingAttachmentInfo = .{
             .image_layout = .attachment_optimal,
-            .image_view = info.target.color_image_view._image_view,
+            .image_view = info.target.color_image_view.vk.image_view,
             .load_op = .clear,
             .store_op = .store,
             .clear_value = .{
