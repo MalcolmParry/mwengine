@@ -35,6 +35,8 @@ pub fn build(b: *Build) !void {
     const run = b.addRunArtifact(exe);
     run.setCwd(.{ .cwd_relative = b.install_prefix });
     run.step.dependOn(build_step);
+    if (b.option(bool, "renderdoc", "Enable render doc capture") orelse false)
+        run.setEnvironmentVariable("ENABLE_VULKAN_RENDERDOC_CAPTURE", "1");
 
     const run_step = b.step("run", "Run the example");
     run_step.dependOn(&run.step);
