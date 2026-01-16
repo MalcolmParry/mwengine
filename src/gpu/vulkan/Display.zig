@@ -1,6 +1,6 @@
 const std = @import("std");
 const gpu = @import("../../gpu.zig");
-const platform = @import("../../platform.zig");
+const Window = @import("../../Window.zig");
 const vk = @import("vulkan");
 const Device = @import("Device.zig");
 const Semaphore = @import("wait_objects.zig").Semaphore;
@@ -18,14 +18,14 @@ surface_format: vk.SurfaceFormatKHR,
 instance: vk.InstanceProxy,
 device: *Device,
 
-pub fn init(device: gpu.Device, window: *platform.Window, alloc: std.mem.Allocator) !gpu.Display {
+pub fn init(device: gpu.Device, window: *Window, alloc: std.mem.Allocator) !gpu.Display {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const this = try alloc.create(Display);
     errdefer alloc.destroy(this);
 
     this.instance = device.vk.instance.instance;
     this.device = device.vk;
-    this.surface = try platform.vulkan.createSurface(window, this.instance);
+    this.surface = try Window.vulkan.createSurface(window, this.instance);
     this.swapchain = .null_handle;
     errdefer this.instance.destroySurfaceKHR(this.surface, vk_alloc);
 

@@ -2,7 +2,7 @@ const std = @import("std");
 const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
 const Device = @import("Device.zig");
-const platform = @import("../../platform.zig");
+const Window = @import("../../Window.zig");
 
 const Instance = @This();
 pub const Handle = *Instance;
@@ -18,7 +18,7 @@ const debug_extensions: [1][*:0]const u8 = .{
     vk.extensions.ext_debug_utils.name,
 };
 
-platform_wrapper: platform.vulkan.Wrapper,
+platform_wrapper: Window.vulkan.Wrapper,
 instance: vk.InstanceProxy,
 maybe_debug_messenger: ?vk.DebugUtilsMessengerEXT,
 physical_devices: []Device.Physical,
@@ -29,13 +29,13 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !gpu.Instance {
     errdefer alloc.destroy(this);
 
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    this.platform_wrapper = try platform.vulkan.Wrapper.init();
+    this.platform_wrapper = try Window.vulkan.Wrapper.init();
     const vkb = try this.platform_wrapper.getBaseWrapper();
 
     // TODO: check extention support
     var extensions: std.ArrayList([*:0]const u8) = .empty;
     defer extensions.deinit(alloc);
-    try extensions.appendSlice(alloc, try platform.vulkan.getRequiredInstanceExtensions());
+    try extensions.appendSlice(alloc, try Window.vulkan.getRequiredInstanceExtensions());
     try extensions.appendSlice(alloc, &extra_required_extensions);
     if (debug_logging) try extensions.appendSlice(alloc, &debug_extensions);
 

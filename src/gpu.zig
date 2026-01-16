@@ -1,5 +1,5 @@
 const std = @import("std");
-const platform = @import("platform.zig");
+const Window = @import("Window.zig");
 const vk = @import("gpu/vulkan.zig");
 
 pub const Size = u64;
@@ -114,7 +114,7 @@ pub const Device = union(Api) {
 pub const Display = union(Api) {
     vk: vk.Display.Handle,
 
-    pub fn init(device: Device, window: *platform.Window, alloc: std.mem.Allocator) anyerror!Display {
+    pub fn init(device: Device, window: *Window, alloc: std.mem.Allocator) anyerror!Display {
         return call(device, @src(), "Display", .{ device, window, alloc });
     }
 
