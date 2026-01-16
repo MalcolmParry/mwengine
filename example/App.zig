@@ -26,6 +26,7 @@ frames_in_flight_data: []PerFrameInFlight,
 cam_pos: math.Vec3,
 cam_fov: f32,
 cam_euler: math.Vec3,
+last_cursor: math.Vec2,
 
 pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.timer = try .start();
@@ -36,6 +37,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
 
     this.window = try mw.Window.init(alloc, "example", .{ 100, 100 }, &this.event_queue);
     errdefer this.window.deinit();
+    try this.window.setCursorMode(.disabled);
 
     this.instance = try gpu.Instance.init(true, alloc);
     errdefer this.instance.deinit(alloc);
@@ -124,6 +126,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.cam_pos = .{ -1, 0, 0 };
     this.cam_fov = math.rad(70.0);
     this.cam_euler = @splat(0);
+    this.last_cursor = @splat(0);
 }
 
 pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
@@ -199,21 +202,13 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     }
 
     {
-        var euler: math.Vec3 = @splat(0);
+        const cursor = this.window.getCursorPos();
+        var moved = cursor - this.last_cursor;
+        this.last_cursor = cursor;
 
-        if (this.window.isKeyDown(.up))
-            euler[1] -= 1;
-        if (this.window.isKeyDown(.down))
-            euler[1] += 1;
-        if (this.window.isKeyDown(.left))
-            euler[2] -= 1;
-        if (this.window.isKeyDown(.right))
-            euler[2] += 1;
-
-        if (!math.eql(euler, @as(math.Vec3, @splat(0)))) {
-            euler = math.normalize(euler);
-            euler *= @splat(dt * math.rad(70.0));
-            this.cam_euler += euler;
+        if (!math.eql(moved, @as(math.Vec2, @splat(0)))) {
+            moved *= @splat(math.rad(0.18));
+            this.cam_euler += math.Vec3{ 0, moved[1], moved[0] };
         }
     }
 

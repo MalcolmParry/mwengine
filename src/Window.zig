@@ -56,6 +56,30 @@ pub fn isKeyDown(this: *const Window, key: events.Keycode) bool {
     return glfw.getKey(this._window, keycodeToGlfw(key)) == .press;
 }
 
+pub fn getCursorPos(this: *const Window) @Vector(2, f32) {
+    var x: f64 = 0;
+    var y: f64 = 0;
+    glfw.getCursorPos(this._window, &x, &y);
+    return .{ @floatCast(x), @floatCast(y) };
+}
+
+pub const CursorMode = enum {
+    normal,
+    hidden,
+    disabled,
+    captured,
+};
+
+pub fn setCursorMode(this: *Window, mode: CursorMode) !void {
+    try glfw.setInputMode(this._window, .cursor, switch (mode) {
+        .normal => .normal,
+        .hidden => .hidden,
+        .disabled => .disabled,
+        .captured => .captured,
+    });
+    try glfw.setInputMode(this._window, .raw_mouse_motion, true);
+}
+
 pub fn getFramebufferSize(this: *const Window) @Vector(2, u32) {
     var width: c_int = undefined;
     var height: c_int = undefined;
