@@ -3,6 +3,8 @@ const std = @import("std");
 pub const Vec2 = @Vector(2, f32);
 pub const Vec3 = @Vector(3, f32);
 pub const Vec4 = @Vector(4, f32);
+// xyzw
+pub const Quat = Vec4;
 // row major
 pub const Mat4 = [4]Vec4;
 
@@ -41,6 +43,17 @@ pub fn normalize(vec: anytype) @TypeOf(vec) {
     return vec / @as(@TypeOf(vec), @splat(length(vec)));
 }
 
+pub fn cross(a: Vec3, b: Vec3) Vec3 {
+    const ax, const ay, const az = a;
+    const bx, const by, const bz = b;
+
+    return .{
+        ay * bz - az * by,
+        az * bx - ax * bz,
+        ax * by - ay * bx,
+    };
+}
+
 pub fn changeSize(comptime len: u32, vec: anytype) @Vector(len, @typeInfo(@TypeOf(vec)).vector.child) {
     var result: @Vector(len, @typeInfo(@TypeOf(vec)).vector.child) = @splat(0);
 
@@ -54,6 +67,81 @@ pub fn changeSize(comptime len: u32, vec: anytype) @Vector(len, @typeInfo(@TypeO
         result[3] = 1;
 
     return result;
+}
+
+// quaternion
+pub const quat_identity: Quat = .{ 0, 0, 0, 1 };
+
+pub fn quatFromEuler(euler: Vec3) Quat {
+    const c = cos(euler / @as(Vec3, @splat(2)));
+    const cr, const cp, const cy = c;
+    const s = sin(euler / @as(Vec3, @splat(2)));
+    const sr, const sp, const sy = s;
+
+    return .{
+        cy * cp * sr - sy * sp * cr,
+        cy * sp * cr + sy * cp * sr,
+        sy * cp * cr - cy * sp * sr,
+        cy * cp * cr + sy * sp * sr,
+    };
+}
+
+pub fn quatMul(a: Quat, b: Quat) Quat {
+    const ax, const ay, const az, const aw = a;
+    const bx, const by, const bz, const bw = b;
+
+    return .{
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    };
+}
+
+pub fn quatToMatrix(quat: Quat) Mat4 {
+    const n = normalize(quat);
+    const x, const y, const z, const w = n;
+
+    const xx = x * x;
+    const yy = y * y;
+    const zz = z * z;
+
+    const xy = x * y;
+    const xz = x * z;
+    const yz = y * z;
+
+    const wx = w * x;
+    const wy = w * y;
+    const wz = w * z;
+
+    return .{
+        .{ 1 - 2 * (yy + zz), 2 * (xy + wz), 2 * (xz - wy), 0 },
+        .{ 2 * (xy - wz), 1 - 2 * (xx + zz), 2 * (yz + wx), 0 },
+        .{ 2 * (xz + wy), 2 * (yz - wx), 1 - 2 * (xx + yy), 0 },
+        .{ 0, 0, 0, 1 },
+    };
+}
+
+pub fn quatFromAxisAngle(axis: Vec3, angle: f32) Quat {
+    const n = normalize(axis);
+    const s = sin(angle / 2);
+    const c = cos(angle / 2);
+
+    const q: Quat = .{
+        n[0] * s,
+        n[1] * s,
+        n[2] * s,
+        c,
+    };
+
+    return normalize(q);
+}
+
+pub fn quatMulVec(q: Quat, v: Vec3) Vec3 {
+    const n = normalize(q);
+    const qv = changeSize(3, n);
+    const t = cross(qv, v) * @as(Vec3, @splat(2));
+    return v + t * @as(Vec3, @splat(n[3])) + cross(qv, t);
 }
 
 // matrix
@@ -285,4 +373,10 @@ test "dot" {
     try std.testing.expect(dot(dir_forward, dir_up) == 0);
     try std.testing.expect(dot(dir_forward, -dir_forward) == -1);
     try std.testing.expect(dot(dir_forward, dir_forward) == 1);
+}
+
+test "quaternions" {
+    std.testing.refAllDecls(@This());
+    const a: Quat = .{ 2, 5, 7, 3 };
+    try std.testing.expect(eql(a, quatMul(a, quat_identity)));
 }

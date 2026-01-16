@@ -25,6 +25,7 @@ frames_in_flight_data: []PerFrameInFlight,
 
 cam_pos: math.Vec3,
 cam_fov: f32,
+cam_euler: math.Vec3,
 
 pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.timer = try .start();
@@ -122,6 +123,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
 
     this.cam_pos = .{ -1, 0, 0 };
     this.cam_fov = math.rad(70.0);
+    this.cam_euler = @splat(0);
 }
 
 pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
@@ -187,6 +189,35 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         if (this.window.isKeyDown(.q))
             move_vector -= math.dir_up;
 
+        if (!math.eql(move_vector, @as(math.Vec3, @splat(0)))) {
+            const q = math.quatFromEuler(this.cam_euler);
+            move_vector = math.quatMulVec(q, move_vector);
+            move_vector = math.normalize(move_vector);
+            move_vector *= @splat(dt * 0.75);
+            this.cam_pos += move_vector;
+        }
+    }
+
+    {
+        var euler: math.Vec3 = @splat(0);
+
+        if (this.window.isKeyDown(.up))
+            euler[1] -= 1;
+        if (this.window.isKeyDown(.down))
+            euler[1] += 1;
+        if (this.window.isKeyDown(.left))
+            euler[2] -= 1;
+        if (this.window.isKeyDown(.right))
+            euler[2] += 1;
+
+        if (!math.eql(euler, @as(math.Vec3, @splat(0)))) {
+            euler = math.normalize(euler);
+            euler *= @splat(dt * math.rad(70.0));
+            this.cam_euler += euler;
+        }
+    }
+
+    {
         const fov_speed = math.rad(50.0);
         const fov_max = math.rad(100.0);
         const fov_min = math.rad(40.0);
@@ -196,16 +227,11 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
             this.cam_fov += fov_speed * dt;
 
         this.cam_fov = @min(fov_max, @max(fov_min, this.cam_fov));
-
-        if (!math.eql(move_vector, @as(math.Vec3, @splat(0)))) {
-            move_vector = math.normalize(move_vector);
-            move_vector *= @splat(dt * 0.75);
-            this.cam_pos += move_vector;
-        }
     }
 
     const mvp = math.matMulMany(.{
         math.perspective(aspect_ratio, this.cam_fov, 0.1, 50),
+        math.rotateEuler(this.cam_euler),
         math.translate(-this.cam_pos),
         math.scale(@splat(0.75)),
         math.rotateY(time_s * 0.5),
