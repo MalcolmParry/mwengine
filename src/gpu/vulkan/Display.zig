@@ -3,30 +3,39 @@ const gpu = @import("../../gpu.zig");
 const Window = @import("../../Window.zig");
 const vk = @import("vulkan");
 const Device = @import("Device.zig");
-const Semaphore = @import("wait_objects.zig").Semaphore;
 const Image = @import("Image.zig");
 
 const Display = @This();
 pub const Handle = *Display;
 
-image_size: @Vector(2, u32),
-images: []gpu.Image,
-image_views: []gpu.Image.View,
+window: *Window,
 swapchain: vk.SwapchainKHR,
 surface: vk.SurfaceKHR,
 surface_format: vk.SurfaceFormatKHR,
 instance: vk.InstanceProxy,
-device: *Device,
+device: gpu.Device,
+
+image_size: @Vector(2, u32),
+image_index: u32,
+images: []gpu.Image,
+image_views: []gpu.Image.View,
+
+wait_obect_index: u32,
+image_ready_semaphores: []gpu.Semaphore,
+render_finished_semaphores: []gpu.Semaphore,
+presented_fences: []gpu.Fence,
 
 pub fn init(device: gpu.Device, window: *Window, alloc: std.mem.Allocator) !gpu.Display {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const this = try alloc.create(Display);
     errdefer alloc.destroy(this);
 
+    this.window = window;
     this.instance = device.vk.instance.instance;
-    this.device = device.vk;
-    this.surface = try Window.vulkan.createSurface(window, this.instance);
+    this.device = device;
     this.swapchain = .null_handle;
+    this.wait_obect_index = 0;
+    this.surface = try Window.vulkan.createSurface(window, this.instance);
     errdefer this.instance.destroySurfaceKHR(this.surface, vk_alloc);
 
     this.surface_format = try chooseSurfaceFormat(this.instance.wrapper, device.vk.phys, this.surface, alloc);
@@ -39,61 +48,70 @@ pub fn init(device: gpu.Device, window: *Window, alloc: std.mem.Allocator) !gpu.
 pub fn deinit(this: gpu.Display, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     this.vk.deinitSwapchain(alloc);
-    this.vk.device.device.destroySwapchainKHR(this.vk.swapchain, vk_alloc);
+    this.vk.device.vk.device.destroySwapchainKHR(this.vk.swapchain, vk_alloc);
     this.vk.instance.destroySurfaceKHR(this.vk.surface, vk_alloc);
     alloc.destroy(this.vk);
 }
 
-pub fn acquireImageIndex(this: gpu.Display, maybe_signal_semaphore: ?gpu.Semaphore, maybe_signal_fence: ?gpu.Fence, timeout_ns: u64) !gpu.Display.AcquireImageIndexResult {
-    const native_semaphore = if (maybe_signal_semaphore) |x| x.vk.semaphore else .null_handle;
-    const native_fence = if (maybe_signal_fence) |x| x.vk.fence else .null_handle;
+pub fn startFrame(this: gpu.Display, alloc: std.mem.Allocator) !void {
+    try this.vk.presented_fences[this.vk.wait_obect_index].wait(this.vk.device, std.time.ns_per_s);
 
-    const result = this.vk.device.device.acquireNextImageKHR(this.vk.swapchain, timeout_ns, native_semaphore, native_fence) catch |err| switch (err) {
-        error.OutOfDateKHR => return .out_of_date,
-        else => return err,
-    };
+    const result = try this.vk.device.vk.device.acquireNextImageKHR(
+        this.vk.swapchain,
+        std.time.ns_per_ms * 100,
+        this.vk.image_ready_semaphores[this.vk.wait_obect_index].vk.semaphore,
+        .null_handle,
+    );
 
-    return switch (result.result) {
-        .success => .{ .success = result.image_index },
-        .timeout => error.Timeout,
-        .not_ready => error.NotReady,
-        .suboptimal_khr => .{ .suboptimal = result.image_index },
+    switch (result.result) {
+        .success => {},
+        .suboptimal_khr => try rebuild(this, alloc),
+        .timeout => return error.Timeout,
+        .not_ready => return error.NotReady,
         else => unreachable,
-    };
+    }
+
+    this.vk.image_index = result.image_index;
 }
 
-pub fn presentImage(this: gpu.Display, index: u32, wait_semaphores: []const gpu.Semaphore, maybe_signal_fence: ?gpu.Fence) !gpu.Display.PresentResult {
-    const maybe_fence_info: ?vk.SwapchainPresentFenceInfoEXT = if (maybe_signal_fence) |fence| .{
+pub fn endFrame(this: gpu.Display, alloc: std.mem.Allocator) !void {
+    const fence = this.vk.presented_fences[this.vk.wait_obect_index];
+    const semaphore = this.vk.render_finished_semaphores[this.vk.wait_obect_index];
+    try fence.reset(this.vk.device);
+
+    const fence_info: vk.SwapchainPresentFenceInfoEXT = .{
         .swapchain_count = 1,
         .p_fences = @ptrCast(&fence.vk.fence),
-    } else null;
-
-    const result = this.vk.device.device.queuePresentKHR(this.vk.device.queue, &.{
-        .wait_semaphore_count = @intCast(wait_semaphores.len),
-        .p_wait_semaphores = Semaphore.nativesFromSlice(wait_semaphores),
-        .swapchain_count = 1,
-        .p_swapchains = @ptrCast(&this.vk.swapchain),
-        .p_image_indices = @ptrCast(&index),
-        .p_results = null,
-        .p_next = if (maybe_fence_info) |x| @ptrCast(&x) else null,
-    }) catch |err| return switch (err) {
-        error.OutOfDateKHR => .out_of_date,
-        else => err,
     };
 
+    const result = try this.vk.device.vk.device.queuePresentKHR(this.vk.device.vk.queue, &.{
+        .wait_semaphore_count = 1,
+        .p_wait_semaphores = @ptrCast(&semaphore.vk.semaphore),
+        .swapchain_count = 1,
+        .p_swapchains = @ptrCast(&this.vk.swapchain),
+        .p_image_indices = @ptrCast(&this.vk.image_index),
+        .p_results = null,
+        .p_next = @ptrCast(&fence_info),
+    });
+
+    this.vk.wait_obect_index = (this.vk.wait_obect_index + 1) % @as(u32, @intCast(this.vk.images.len));
     return switch (result) {
-        .success => .success,
-        .suboptimal_khr => .suboptimal,
+        .success => {},
+        .suboptimal_khr => rebuild(this, alloc),
         else => unreachable,
     };
 }
 
-pub fn rebuild(this: gpu.Display, image_size: @Vector(2, u32), alloc: std.mem.Allocator) !void {
+pub fn rebuild(this: gpu.Display, alloc: std.mem.Allocator) !void {
+    for (this.vk.presented_fences) |fence| {
+        try fence.wait(this.vk.device, std.time.ms_per_s);
+    }
+
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const old_swapchain = this.vk.swapchain;
     this.vk.deinitSwapchain(alloc);
-    try this.vk.initSwapchain(image_size, alloc);
-    this.vk.device.device.destroySwapchainKHR(old_swapchain, vk_alloc);
+    try this.vk.initSwapchain(this.vk.window.getFramebufferSize(), alloc);
+    this.vk.device.vk.device.destroySwapchainKHR(old_swapchain, vk_alloc);
 }
 
 pub fn imageFormat(this: gpu.Display) gpu.Image.Format {
@@ -108,12 +126,24 @@ pub fn imageSize(this: gpu.Display) @Vector(2, u32) {
     return this.vk.image_size;
 }
 
-pub fn image(this: gpu.Display, index: gpu.Display.ImageIndex) gpu.Image {
-    return this.vk.images[index];
+pub fn image(this: gpu.Display) gpu.Image {
+    return this.vk.images[this.vk.image_index];
 }
 
-pub fn imageView(this: gpu.Display, index: gpu.Display.ImageIndex) gpu.Image.View {
-    return this.vk.image_views[index];
+pub fn imageView(this: gpu.Display) gpu.Image.View {
+    return this.vk.image_views[this.vk.image_index];
+}
+
+pub fn imageReadySemaphore(this: gpu.Display) gpu.Semaphore {
+    return this.vk.image_ready_semaphores[this.vk.wait_obect_index];
+}
+
+pub fn renderFinishedSemaphore(this: gpu.Display) gpu.Semaphore {
+    return this.vk.render_finished_semaphores[this.vk.wait_obect_index];
+}
+
+pub fn presentFinishedFence(this: gpu.Display) gpu.Fence {
+    return this.vk.presented_fences[this.vk.wait_obect_index];
 }
 
 fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.Allocator) !void {
@@ -121,7 +151,7 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     const old_swapchain: vk.SwapchainKHR = this.swapchain;
     this.image_size = image_size;
 
-    const capabilities = try this.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this.device.phys, this.surface);
+    const capabilities = try this.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this.device.vk.phys, this.surface);
 
     var min_image_count = capabilities.min_image_count + 1;
     if (capabilities.max_image_count > 0 and min_image_count > capabilities.max_image_count) {
@@ -129,7 +159,7 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     }
 
     const extent = try this.chooseSwapExtent(image_size);
-    this.swapchain = try this.device.device.createSwapchainKHR(&.{
+    this.swapchain = try this.device.vk.device.createSwapchainKHR(&.{
         .surface = this.surface,
         .min_image_count = min_image_count,
         .image_format = this.surface_format.format,
@@ -152,7 +182,7 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
         .old_swapchain = old_swapchain,
     }, vk_alloc);
 
-    const images = try this.device.device.getSwapchainImagesAllocKHR(this.swapchain, alloc);
+    const images = try this.device.vk.device.getSwapchainImagesAllocKHR(this.swapchain, alloc);
     errdefer alloc.free(images);
     this.images = @ptrCast(images);
 
@@ -160,7 +190,7 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     errdefer alloc.free(this.image_views);
     this.image_views = @ptrCast(image_views);
     for (images, image_views) |img, *img_view| {
-        img_view.* = try this.device.device.createImageView(&.{
+        img_view.* = try this.device.vk.device.createImageView(&.{
             .image = img,
             .view_type = .@"2d", // TODO: allow for different types
             .format = this.surface_format.format,
@@ -181,17 +211,33 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
             },
         }, vk_alloc);
     }
+
+    this.wait_obect_index = 0;
+    this.image_ready_semaphores = try alloc.alloc(gpu.Semaphore, images.len);
+    this.render_finished_semaphores = try alloc.alloc(gpu.Semaphore, images.len);
+    this.presented_fences = try alloc.alloc(gpu.Fence, images.len);
+    for (this.image_ready_semaphores, this.render_finished_semaphores, this.presented_fences) |*a, *b, *c| {
+        a.* = try .init(this.device);
+        b.* = try .init(this.device);
+        c.* = try .init(this.device, true);
+    }
 }
 
 fn deinitSwapchain(this: *Display, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
 
-    for (this.image_views) |image_view| {
-        this.device.device.destroyImageView(image_view.vk.image_view, vk_alloc);
+    for (this.image_views, this.image_ready_semaphores, this.render_finished_semaphores, this.presented_fences) |image_view, a, b, c| {
+        this.device.vk.device.destroyImageView(image_view.vk.image_view, vk_alloc);
+        a.deinit(this.device);
+        b.deinit(this.device);
+        c.deinit(this.device);
     }
 
     alloc.free(this.image_views);
     alloc.free(this.images);
+    alloc.free(this.image_ready_semaphores);
+    alloc.free(this.render_finished_semaphores);
+    alloc.free(this.presented_fences);
 }
 
 fn chooseSurfaceFormat(dispatch: *const vk.InstanceWrapper, phys: vk.PhysicalDevice, surface: vk.SurfaceKHR, alloc: std.mem.Allocator) !vk.SurfaceFormatKHR {
@@ -208,7 +254,7 @@ fn chooseSurfaceFormat(dispatch: *const vk.InstanceWrapper, phys: vk.PhysicalDev
 }
 
 fn chooseSwapExtent(this: *Display, image_size: @Vector(2, u32)) !vk.Extent2D {
-    const capabilities = try this.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this.device.phys, this.surface);
+    const capabilities = try this.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this.device.vk.phys, this.surface);
 
     if (capabilities.current_extent.width != std.math.maxInt(u32))
         return capabilities.current_extent;

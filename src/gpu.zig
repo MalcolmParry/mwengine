@@ -123,29 +123,16 @@ pub const Display = union(Api) {
         return call(this, @src(), "Display", .{ this, alloc });
     }
 
-    pub const ImageIndex = u32;
-    pub const AcquireImageIndexResult = union(PresentResult) {
-        success: ImageIndex,
-        suboptimal: ImageIndex,
-        out_of_date: void,
-    };
-
-    pub fn acquireImageIndex(this: Display, maybe_signal_semaphore: ?Semaphore, maybe_signal_fence: ?Fence, timeout_ns: u64) anyerror!AcquireImageIndexResult {
-        return call(this, @src(), "Display", .{ this, maybe_signal_semaphore, maybe_signal_fence, timeout_ns });
+    pub fn startFrame(this: Display, alloc: std.mem.Allocator) anyerror!void {
+        return call(this, @src(), "Display", .{ this, alloc });
     }
 
-    pub const PresentResult = enum {
-        success,
-        suboptimal,
-        out_of_date,
-    };
-
-    pub fn presentImage(this: Display, index: u32, wait_semaphores: []const Semaphore, maybe_signal_fence: ?Fence) anyerror!PresentResult {
-        return call(this, @src(), "Display", .{ this, index, wait_semaphores, maybe_signal_fence });
+    pub fn endFrame(this: Display, alloc: std.mem.Allocator) anyerror!void {
+        return call(this, @src(), "Display", .{ this, alloc });
     }
 
-    pub fn rebuild(this: Display, image_size: @Vector(2, u32), alloc: std.mem.Allocator) anyerror!void {
-        return call(this, @src(), "Display", .{ this, image_size, alloc });
+    pub fn rebuild(this: Display, alloc: std.mem.Allocator) anyerror!void {
+        return call(this, @src(), "Display", .{ this, alloc });
     }
 
     pub fn imageFormat(this: Display) Image.Format {
@@ -160,12 +147,24 @@ pub const Display = union(Api) {
         return call(this, @src(), "Display", .{this});
     }
 
-    pub fn image(this: Display, index: Display.ImageIndex) Image {
-        return call(this, @src(), "Display", .{ this, index });
+    pub fn image(this: Display) Image {
+        return call(this, @src(), "Display", .{this});
     }
 
-    pub fn imageView(this: Display, index: Display.ImageIndex) Image.View {
-        return call(this, @src(), "Display", .{ this, index });
+    pub fn imageView(this: Display) Image.View {
+        return call(this, @src(), "Display", .{this});
+    }
+
+    pub fn imageReadySemaphore(this: Display) Semaphore {
+        return call(this, @src(), "Display", .{this});
+    }
+
+    pub fn renderFinishedSemaphore(this: Display) Semaphore {
+        return call(this, @src(), "Display", .{this});
+    }
+
+    pub fn presentFinishedFence(this: Display) Fence {
+        return call(this, @src(), "Display", .{this});
     }
 };
 
