@@ -151,9 +151,25 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
 }
 
 pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
+    var rebuild: bool = false;
     const per_frame = &this.frames_in_flight_data[this.frame_in_flight];
-    try this.display.startFrame(alloc);
+    try per_frame.presented_fence.wait(this.device, std.time.ns_per_s);
+    try per_frame.presented_fence.reset(this.device);
 
+    const image_index = blk: {
+        for (0..3) |_| {
+            switch (try this.display.acquireImageIndex(per_frame.image_available_semaphore, null, std.time.ns_per_s)) {
+                .success => |i| break :blk i,
+                .suboptimal => |i| {
+                    rebuild = true;
+                    break :blk i;
+                },
+                .out_of_date => return error.OutOfDate,
+            }
+        }
+
+        return error.Failed;
+    };
     const viewport = this.window.getFramebufferSize();
     const time_s = @as(f32, @floatFromInt(this.timer.read())) / std.time.ns_per_s;
     const aspect_ratio = @as(f32, @floatFromInt(viewport[0])) / @as(f32, @floatFromInt(viewport[1]));
@@ -229,7 +245,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     per_frame.cmd_encoder.cmdMemoryBarrier(this.device, &.{
         .{ .image = .{
-            .image = this.display.image(),
+            .image = this.display.image(image_index),
             .old_layout = .undefined,
             .new_layout = .color_attachment,
             .src_stage = .{ .pipeline_start = true },
@@ -251,7 +267,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         .image_size = this.display.imageSize(),
         .target = .{
             .color_clear_value = @splat(0),
-            .color_image_view = this.display.imageView(),
+            .color_image_view = this.display.imageView(image_index),
         },
     });
 
@@ -268,7 +284,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
     per_frame.cmd_encoder.cmdMemoryBarrier(this.device, &.{
         .{ .image = .{
-            .image = this.display.image(),
+            .image = this.display.image(image_index),
             .old_layout = .color_attachment,
             .new_layout = .present_src,
             .src_stage = .{ .color_attachment_output = true },
@@ -279,8 +295,17 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     });
 
     try per_frame.cmd_encoder.end(this.device);
-    try per_frame.cmd_encoder.submit(this.device, &.{this.display.imageReadySemaphore()}, &.{this.display.renderFinishedSemaphore()}, null);
-    try this.display.endFrame(alloc);
+    try per_frame.cmd_encoder.submit(this.device, &.{per_frame.image_available_semaphore}, &.{per_frame.render_finished_semaphore}, null);
+
+    switch (try this.display.presentImage(image_index, &.{per_frame.render_finished_semaphore}, per_frame.presented_fence)) {
+        .success => {},
+        .suboptimal => {
+            rebuild = true;
+        },
+        .out_of_date => {
+            return error.OutOfDate;
+        },
+    }
 
     this.frame_in_flight = (this.frame_in_flight + 1) % this.frames_in_flight_data.len;
     this.window.update();
@@ -289,7 +314,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
 
         switch (event) {
             .close => return false,
-            .resize => try this.display.rebuild(alloc),
+            .resize => rebuild = true,
             .key_down => |kc| {
                 if (kc == .escape) return false;
             },
@@ -297,11 +322,20 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         }
     }
 
+    if (rebuild) {
+        this.device.waitUntilIdle();
+        try this.display.rebuild(this.window.getFramebufferSize(), alloc);
+    }
+
     return !this.window.shouldClose();
 }
 
 const PerFrameInFlight = struct {
     cmd_encoder: gpu.CommandEncoder,
+    image_available_semaphore: gpu.Semaphore,
+    render_finished_semaphore: gpu.Semaphore,
+    presented_fence: gpu.Fence,
+
     uniform_buffer: gpu.Buffer,
     uniform_staging: gpu.Buffer,
     uniform_mapping: *UniformData,
@@ -312,6 +346,15 @@ const PerFrameInFlight = struct {
 
         this.cmd_encoder = try app.device.initCommandEncoder();
         errdefer this.cmd_encoder.deinit(app.device);
+
+        this.image_available_semaphore = try app.device.initSemaphore();
+        errdefer this.image_available_semaphore.deinit(app.device);
+
+        this.render_finished_semaphore = try app.device.initSemaphore();
+        errdefer this.render_finished_semaphore.deinit(app.device);
+
+        this.presented_fence = try app.device.initFence(true);
+        errdefer this.presented_fence.deinit(app.device);
 
         this.uniform_buffer = try app.device.initBuffer(.{
             .alloc = alloc,
@@ -353,6 +396,10 @@ const PerFrameInFlight = struct {
 
     pub fn deinit(this: *@This(), app: *App, alloc: std.mem.Allocator) void {
         this.cmd_encoder.deinit(app.device);
+        this.image_available_semaphore.deinit(app.device);
+        this.render_finished_semaphore.deinit(app.device);
+        this.presented_fence.deinit(app.device);
+
         this.uniform_staging.unmap(app.device);
         this.uniform_staging.deinit(app.device, alloc);
         this.uniform_buffer.deinit(app.device, alloc);
