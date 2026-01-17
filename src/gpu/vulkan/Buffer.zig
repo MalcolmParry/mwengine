@@ -32,7 +32,7 @@ pub fn init(device: gpu.Device, info: gpu.Buffer.CreateInfo) !gpu.Buffer {
     errdefer device.vk.device.destroyBuffer(this.buffer, vk_alloc);
 
     const properties: vk.MemoryPropertyFlags = switch (info.loc) {
-        .host => .{ .host_visible_bit = true },
+        .host => .{ .host_coherent_bit = true },
         .device => .{ .device_local_bit = true },
     };
 

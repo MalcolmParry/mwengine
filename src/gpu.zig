@@ -57,6 +57,7 @@ pub const Device = union(Api) {
         var alloc_buffer: [64]u8 = undefined;
         var alloc_obj = std.heap.FixedBufferAllocator.init(&alloc_buffer);
         const alloc = alloc_obj.allocator();
+        std.debug.assert(regions.len == data.len);
 
         var offset: usize = 0;
         for (data, regions) |x, r| {
