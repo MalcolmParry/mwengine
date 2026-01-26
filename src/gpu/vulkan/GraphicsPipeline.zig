@@ -20,12 +20,25 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
     const native_descriptor_set_layouts = try ResourceSet.Layout.nativesFromSlice(info.resource_layouts, info.alloc);
     defer info.alloc.free(native_descriptor_set_layouts);
 
+    const native_push_constant_ranges = try info.alloc.alloc(vk.PushConstantRange, info.push_constant_ranges.len);
+    defer info.alloc.free(native_push_constant_ranges);
+    for (native_push_constant_ranges, info.push_constant_ranges) |*native, range| {
+        native.* = .{
+            .stage_flags = .{
+                .vertex_bit = range.stages.vertex,
+                .fragment_bit = range.stages.pixel,
+            },
+            .offset = range.offset,
+            .size = range.size,
+        };
+    }
+
     // TODO: could be separated into different objects
     this.pipeline_layout = try native_device.createPipelineLayout(&.{
         .set_layout_count = @intCast(native_descriptor_set_layouts.len),
         .p_set_layouts = native_descriptor_set_layouts.ptr,
-        .push_constant_range_count = 0,
-        .p_push_constant_ranges = null,
+        .push_constant_range_count = @intCast(native_push_constant_ranges.len),
+        .p_push_constant_ranges = native_push_constant_ranges.ptr,
     }, vk_alloc);
     errdefer native_device.destroyPipelineLayout(this.pipeline_layout, vk_alloc);
 

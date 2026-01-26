@@ -237,6 +237,20 @@ pub const RenderPassEncoder = struct {
         );
     }
 
+    pub fn cmdPushConstants(this: gpu.RenderPassEncoder, device: gpu.Device, pipeline: gpu.GraphicsPipeline, range: gpu.PushConstantRange, data: [*]const u8) void {
+        device.vk.device.cmdPushConstants(
+            this.vk.command_encoder.vk.command_buffer,
+            pipeline.vk.pipeline_layout,
+            .{
+                .vertex_bit = range.stages.vertex,
+                .fragment_bit = range.stages.pixel,
+            },
+            range.offset,
+            range.size,
+            data,
+        );
+    }
+
     pub fn cmdDraw(this: gpu.RenderPassEncoder, info: gpu.RenderPassEncoder.DrawInfo) void {
         if (info.indexed) {
             info.device.vk.device.cmdDrawIndexed(this.vk.command_encoder.vk.command_buffer, info.vertex_count, 1, 0, 0, 0);

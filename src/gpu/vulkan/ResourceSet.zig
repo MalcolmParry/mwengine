@@ -128,8 +128,8 @@ pub const Layout = struct {
                 .descriptor_type = t,
                 .descriptor_count = descriptor.count,
                 .stage_flags = .{
-                    .vertex_bit = descriptor.stage.vertex,
-                    .fragment_bit = descriptor.stage.pixel,
+                    .vertex_bit = descriptor.stages.vertex,
+                    .fragment_bit = descriptor.stages.pixel,
                 },
             };
 

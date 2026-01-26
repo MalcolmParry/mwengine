@@ -277,6 +277,12 @@ pub const Shader = union {
     };
 };
 
+pub const PushConstantRange = struct {
+    stages: Shader.StageFlags,
+    offset: u32,
+    size: u32,
+};
+
 pub const GraphicsPipeline = union {
     vk: vk.GraphicsPipeline.Handle,
 
@@ -284,7 +290,8 @@ pub const GraphicsPipeline = union {
         alloc: std.mem.Allocator,
         render_target_desc: RenderTarget.Desc,
         shader_set: Shader.Set,
-        resource_layouts: []const ResourceSet.Layout,
+        resource_layouts: []const ResourceSet.Layout = &.{},
+        push_constant_ranges: []const PushConstantRange = &.{},
     };
 
     pub fn init(device: Device, info: CreateInfo) anyerror!GraphicsPipeline {
@@ -380,7 +387,7 @@ pub const ResourceSet = union {
 
         pub const Descriptor = struct {
             t: Type,
-            stage: Shader.StageFlags,
+            stages: Shader.StageFlags,
             binding: u32,
             count: u32,
         };
@@ -598,6 +605,10 @@ pub const RenderPassEncoder = union {
 
     pub fn cmdBindResourceSets(this: RenderPassEncoder, device: Device, pipeline: GraphicsPipeline, resource_sets: []const ResourceSet, first: u32) void {
         return call(device, @src(), "RenderPassEncoder", .{ this, device, pipeline, resource_sets, first });
+    }
+
+    pub fn cmdPushConstants(this: RenderPassEncoder, device: Device, pipeline: GraphicsPipeline, range: PushConstantRange, data: [*]const u8) void {
+        return call(device, @src(), "RenderPassEncoder", .{ this, device, pipeline, range, data });
     }
 
     pub const DrawInfo = struct {

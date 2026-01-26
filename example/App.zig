@@ -96,7 +96,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
         .descriptors = &.{
             .{
                 .t = .uniform,
-                .stage = .{ .vertex = true },
+                .stages = .{ .vertex = true },
                 .count = 1,
                 .binding = 0,
             },

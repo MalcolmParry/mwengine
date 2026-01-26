@@ -147,6 +147,8 @@ pub fn bestPhysicalDevice(this: gpu.Instance) !gpu.Device.Physical {
 
         std.log.info("Device ({}): {s}", .{ score, properties.device_name });
         std.log.info("Max Image: {}", .{properties.limits.max_image_dimension_2d});
+        std.log.info("Max Push Constant Size: {}", .{properties.limits.max_push_constants_size});
+
         if (score > best_score) {
             best_score = score;
             best_device = device;
