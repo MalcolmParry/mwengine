@@ -111,6 +111,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
         },
         .shader_set = this.shader_set,
         .resource_layouts = &.{this.resource_layout},
+        .cull_mode = .none,
     });
     errdefer this.graphics_pipeline.deinit(this.device, alloc);
 

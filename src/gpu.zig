@@ -286,12 +286,19 @@ pub const PushConstantRange = struct {
 pub const GraphicsPipeline = union {
     vk: vk.GraphicsPipeline.Handle,
 
+    pub const CullMode = enum {
+        none,
+        front,
+        back,
+    };
+
     pub const CreateInfo = struct {
         alloc: std.mem.Allocator,
         render_target_desc: RenderTarget.Desc,
         shader_set: Shader.Set,
         resource_layouts: []const ResourceSet.Layout = &.{},
         push_constant_ranges: []const PushConstantRange = &.{},
+        cull_mode: CullMode,
     };
 
     pub fn init(device: Device, info: CreateInfo) anyerror!GraphicsPipeline {

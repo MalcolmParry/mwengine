@@ -139,7 +139,11 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
             .rasterizer_discard_enable = .false,
             .polygon_mode = .fill,
             .line_width = 1,
-            .cull_mode = .{},
+            .cull_mode = switch (info.cull_mode) {
+                .none => .{},
+                .front => .{ .front_bit = true },
+                .back => .{ .back_bit = true },
+            },
             .front_face = .counter_clockwise,
             .depth_bias_enable = .false,
             .depth_bias_constant_factor = 0,
