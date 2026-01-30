@@ -137,6 +137,7 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
         .image_extent = extent,
         .image_array_layers = 1,
         .image_usage = .{
+            // TODO: allow user to specify
             .color_attachment_bit = true,
         },
         .image_sharing_mode = .exclusive,
@@ -153,8 +154,16 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     }, vk_alloc);
 
     const images = try this.device.device.getSwapchainImagesAllocKHR(this.swapchain, alloc);
-    errdefer alloc.free(images);
-    this.images = @ptrCast(images);
+    defer alloc.free(images);
+
+    this.images = try alloc.alloc(gpu.Image, images.len);
+    for (this.images, images) |*x, native| {
+        x.vk = try alloc.create(Image);
+        x.vk.* = .{
+            .image = native,
+            .memory_region = undefined,
+        };
+    }
 
     const image_views = try alloc.alloc(vk.ImageView, images.len);
     errdefer alloc.free(this.image_views);
@@ -189,8 +198,11 @@ fn deinitSwapchain(this: *Display, alloc: std.mem.Allocator) void {
     for (this.image_views) |image_view| {
         this.device.device.destroyImageView(image_view.vk.image_view, vk_alloc);
     }
-
     alloc.free(this.image_views);
+
+    for (this.images) |img| {
+        alloc.destroy(img.vk);
+    }
     alloc.free(this.images);
 }
 

@@ -104,6 +104,7 @@ pub const Device = union(Api) {
 
     pub const initDisplay = Display.init;
     pub const initBuffer = Buffer.init;
+    pub const initImage = Image.init;
     pub const initResouceLayout = ResourceSet.Layout.init;
     pub const initResouceSet = ResourceSet.init;
     pub const initCommandEncoder = CommandEncoder.init;
@@ -414,13 +415,13 @@ pub const ResourceSet = union {
     };
 };
 
+pub const MemLocation = enum {
+    host,
+    device,
+};
+
 pub const Buffer = union {
     vk: vk.Buffer.Handle,
-
-    pub const Location = enum {
-        host,
-        device,
-    };
 
     pub const Usage = packed struct {
         const BackingInt = @typeInfo(@TypeOf(@This())).@"struct".backing_integer.?;
@@ -435,7 +436,7 @@ pub const Buffer = union {
 
     pub const CreateInfo = struct {
         alloc: std.mem.Allocator,
-        loc: Location,
+        loc: MemLocation,
         usage: Usage,
         size: Size,
     };
@@ -493,12 +494,29 @@ pub const Buffer = union {
 pub const Image = union {
     vk: vk.Image.Handle,
 
+    pub const InitInfo = struct {
+        alloc: std.mem.Allocator,
+        format: Format,
+        usage: Usage,
+        loc: MemLocation,
+        size: @Vector(2, u32),
+    };
+
+    pub fn init(device: Device, info: InitInfo) anyerror!Image {
+        return call(device, @src(), "Image", .{ device, info });
+    }
+
+    pub fn deinit(this: Image, device: Device, alloc: std.mem.Allocator) void {
+        return call(device, @src(), "Image", .{ this, device, alloc });
+    }
+
     pub const View = union {
         vk: vk.Image.View.Handle,
     };
 
     pub const Format = enum {
         bgra8_srgb,
+        d32_sfloat,
         unknown,
     };
 
@@ -506,6 +524,13 @@ pub const Image = union {
         undefined,
         color_attachment,
         present_src,
+    };
+
+    pub const Usage = packed struct {
+        color_attachment: bool = false,
+        depth_stencil_attachment: bool = false,
+        sampled: bool = false,
+        dst: bool = false,
     };
 };
 
