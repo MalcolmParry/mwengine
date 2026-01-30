@@ -293,6 +293,18 @@ pub const GraphicsPipeline = union {
         back,
     };
 
+    pub const DepthMode = struct {
+        pub const disabled: DepthMode = .{
+            .testing = false,
+            .writing = false,
+            .compare_op = .never,
+        };
+
+        testing: bool,
+        writing: bool,
+        compare_op: CompareOp,
+    };
+
     pub const CreateInfo = struct {
         alloc: std.mem.Allocator,
         render_target_desc: RenderTarget.Desc,
@@ -300,6 +312,7 @@ pub const GraphicsPipeline = union {
         resource_layouts: []const ResourceSet.Layout = &.{},
         push_constant_ranges: []const PushConstantRange = &.{},
         cull_mode: CullMode,
+        depth_mode: DepthMode,
     };
 
     pub fn init(device: Device, info: CreateInfo) anyerror!GraphicsPipeline {
@@ -314,10 +327,12 @@ pub const GraphicsPipeline = union {
 pub const RenderTarget = struct {
     color_clear_value: @Vector(4, f32),
     color_image_view: Image.View,
+    depth_image_view: ?Image.View,
 
     pub const Desc = Descriptor;
     pub const Descriptor = struct {
         color_format: Image.Format,
+        depth_format: ?Image.Format,
     };
 };
 
@@ -510,9 +525,9 @@ pub const Image = union {
         return call(device, @src(), "Image", .{ this, device, alloc });
     }
 
-    pub const View = union {
-        vk: vk.Image.View.Handle,
-    };
+    pub fn format(this: Image, device: Device) Format {
+        return call(device, @src(), "Image", .{ this, device });
+    }
 
     pub const Format = enum {
         bgra8_srgb,
@@ -523,6 +538,7 @@ pub const Image = union {
     pub const Layout = enum {
         undefined,
         color_attachment,
+        depth_stencil,
         present_src,
     };
 
@@ -531,6 +547,23 @@ pub const Image = union {
         depth_stencil_attachment: bool = false,
         sampled: bool = false,
         dst: bool = false,
+    };
+
+    pub const View = union {
+        vk: vk.Image.View.Handle,
+
+        pub fn init(device: Device, image: Image, aspect: Aspect, alloc: std.mem.Allocator) anyerror!View {
+            return call(device, @src(), .{ "Image", "View" }, .{ device, image, aspect, alloc });
+        }
+
+        pub fn deinit(this: View, device: Device, alloc: std.mem.Allocator) void {
+            return call(device, @src(), .{ "Image", "View" }, .{ this, device, alloc });
+        }
+    };
+
+    pub const Aspect = packed struct {
+        color: bool = false,
+        depth: bool = false,
     };
 };
 
@@ -578,6 +611,7 @@ pub const CommandEncoder = union {
     pub const MemoryBarrier = union(enum) {
         image: struct {
             image: Image,
+            aspect: Image.Aspect,
             old_layout: Image.Layout,
             new_layout: Image.Layout,
             src_stage: Stage,
@@ -652,6 +686,17 @@ pub const RenderPassEncoder = union {
     pub fn cmdDraw(this: RenderPassEncoder, info: DrawInfo) void {
         return call(info.device, @src(), "RenderPassEncoder", .{ this, info });
     }
+};
+
+pub const CompareOp = enum {
+    never,
+    less,
+    equal,
+    less_or_equal,
+    greater,
+    not_equal,
+    greater_or_equal,
+    always,
 };
 
 fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: anytype, args: anytype) CallRetType(src, type_name) {

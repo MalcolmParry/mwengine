@@ -104,7 +104,7 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
         .p_color_attachment_formats = &.{
             Image.formatToNative(info.render_target_desc.color_format),
         },
-        .depth_attachment_format = .undefined,
+        .depth_attachment_format = Image.formatToNative(info.render_target_desc.depth_format orelse .unknown),
         .stencil_attachment_format = .undefined,
         .view_mask = 0, // used for vr and stuff i think
     };
@@ -159,9 +159,18 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
             .alpha_to_one_enable = .false,
         },
         .p_depth_stencil_state = &.{
-            .depth_test_enable = .false,
-            .depth_write_enable = .false,
-            .depth_compare_op = .less,
+            .depth_test_enable = if (info.depth_mode.testing) .true else .false,
+            .depth_write_enable = if (info.depth_mode.writing) .true else .false,
+            .depth_compare_op = switch (info.depth_mode.compare_op) {
+                .never => .never,
+                .less => .less,
+                .equal => .equal,
+                .less_or_equal => .less_or_equal,
+                .greater => .greater,
+                .not_equal => .not_equal,
+                .greater_or_equal => .greater_or_equal,
+                .always => .always,
+            },
             .depth_bounds_test_enable = .false,
             .min_depth_bounds = 0,
             .max_depth_bounds = 1,

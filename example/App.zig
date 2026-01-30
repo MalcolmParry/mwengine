@@ -108,10 +108,12 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
         .alloc = alloc,
         .render_target_desc = .{
             .color_format = this.display.imageFormat(),
+            .depth_format = null,
         },
         .shader_set = this.shader_set,
         .resource_layouts = &.{this.resource_layout},
         .cull_mode = .none,
+        .depth_mode = .disabled,
     });
     errdefer this.graphics_pipeline.deinit(this.device, alloc);
 
@@ -247,6 +249,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     per_frame.cmd_encoder.cmdMemoryBarrier(this.device, &.{
         .{ .image = .{
             .image = this.display.image(image_index),
+            .aspect = .{ .color = true },
             .old_layout = .undefined,
             .new_layout = .color_attachment,
             .src_stage = .{ .pipeline_start = true },
@@ -269,6 +272,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
         .target = .{
             .color_clear_value = @splat(0),
             .color_image_view = this.display.imageView(image_index),
+            .depth_image_view = null,
         },
     });
 
@@ -286,6 +290,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     per_frame.cmd_encoder.cmdMemoryBarrier(this.device, &.{
         .{ .image = .{
             .image = this.display.image(image_index),
+            .aspect = .{ .color = true },
             .old_layout = .color_attachment,
             .new_layout = .present_src,
             .src_stage = .{ .color_attachment_output = true },

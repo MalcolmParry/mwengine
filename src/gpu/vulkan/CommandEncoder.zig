@@ -106,7 +106,7 @@ pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_bar
                 .src_queue_family_index = device.vk.queue_family_index,
                 .dst_queue_family_index = device.vk.queue_family_index,
                 .subresource_range = .{
-                    .aspect_mask = .{ .color_bit = true },
+                    .aspect_mask = Image.aspectToNative(image.aspect),
                     .base_mip_level = 0,
                     .level_count = 1,
                     .base_array_layer = 0,
@@ -160,6 +160,22 @@ pub const RenderPassEncoder = struct {
             .resolve_mode = .{},
         };
 
+        const depth_attachment: vk.RenderingAttachmentInfo = .{
+            .image_layout = .depth_stencil_attachment_optimal,
+            .image_view = if (info.target.depth_image_view) |x| x.vk.image_view else .null_handle,
+            .load_op = .clear,
+            .store_op = .store,
+            .clear_value = .{
+                .depth_stencil = .{
+                    .depth = 1.0,
+                    .stencil = 0.0,
+                },
+            },
+            .resolve_image_layout = .undefined,
+            .resolve_image_view = .null_handle,
+            .resolve_mode = .{},
+        };
+
         info.device.vk.device.cmdBeginRenderingKHR(command_encoder.vk.command_buffer, &.{
             .render_area = .{
                 .offset = .{
@@ -175,6 +191,7 @@ pub const RenderPassEncoder = struct {
             .view_mask = 0,
             .color_attachment_count = 1,
             .p_color_attachments = @ptrCast(&color_attachment),
+            .p_depth_attachment = if (info.target.depth_image_view) |_| @ptrCast(&depth_attachment) else null,
             .flags = .{},
         });
 

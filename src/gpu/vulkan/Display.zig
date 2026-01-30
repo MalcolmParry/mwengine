@@ -157,11 +157,13 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     defer alloc.free(images);
 
     this.images = try alloc.alloc(gpu.Image, images.len);
+    const format = Image.formatFromNative(this.surface_format.format);
     for (this.images, images) |*x, native| {
         x.vk = try alloc.create(Image);
         x.vk.* = .{
             .image = native,
             .memory_region = undefined,
+            .format_ = format,
         };
     }
 
