@@ -598,12 +598,15 @@ pub const CommandEncoder = union {
         pipeline_start: bool = false,
         pipeline_end: bool = false,
         color_attachment_output: bool = false,
+        early_depth_tests: bool = false,
         transfer: bool = false,
         vertex_shader: bool = false,
     };
 
     pub const Access = packed struct {
         color_attachment_write: bool = false,
+        depth_stencil_read: bool = false,
+        depth_stencil_write: bool = false,
         transfer_write: bool = false,
         uniform_read: bool = false,
     };

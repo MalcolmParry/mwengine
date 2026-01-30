@@ -38,6 +38,7 @@ pub fn end(this: gpu.CommandEncoder, device: gpu.Device) !void {
 
 pub fn submit(this: gpu.CommandEncoder, device: gpu.Device, wait_semaphores: []const gpu.Semaphore, signal_semaphores: []const gpu.Semaphore, signal_fence: ?gpu.Fence) !void {
     // really cursed temporary solution
+    // TODO: i really should fix this
     const wait_dst_stage_mask: [5]vk.PipelineStageFlags = @splat(.{
         .color_attachment_output_bit = true,
     });
@@ -71,6 +72,7 @@ pub fn stageToNative(stage: gpu.CommandEncoder.Stage) vk.PipelineStageFlags2KHR 
         .top_of_pipe_bit = stage.pipeline_start,
         .bottom_of_pipe_bit = stage.pipeline_end,
         .color_attachment_output_bit = stage.color_attachment_output,
+        .early_fragment_tests_bit = stage.early_depth_tests,
         .all_transfer_bit = stage.transfer,
         .vertex_shader_bit = stage.vertex_shader,
     };
@@ -79,6 +81,8 @@ pub fn stageToNative(stage: gpu.CommandEncoder.Stage) vk.PipelineStageFlags2KHR 
 pub fn accessToNative(access: gpu.CommandEncoder.Access) vk.AccessFlags2KHR {
     return .{
         .color_attachment_write_bit = access.color_attachment_write,
+        .depth_stencil_attachment_read_bit = access.depth_stencil_read,
+        .depth_stencil_attachment_write_bit = access.depth_stencil_write,
         .transfer_write_bit = access.transfer_write,
         .uniform_read_bit = access.uniform_read,
     };
