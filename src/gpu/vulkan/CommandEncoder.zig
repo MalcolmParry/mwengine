@@ -273,9 +273,9 @@ pub const RenderPassEncoder = struct {
 
     pub fn cmdDraw(this: gpu.RenderPassEncoder, info: gpu.RenderPassEncoder.DrawInfo) void {
         if (info.indexed) {
-            info.device.vk.device.cmdDrawIndexed(this.vk.command_encoder.vk.command_buffer, info.vertex_count, 1, 0, 0, 0);
+            info.device.vk.device.cmdDrawIndexed(this.vk.command_encoder.vk.command_buffer, info.vertex_count, info.instance_count, 0, 0, 0);
         } else {
-            info.device.vk.device.cmdDraw(this.vk.command_encoder.vk.command_buffer, info.vertex_count, 1, 0, 0);
+            info.device.vk.device.cmdDraw(this.vk.command_encoder.vk.command_buffer, info.vertex_count, info.instance_count, 0, 0);
         }
     }
 };
