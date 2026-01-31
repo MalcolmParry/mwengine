@@ -429,7 +429,7 @@ pub const Fence = union {
         try waitMany(&.{this}, device, .all, timeout_ns);
     }
 
-    pub fn checkSignaled(this: Fence, device: Device) bool {
+    pub fn checkSignaled(this: Fence, device: Device) anyerror!bool {
         return call(device, @src(), "Fence", .{ this, device });
     }
 };

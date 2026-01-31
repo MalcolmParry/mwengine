@@ -64,7 +64,7 @@ pub const Fence = struct {
         };
     }
 
-    pub fn checkSignaled(this: gpu.Fence, device: gpu.Device) bool {
+    pub fn checkSignaled(this: gpu.Fence, device: gpu.Device) !bool {
         return switch (try device.vk.device.getFenceStatus(this.vk.fence)) {
             .success => true,
             .not_ready => false,
