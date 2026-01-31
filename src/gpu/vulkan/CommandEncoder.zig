@@ -228,10 +228,9 @@ pub const RenderPassEncoder = struct {
         device.vk.device.cmdSetScissor(this.vk.command_encoder.vk.command_buffer, 0, 1, @ptrCast(&scissor));
     }
 
-    pub fn cmdBindVertexBuffer(this: gpu.RenderPassEncoder, device: gpu.Device, buffer_region: gpu.Buffer.Region) void {
-        const first_binding = 0;
+    pub fn cmdBindVertexBuffer(this: gpu.RenderPassEncoder, device: gpu.Device, binding: u32, buffer_region: gpu.Buffer.Region) void {
         const offset = buffer_region.offset;
-        device.vk.device.cmdBindVertexBuffers(this.vk.command_encoder.vk.command_buffer, first_binding, 1, @ptrCast(&buffer_region.buffer.vk.buffer), @ptrCast(&offset));
+        device.vk.device.cmdBindVertexBuffers(this.vk.command_encoder.vk.command_buffer, binding, 1, @ptrCast(&buffer_region.buffer.vk.buffer), @ptrCast(&offset));
     }
 
     pub fn cmdBindIndexBuffer(this: gpu.RenderPassEncoder, device: gpu.Device, buffer_region: gpu.Buffer.Region, index_type: gpu.RenderPassEncoder.IndexType) void {

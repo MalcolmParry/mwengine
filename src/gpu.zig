@@ -191,18 +191,6 @@ pub const Shader = union {
         pixel: bool = false,
     };
 
-    pub const Set = union {
-        vk: vk.Shader.Set.Handle,
-
-        pub fn init(device: Device, vertex: Shader, pixel: Shader, per_vertex: []const DataType, alloc: std.mem.Allocator) anyerror!Set {
-            return call(device, @src(), .{ "Shader", "Set" }, .{ device, vertex, pixel, per_vertex, alloc });
-        }
-
-        pub fn deinit(this: Set, device: Device, alloc: std.mem.Allocator) void {
-            return call(device, @src(), .{ "Shader", "Set" }, .{ this, device, alloc });
-        }
-    };
-
     pub const DataType = enum {
         uint8,
         uint8x2,
@@ -216,6 +204,10 @@ pub const Shader = union {
         uint32x2,
         uint32x3,
         uint32x4,
+        uint64,
+        uint64x2,
+        uint64x3,
+        uint64x4,
         sint8,
         sint8x2,
         sint8x3,
@@ -268,11 +260,57 @@ pub const Shader = union {
                 .sint32x2 => 8,
                 .sint32x3 => 12,
                 .sint32x4 => 16,
+                .float16 => 2,
+                .float16x2 => 4,
+                .float16x3 => 6,
+                .float16x4 => 8,
                 .float32 => 4,
                 .float32x2 => 8,
                 .float32x3 => 12,
                 .float32x4 => 16,
                 .float32x4x4 => 64,
+            };
+        }
+
+        pub fn alignment(this: @This()) std.mem.Alignment {
+            return switch (this) {
+                .uint8 => .@"1",
+                .uint8x2 => .@"1",
+                .uint8x3 => .@"1",
+                .uint8x4 => .@"1",
+                .uint16 => .@"2",
+                .uint16x2 => .@"2",
+                .uint16x3 => .@"2",
+                .uint16x4 => .@"2",
+                .uint32 => .@"4",
+                .uint32x2 => .@"4",
+                .uint32x3 => .@"4",
+                .uint32x4 => .@"4",
+                .uint64 => .@"8",
+                .uint64x2 => .@"8",
+                .uint64x3 => .@"8",
+                .uint64x4 => .@"8",
+                .sint8 => .@"1",
+                .sint8x2 => .@"1",
+                .sint8x3 => .@"1",
+                .sint8x4 => .@"1",
+                .sint16 => .@"2",
+                .sint16x2 => .@"2",
+                .sint16x3 => .@"2",
+                .sint16x4 => .@"2",
+                .sint32 => .@"4",
+                .sint32x2 => .@"4",
+                .sint32x3 => .@"4",
+                .sint32x4 => .@"4",
+                .float16 => .@"2",
+                .float16x2 => .@"2",
+                .float16x3 => .@"2",
+                .float16x4 => .@"2",
+                .float32 => .@"4",
+                .float32x2 => .@"4",
+                .float32x3 => .@"4",
+                .float32x4 => .@"4",
+                .float32x4x4 => .@"4",
             };
         }
     };
@@ -282,6 +320,23 @@ pub const PushConstantRange = struct {
     stages: Shader.StageFlags,
     offset: u32,
     size: u32,
+};
+
+pub const VertexInputBinding = struct {
+    pub const Rate = enum {
+        per_vertex,
+        per_instance,
+    };
+
+    pub const Field = struct {
+        type: Shader.DataType,
+        /// null means auto and minimum alignment
+        alignment: ?std.mem.Alignment = null,
+    };
+
+    binding: u32,
+    rate: Rate,
+    fields: []const Field,
 };
 
 pub const GraphicsPipeline = union {
@@ -308,9 +363,10 @@ pub const GraphicsPipeline = union {
     pub const CreateInfo = struct {
         alloc: std.mem.Allocator,
         render_target_desc: RenderTarget.Desc,
-        shader_set: Shader.Set,
         resource_layouts: []const ResourceSet.Layout = &.{},
         push_constant_ranges: []const PushConstantRange = &.{},
+        shaders: []const Shader,
+        vertex_input_bindings: []const VertexInputBinding,
         cull_mode: CullMode,
         depth_mode: DepthMode,
     };
@@ -659,8 +715,8 @@ pub const RenderPassEncoder = union {
         return call(device, @src(), "RenderPassEncoder", .{ this, device, graphics_pipeline, image_size });
     }
 
-    pub fn cmdBindVertexBuffer(this: RenderPassEncoder, device: Device, buffer_region: Buffer.Region) void {
-        return call(device, @src(), "RenderPassEncoder", .{ this, device, buffer_region });
+    pub fn cmdBindVertexBuffer(this: RenderPassEncoder, device: Device, binding: u32, buffer_region: Buffer.Region) void {
+        return call(device, @src(), "RenderPassEncoder", .{ this, device, binding, buffer_region });
     }
 
     pub const IndexType = enum {

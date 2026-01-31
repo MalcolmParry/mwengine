@@ -17,7 +17,6 @@ vertex_buffer: gpu.Buffer,
 index_buffer: gpu.Buffer,
 vertex_shader: gpu.Shader,
 pixel_shader: gpu.Shader,
-shader_set: gpu.Shader.Set,
 resource_layout: gpu.ResourceSet.Layout,
 graphics_pipeline: gpu.GraphicsPipeline,
 
@@ -85,12 +84,6 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
     this.pixel_shader = try createShader(this.device, "res/shaders/triangle.frag.spv", .pixel, alloc);
     errdefer this.pixel_shader.deinit(this.device, alloc);
 
-    this.shader_set = try gpu.Shader.Set.init(this.device, this.vertex_shader, this.pixel_shader, &.{
-        .float32x2,
-        .float32x3,
-    }, alloc);
-    errdefer this.shader_set.deinit(this.device, alloc);
-
     this.resource_layout = try this.device.initResouceLayout(.{
         .alloc = alloc,
         .descriptors = &.{
@@ -110,8 +103,16 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
             .color_format = this.display.imageFormat(),
             .depth_format = null,
         },
-        .shader_set = this.shader_set,
         .resource_layouts = &.{this.resource_layout},
+        .shaders = &.{ this.vertex_shader, this.pixel_shader },
+        .vertex_input_bindings = &.{.{
+            .binding = 0,
+            .rate = .per_vertex,
+            .fields = &.{
+                .{ .type = .float32x2 },
+                .{ .type = .float32x3 },
+            },
+        }},
         .cull_mode = .none,
         .depth_mode = .disabled,
     });
@@ -140,7 +141,6 @@ pub fn deinit(this: *@This(), alloc: std.mem.Allocator) void {
 
     this.graphics_pipeline.deinit(this.device, alloc);
     this.resource_layout.deinit(this.device, alloc);
-    this.shader_set.deinit(this.device, alloc);
     this.pixel_shader.deinit(this.device, alloc);
     this.vertex_shader.deinit(this.device, alloc);
     this.index_buffer.deinit(this.device, alloc);
@@ -277,7 +277,7 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     });
 
     render_pass.cmdBindPipeline(this.device, this.graphics_pipeline, this.display.imageSize());
-    render_pass.cmdBindVertexBuffer(this.device, this.vertex_buffer.region());
+    render_pass.cmdBindVertexBuffer(this.device, 0, this.vertex_buffer.region());
     render_pass.cmdBindIndexBuffer(this.device, this.index_buffer.region(), .uint16);
     render_pass.cmdBindResourceSets(this.device, this.graphics_pipeline, &.{per_frame.resource_set}, 0);
     render_pass.cmdDraw(.{

@@ -42,19 +42,77 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
     }, vk_alloc);
     errdefer native_device.destroyPipelineLayout(this.pipeline_layout, vk_alloc);
 
-    // TODO: add per vertex data
-    const shader_stages: [2]vk.PipelineShaderStageCreateInfo = .{
-        .{
-            .stage = .{ .vertex_bit = true },
-            .module = info.shader_set.vk.vertex.vk.shader_module,
+    const shader_stages = try info.alloc.alloc(vk.PipelineShaderStageCreateInfo, info.shaders.len);
+    defer info.alloc.free(shader_stages);
+
+    for (shader_stages, info.shaders) |*native, shader| {
+        native.* = .{
+            .stage = shader.vk.stage,
+            .module = shader.vk.shader_module,
             .p_name = "main",
-        },
-        .{
-            .stage = .{ .fragment_bit = true },
-            .module = info.shader_set.vk.pixel.vk.shader_module,
-            .p_name = "main",
-        },
-    };
+        };
+    }
+
+    var vert_atrib_desc_count: usize = 0;
+    for (info.vertex_input_bindings) |binding| {
+        for (binding.fields) |field| {
+            vert_atrib_desc_count += switch (field.type) {
+                .float32x4x4 => 4,
+                else => 1,
+            };
+        }
+    }
+
+    var vert_atrib_descs: std.ArrayList(vk.VertexInputAttributeDescription) = try .initCapacity(info.alloc, vert_atrib_desc_count);
+    defer vert_atrib_descs.deinit(info.alloc);
+
+    const vert_bind_descs = try info.alloc.alloc(vk.VertexInputBindingDescription, info.vertex_input_bindings.len);
+    defer info.alloc.free(vert_bind_descs);
+
+    for (info.vertex_input_bindings, vert_bind_descs) |bind, *native| {
+        var stride: usize = 0;
+        var loc: u32 = 0;
+
+        for (bind.fields) |field| {
+            const alignment = field.alignment orelse field.type.alignment();
+            stride = alignment.forward(stride);
+
+            if (field.type == .float32x4x4) {
+                for (0..4) |_| {
+                    vert_atrib_descs.appendAssumeCapacity(.{
+                        .binding = bind.binding,
+                        .location = loc,
+                        .format = .r32g32b32a32_sfloat,
+                        .offset = @intCast(stride),
+                    });
+
+                    loc += 1;
+                    stride += 4;
+                }
+
+                continue;
+            }
+
+            vert_atrib_descs.appendAssumeCapacity(.{
+                .binding = bind.binding,
+                .location = loc,
+                .format = Shader.dataTypeToNative(field.type),
+                .offset = @intCast(stride),
+            });
+
+            stride += field.type.size();
+            loc += 1;
+        }
+
+        native.* = .{
+            .binding = bind.binding,
+            .input_rate = switch (bind.rate) {
+                .per_vertex => .vertex,
+                .per_instance => .instance,
+            },
+            .stride = @intCast(stride),
+        };
+    }
 
     const dynamic_states: [2]vk.DynamicState = .{
         .viewport,
@@ -77,28 +135,6 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
         .alpha_blend_op = .add,
     };
 
-    var attribute_offset: u32 = 0;
-    const vertex_attribute_descriptions = try info.alloc.alloc(vk.VertexInputAttributeDescription, info.shader_set.vk.per_vertex.len);
-    defer info.alloc.free(vertex_attribute_descriptions);
-    for (info.shader_set.vk.per_vertex, 0..) |format, i| {
-        vertex_attribute_descriptions[i] = .{
-            .binding = 0,
-            .location = @intCast(i),
-            .format = format,
-            .offset = attribute_offset,
-        };
-
-        attribute_offset += @intCast(Shader.vkTypeSize(format));
-    }
-
-    const vertex_bindings: [1]vk.VertexInputBindingDescription = .{
-        .{
-            .binding = 0,
-            .input_rate = .vertex,
-            .stride = attribute_offset,
-        },
-    };
-
     const rendering_create_info: vk.PipelineRenderingCreateInfo = .{
         .color_attachment_count = 1,
         .p_color_attachment_formats = &.{
@@ -115,14 +151,14 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
         .render_pass = .null_handle,
         .base_pipeline_handle = .null_handle,
         .base_pipeline_index = -1,
-        .stage_count = shader_stages.len,
-        .p_stages = &shader_stages,
+        .stage_count = @intCast(shader_stages.len),
+        .p_stages = shader_stages.ptr,
         .p_tessellation_state = null,
         .p_vertex_input_state = &.{
-            .vertex_attribute_description_count = @intCast(vertex_attribute_descriptions.len),
-            .p_vertex_attribute_descriptions = vertex_attribute_descriptions.ptr,
-            .vertex_binding_description_count = vertex_bindings.len,
-            .p_vertex_binding_descriptions = @ptrCast(&vertex_bindings),
+            .vertex_attribute_description_count = @intCast(vert_atrib_desc_count),
+            .p_vertex_attribute_descriptions = vert_atrib_descs.items.ptr,
+            .vertex_binding_description_count = @intCast(vert_bind_descs.len),
+            .p_vertex_binding_descriptions = vert_bind_descs.ptr,
         },
         .p_input_assembly_state = &.{
             .topology = .triangle_list, // TODO: allow more options
