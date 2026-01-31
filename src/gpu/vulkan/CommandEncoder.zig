@@ -37,11 +37,10 @@ pub fn end(this: gpu.CommandEncoder, device: gpu.Device) !void {
 }
 
 pub fn submit(this: gpu.CommandEncoder, device: gpu.Device, wait_semaphores: []const gpu.Semaphore, signal_semaphores: []const gpu.Semaphore, signal_fence: ?gpu.Fence) !void {
-    // really cursed temporary solution
-    // TODO: i really should fix this
-    const wait_dst_stage_mask: [5]vk.PipelineStageFlags = @splat(.{
-        .color_attachment_output_bit = true,
+    const wait_dst_stage_mask: [8]vk.PipelineStageFlags = @splat(.{
+        .all_commands_bit = true,
     });
+    std.debug.assert(wait_semaphores.len < wait_dst_stage_mask.len);
 
     const submit_info: vk.SubmitInfo = .{
         .command_buffer_count = 1,
