@@ -173,7 +173,10 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
         .p_rasterization_state = &.{
             .depth_clamp_enable = .false,
             .rasterizer_discard_enable = .false,
-            .polygon_mode = .fill,
+            .polygon_mode = switch (info.polygon_mode) {
+                .fill => .fill,
+                .line => .line,
+            },
             .line_width = 1,
             .cull_mode = switch (info.cull_mode) {
                 .none => .{},

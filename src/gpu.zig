@@ -343,6 +343,11 @@ pub const VertexInputBinding = struct {
 pub const GraphicsPipeline = union {
     vk: vk.GraphicsPipeline.Handle,
 
+    pub const PolygonMode = enum {
+        fill,
+        line,
+    };
+
     pub const CullMode = enum {
         none,
         front,
@@ -368,6 +373,7 @@ pub const GraphicsPipeline = union {
         push_constant_ranges: []const PushConstantRange = &.{},
         shaders: []const Shader,
         vertex_input_bindings: []const VertexInputBinding,
+        polygon_mode: PolygonMode,
         cull_mode: CullMode,
         depth_mode: DepthMode,
     };
