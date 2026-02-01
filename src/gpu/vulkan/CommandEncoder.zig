@@ -47,7 +47,7 @@ pub fn cmdCopyBuffer(this: gpu.CommandEncoder, device: gpu.Device, src: gpu.Buff
     device.vk.device.cmdCopyBuffer(this.vk.command_buffer, src.buffer.vk.buffer, dst.buffer.vk.buffer, 1, @ptrCast(&copy_region));
 }
 
-pub fn stageToNative(stage: gpu.CommandEncoder.Stage) vk.PipelineStageFlags {
+pub fn stageToNative(stage: gpu.GraphicsPipeline.Stages) vk.PipelineStageFlags {
     return .{
         .top_of_pipe_bit = stage.pipeline_start,
         .bottom_of_pipe_bit = stage.pipeline_end,
@@ -58,7 +58,7 @@ pub fn stageToNative(stage: gpu.CommandEncoder.Stage) vk.PipelineStageFlags {
     };
 }
 
-pub fn stageToNative2(stage: gpu.CommandEncoder.Stage) vk.PipelineStageFlags2KHR {
+pub fn stageToNative2(stage: gpu.GraphicsPipeline.Stages) vk.PipelineStageFlags2KHR {
     return .{
         .top_of_pipe_bit = stage.pipeline_start,
         .bottom_of_pipe_bit = stage.pipeline_end,
@@ -69,7 +69,7 @@ pub fn stageToNative2(stage: gpu.CommandEncoder.Stage) vk.PipelineStageFlags2KHR
     };
 }
 
-pub fn accessToNative(access: gpu.CommandEncoder.Access) vk.AccessFlags2KHR {
+pub fn accessToNative(access: gpu.Access) vk.AccessFlags2KHR {
     return .{
         .color_attachment_write_bit = access.color_attachment_write,
         .depth_stencil_attachment_read_bit = access.depth_stencil_read,

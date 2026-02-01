@@ -58,7 +58,7 @@ pub const Device = union(Api) {
         encoder: CommandEncoder,
         wait_semaphores: []const Semaphore,
         /// which stages in this command encoder will wait for the semaphore
-        wait_dst_stages: []const CommandEncoder.Stage,
+        wait_dst_stages: []const GraphicsPipeline.Stages,
         signal_semaphores: []const Semaphore,
         signal_fence: ?Fence,
     };
@@ -362,6 +362,15 @@ pub const VertexInputBinding = struct {
 pub const GraphicsPipeline = union {
     vk: vk.GraphicsPipeline.Handle,
 
+    pub const Stages = packed struct {
+        pipeline_start: bool = false,
+        pipeline_end: bool = false,
+        color_attachment_output: bool = false,
+        early_depth_tests: bool = false,
+        transfer: bool = false,
+        vertex_shader: bool = false,
+    };
+
     pub const PolygonMode = enum {
         fill,
         line,
@@ -649,6 +658,14 @@ pub const Image = union {
     };
 };
 
+pub const Access = packed struct {
+    color_attachment_write: bool = false,
+    depth_stencil_read: bool = false,
+    depth_stencil_write: bool = false,
+    transfer_write: bool = false,
+    uniform_read: bool = false,
+};
+
 pub const CommandEncoder = union {
     vk: vk.CommandEncoder.Handle,
 
@@ -672,38 +689,21 @@ pub const CommandEncoder = union {
         return call(device, @src(), "CommandEncoder", .{ this, device, src, dst });
     }
 
-    pub const Stage = packed struct {
-        pipeline_start: bool = false,
-        pipeline_end: bool = false,
-        color_attachment_output: bool = false,
-        early_depth_tests: bool = false,
-        transfer: bool = false,
-        vertex_shader: bool = false,
-    };
-
-    pub const Access = packed struct {
-        color_attachment_write: bool = false,
-        depth_stencil_read: bool = false,
-        depth_stencil_write: bool = false,
-        transfer_write: bool = false,
-        uniform_read: bool = false,
-    };
-
     pub const MemoryBarrier = union(enum) {
         image: struct {
             image: Image,
             aspect: Image.Aspect,
             old_layout: Image.Layout,
             new_layout: Image.Layout,
-            src_stage: Stage,
-            dst_stage: Stage,
+            src_stage: GraphicsPipeline.Stages,
+            dst_stage: GraphicsPipeline.Stages,
             src_access: Access,
             dst_access: Access,
         },
         buffer: struct {
             region: Buffer.Region,
-            src_stage: Stage,
-            dst_stage: Stage,
+            src_stage: GraphicsPipeline.Stages,
+            dst_stage: GraphicsPipeline.Stages,
             src_access: Access,
             dst_access: Access,
         },
