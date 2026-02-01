@@ -761,7 +761,9 @@ pub const RenderPassEncoder = union {
     pub const DrawInfo = struct {
         device: Device,
         vertex_count: u32,
+        first_vertex: u32 = 0,
         instance_count: u32 = 1,
+        first_instance: u32 = 0,
         indexed: bool,
     };
 
