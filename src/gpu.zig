@@ -54,6 +54,19 @@ pub const Device = union(Api) {
         return call(this, @src(), "Device", .{this});
     }
 
+    pub const CommandSubmitInfo = struct {
+        encoder: CommandEncoder,
+        wait_semaphores: []const Semaphore,
+        /// which stages in this command encoder will wait for the semaphore
+        wait_dst_stages: []const CommandEncoder.Stage,
+        signal_semaphores: []const Semaphore,
+        signal_fence: ?Fence,
+    };
+
+    pub fn submitCommands(this: Device, info: CommandSubmitInfo) anyerror!void {
+        return call(this, @src(), "Device", .{ this, info });
+    }
+
     pub fn setBufferRegions(device: Device, regions: []const Buffer.Region, data: []const []const u8) !void {
         var alloc_buffer: [64]u8 = undefined;
         var alloc_obj = std.heap.FixedBufferAllocator.init(&alloc_buffer);
@@ -99,7 +112,13 @@ pub const Device = union(Api) {
             offset += size;
         }
         try command_encoder.end(device);
-        try command_encoder.submit(device, &.{}, &.{}, fence);
+        try device.submitCommands(.{
+            .encoder = command_encoder,
+            .wait_semaphores = &.{},
+            .wait_dst_stages = &.{},
+            .signal_semaphores = &.{},
+            .signal_fence = fence,
+        });
         try fence.wait(device, std.time.ns_per_s);
     }
 
@@ -647,10 +666,6 @@ pub const CommandEncoder = union {
 
     pub fn end(this: CommandEncoder, device: Device) anyerror!void {
         return call(device, @src(), "CommandEncoder", .{ this, device });
-    }
-
-    pub fn submit(this: CommandEncoder, device: Device, wait_semaphores: []const Semaphore, signal_semaphores: []const Semaphore, signal_fence: ?Fence) anyerror!void {
-        return call(device, @src(), "CommandEncoder", .{ this, device, wait_semaphores, signal_semaphores, signal_fence });
     }
 
     pub fn cmdCopyBuffer(this: CommandEncoder, device: Device, src: Buffer.Region, dst: Buffer.Region) void {

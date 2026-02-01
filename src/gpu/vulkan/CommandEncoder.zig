@@ -36,25 +36,6 @@ pub fn end(this: gpu.CommandEncoder, device: gpu.Device) !void {
     try device.vk.device.endCommandBuffer(this.vk.command_buffer);
 }
 
-pub fn submit(this: gpu.CommandEncoder, device: gpu.Device, wait_semaphores: []const gpu.Semaphore, signal_semaphores: []const gpu.Semaphore, signal_fence: ?gpu.Fence) !void {
-    const wait_dst_stage_mask: [8]vk.PipelineStageFlags = @splat(.{
-        .all_commands_bit = true,
-    });
-    std.debug.assert(wait_semaphores.len < wait_dst_stage_mask.len);
-
-    const submit_info: vk.SubmitInfo = .{
-        .command_buffer_count = 1,
-        .p_command_buffers = @ptrCast(&this.vk.command_buffer),
-        .wait_semaphore_count = @intCast(wait_semaphores.len),
-        .p_wait_semaphores = Semaphore.nativesFromSlice(wait_semaphores),
-        .p_wait_dst_stage_mask = @ptrCast(&wait_dst_stage_mask),
-        .signal_semaphore_count = @intCast(signal_semaphores.len),
-        .p_signal_semaphores = Semaphore.nativesFromSlice(signal_semaphores),
-    };
-
-    try device.vk.device.queueSubmit(device.vk.queue, 1, @ptrCast(&submit_info), if (signal_fence) |fence| fence.vk.fence else .null_handle);
-}
-
 pub fn cmdCopyBuffer(this: gpu.CommandEncoder, device: gpu.Device, src: gpu.Buffer.Region, dst: gpu.Buffer.Region) void {
     std.debug.assert(src.size(device) == dst.size(device));
     const copy_region: vk.BufferCopy = .{
@@ -66,7 +47,18 @@ pub fn cmdCopyBuffer(this: gpu.CommandEncoder, device: gpu.Device, src: gpu.Buff
     device.vk.device.cmdCopyBuffer(this.vk.command_buffer, src.buffer.vk.buffer, dst.buffer.vk.buffer, 1, @ptrCast(&copy_region));
 }
 
-pub fn stageToNative(stage: gpu.CommandEncoder.Stage) vk.PipelineStageFlags2KHR {
+pub fn stageToNative(stage: gpu.CommandEncoder.Stage) vk.PipelineStageFlags {
+    return .{
+        .top_of_pipe_bit = stage.pipeline_start,
+        .bottom_of_pipe_bit = stage.pipeline_end,
+        .color_attachment_output_bit = stage.color_attachment_output,
+        .early_fragment_tests_bit = stage.early_depth_tests,
+        .transfer_bit = stage.transfer,
+        .vertex_shader_bit = stage.vertex_shader,
+    };
+}
+
+pub fn stageToNative2(stage: gpu.CommandEncoder.Stage) vk.PipelineStageFlags2KHR {
     return .{
         .top_of_pipe_bit = stage.pipeline_start,
         .bottom_of_pipe_bit = stage.pipeline_end,
@@ -102,8 +94,8 @@ pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_bar
                 .image = image.image.vk.image,
                 .old_layout = Image.layoutToNative(image.old_layout),
                 .new_layout = Image.layoutToNative(image.new_layout),
-                .src_stage_mask = stageToNative(image.src_stage),
-                .dst_stage_mask = stageToNative(image.dst_stage),
+                .src_stage_mask = stageToNative2(image.src_stage),
+                .dst_stage_mask = stageToNative2(image.dst_stage),
                 .src_access_mask = accessToNative(image.src_access),
                 .dst_access_mask = accessToNative(image.dst_access),
                 .src_queue_family_index = device.vk.queue_family_index,
@@ -123,8 +115,8 @@ pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_bar
                     .whole => vk.WHOLE_SIZE,
                 },
                 .offset = buffer.region.offset,
-                .src_stage_mask = stageToNative(buffer.src_stage),
-                .dst_stage_mask = stageToNative(buffer.dst_stage),
+                .src_stage_mask = stageToNative2(buffer.src_stage),
+                .dst_stage_mask = stageToNative2(buffer.dst_stage),
                 .src_access_mask = accessToNative(buffer.src_access),
                 .dst_access_mask = accessToNative(buffer.dst_access),
                 .src_queue_family_index = device.vk.queue_family_index,

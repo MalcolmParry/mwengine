@@ -4,6 +4,7 @@ const vk = @import("vulkan");
 const Instance = @import("Instance.zig");
 const Buffer = @import("Buffer.zig");
 const CommandEncoder = @import("CommandEncoder.zig");
+const Semaphore = @import("wait_objects.zig").Semaphore;
 
 const Device = @This();
 pub const Handle = *Device;
@@ -115,6 +116,28 @@ pub fn deinit(this: gpu.Device, alloc: std.mem.Allocator) void {
 
 pub fn waitUntilIdle(this: gpu.Device) void {
     this.vk.device.deviceWaitIdle() catch @panic("failed to wait for device");
+}
+
+pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) !void {
+    std.debug.assert(info.wait_semaphores.len == info.wait_dst_stages.len);
+    var wait_dst_stage_mask_buffer: [8]vk.PipelineStageFlags = undefined;
+    var wait_dst_stage_masks: std.ArrayList(vk.PipelineStageFlags) = .initBuffer(&wait_dst_stage_mask_buffer);
+    for (info.wait_dst_stages) |stage| {
+        wait_dst_stage_masks.appendAssumeCapacity(CommandEncoder.stageToNative(stage));
+    }
+
+    const native_fence: vk.Fence = if (info.signal_fence) |fence| fence.vk.fence else .null_handle;
+    const submit_info: vk.SubmitInfo = .{
+        .command_buffer_count = 1,
+        .p_command_buffers = @ptrCast(&info.encoder.vk.command_buffer),
+        .wait_semaphore_count = @intCast(info.wait_semaphores.len),
+        .p_wait_semaphores = Semaphore.nativesFromSlice(info.wait_semaphores),
+        .p_wait_dst_stage_mask = @ptrCast(wait_dst_stage_masks.items),
+        .signal_semaphore_count = @intCast(info.signal_semaphores.len),
+        .p_signal_semaphores = Semaphore.nativesFromSlice(info.signal_semaphores),
+    };
+
+    try this.vk.device.queueSubmit(this.vk.queue, 1, @ptrCast(&submit_info), native_fence);
 }
 
 pub const MemoryRegion = struct {
