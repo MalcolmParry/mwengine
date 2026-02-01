@@ -35,8 +35,12 @@ pub fn dot(left: anytype, right: anytype) Base(@TypeOf(left)) {
     return @reduce(.Add, left * right);
 }
 
+pub fn lengthSqr(vec: anytype) Base(@TypeOf(vec)) {
+    return @reduce(.Add, vec * vec);
+}
+
 pub fn length(vec: anytype) Base(@TypeOf(vec)) {
-    return sqrt(@reduce(.Add, vec * vec));
+    return sqrt(lengthSqr(vec));
 }
 
 pub fn normalize(vec: anytype) @TypeOf(vec) {
@@ -67,6 +71,30 @@ pub fn changeSize(comptime len: u32, vec: anytype) @Vector(len, @typeInfo(@TypeO
         result[3] = 1;
 
     return result;
+}
+
+pub inline fn splat(T: type, len: comptime_int, x: anytype) @Vector(len, T) {
+    return @splat(x);
+}
+
+pub inline fn splat2(T: type, x: anytype) @Vector(2, T) {
+    return @splat(x);
+}
+
+pub inline fn splat3(T: type, x: anytype) @Vector(3, T) {
+    return @splat(x);
+}
+
+pub inline fn splat4(T: type, x: anytype) @Vector(4, T) {
+    return @splat(x);
+}
+
+pub inline fn i2f(T: type, x: anytype) T {
+    return @floatFromInt(x);
+}
+
+pub inline fn f2i(T: type, x: anytype) T {
+    return @intFromFloat(x);
 }
 
 // quaternion
@@ -277,8 +305,8 @@ pub fn orthographic(pos: Vec3, size: Vec3) Mat4 {
     );
 }
 
-pub fn perspective(aspect_ratio: f32, fov: f32, near: f32, far: f32) Mat4 {
-    const tan_half_fov = tan(fov / 2);
+pub fn perspective(aspect_ratio: f32, v_fov: f32, near: f32, far: f32) Mat4 {
+    const tan_half_fov = tan(v_fov / 2);
     const a = 1 / (aspect_ratio * tan_half_fov);
     const b = 1 / tan_half_fov;
     const c = far / (near - far);
