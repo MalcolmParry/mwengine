@@ -39,7 +39,7 @@ pub const Device = union(Api) {
     vk: vk.Device.Handle,
 
     pub const Physical = union {
-        vk: vk.Device.Physical,
+        vk: vk.Device.Physical.Handle,
     };
 
     pub fn init(instance: Instance, physical_device: Physical, alloc: std.mem.Allocator) anyerror!Device {
@@ -125,8 +125,8 @@ pub const Device = union(Api) {
     pub const initDisplay = Display.init;
     pub const initBuffer = Buffer.init;
     pub const initImage = Image.init;
-    pub const initResouceLayout = ResourceSet.Layout.init;
-    pub const initResouceSet = ResourceSet.init;
+    pub const initResourceLayout = ResourceSet.Layout.init;
+    pub const initResourceSet = ResourceSet.init;
     pub const initCommandEncoder = CommandEncoder.init;
     pub const initSemaphore = Semaphore.init;
     pub const initFence = Fence.init;
@@ -193,8 +193,8 @@ pub const Display = union(Api) {
 pub const Shader = union {
     vk: vk.Shader.Handle,
 
-    pub fn fromSpirv(device: Device, stage: Stage, spirvByteCode: []const u32, alloc: std.mem.Allocator) anyerror!Shader {
-        return call(device, @src(), "Shader", .{ device, stage, spirvByteCode, alloc });
+    pub fn fromSpirv(device: Device, stage: Stage, spirv_byte_code: []const u32, alloc: std.mem.Allocator) anyerror!Shader {
+        return call(device, @src(), "Shader", .{ device, stage, spirv_byte_code, alloc });
     }
 
     pub fn deinit(this: Shader, device: Device, alloc: std.mem.Allocator) void {

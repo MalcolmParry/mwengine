@@ -88,7 +88,7 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !gpu.Instance {
     errdefer alloc.free(this.physical_devices);
 
     for (this.physical_devices, native_phyical_devices) |*phys_dev, native| {
-        phys_dev.* = .{ ._device = native };
+        phys_dev.* = .{ .device = native };
 
         const queue_families = try this.instance.getPhysicalDeviceQueueFamilyPropertiesAlloc(native, alloc);
         defer alloc.free(queue_families);
@@ -132,7 +132,7 @@ pub fn bestPhysicalDevice(this: gpu.Instance) !gpu.Device.Physical {
     var best_device: ?Device.Physical = null;
     var best_score: i32 = -1;
     for (this.vk.physical_devices) |device| {
-        const native = device._device;
+        const native = device.device;
         const features = this.vk.instance.getPhysicalDeviceFeatures(native);
         const properties = this.vk.instance.getPhysicalDeviceProperties(native);
         _ = features;
@@ -156,7 +156,7 @@ pub fn bestPhysicalDevice(this: gpu.Instance) !gpu.Device.Physical {
     }
 
     if (best_score == -1) best_device = null;
-    const properties = this.vk.instance.getPhysicalDeviceProperties(best_device.?._device);
+    const properties = this.vk.instance.getPhysicalDeviceProperties(best_device.?.device);
     std.log.info("{s}\n", .{properties.device_name});
     return .{
         .vk = best_device orelse return error.NoDeviceAvailable,

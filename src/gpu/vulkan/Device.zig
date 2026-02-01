@@ -21,7 +21,9 @@ pub const required_extensions: [8][*:0]const u8 = .{
 };
 
 pub const Physical = struct {
-    _device: vk.PhysicalDevice,
+    pub const Handle = Physical;
+
+    device: vk.PhysicalDevice,
 };
 
 pub const Size = u64;
@@ -37,7 +39,7 @@ pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc:
     const this = try alloc.create(Device);
     errdefer alloc.destroy(this);
     this.instance = instance.vk;
-    this.phys = physical_device.vk._device;
+    this.phys = physical_device.vk.device;
 
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const queue_priority: f32 = 1;
