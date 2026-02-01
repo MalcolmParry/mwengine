@@ -85,6 +85,7 @@ pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc:
             .features = .{
                 .sampler_anisotropy = .true,
                 .fill_mode_non_solid = .true,
+                .shader_int_64 = .true,
             },
             .p_next = &sync2,
         },
