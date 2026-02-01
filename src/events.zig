@@ -17,7 +17,7 @@ pub const Queue = struct {
     pub fn init(alloc: std.mem.Allocator) !Queue {
         return .{
             .alloc = alloc,
-            .buffer = try alloc.alloc(Event, 32),
+            .buffer = try alloc.alloc(Event, 512),
             .start = 0,
             .end = 0,
         };

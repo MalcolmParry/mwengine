@@ -113,6 +113,7 @@ pub fn init(this: *@This(), alloc: std.mem.Allocator) !void {
                 .{ .type = .float32x3 },
             },
         }},
+        .polygon_mode = .fill,
         .cull_mode = .none,
         .depth_mode = .disabled,
     });
@@ -301,7 +302,15 @@ pub fn loop(this: *@This(), alloc: std.mem.Allocator) !bool {
     });
 
     try per_frame.cmd_encoder.end(this.device);
-    try per_frame.cmd_encoder.submit(this.device, &.{per_frame.image_available_semaphore}, &.{per_frame.render_finished_semaphore}, null);
+    try this.device.submitCommands(.{
+        .encoder = per_frame.cmd_encoder,
+        .wait_semaphores = &.{per_frame.image_available_semaphore},
+        .wait_dst_stages = &.{.{
+            .color_attachment_output = true,
+        }},
+        .signal_semaphores = &.{per_frame.render_finished_semaphore},
+        .signal_fence = null,
+    });
 
     switch (try this.display.presentImage(image_index, &.{per_frame.render_finished_semaphore}, per_frame.presented_fence)) {
         .success => {},

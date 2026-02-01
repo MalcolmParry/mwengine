@@ -101,8 +101,8 @@ fn keyCallback(window: *glfw.Window, glfw_kc: glfw.Key, scancode: c_int, action:
     const keycode = keycodeFromGlfw(glfw_kc);
     event_queue.push(switch (action) {
         .press => .{ .key_down = keycode },
-        .release => .{ .key_down = keycode },
-        .repeat => .{ .key_down = keycode },
+        .release => .{ .key_up = keycode },
+        .repeat => .{ .key_repeat = keycode },
     }) catch @panic("out of memory");
 }
 
