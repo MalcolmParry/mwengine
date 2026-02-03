@@ -54,6 +54,7 @@ pub fn stageToNative(stage: gpu.GraphicsPipeline.Stages) vk.PipelineStageFlags {
         .color_attachment_output_bit = stage.color_attachment_output,
         .early_fragment_tests_bit = stage.early_depth_tests,
         .transfer_bit = stage.transfer,
+        .vertex_input_bit = stage.vertex_input,
         .vertex_shader_bit = stage.vertex_shader,
     };
 }
@@ -65,6 +66,7 @@ pub fn stageToNative2(stage: gpu.GraphicsPipeline.Stages) vk.PipelineStageFlags2
         .color_attachment_output_bit = stage.color_attachment_output,
         .early_fragment_tests_bit = stage.early_depth_tests,
         .all_transfer_bit = stage.transfer,
+        .vertex_input_bit = stage.vertex_input,
         .vertex_shader_bit = stage.vertex_shader,
     };
 }
@@ -75,18 +77,27 @@ pub fn accessToNative(access: gpu.Access) vk.AccessFlags2KHR {
         .depth_stencil_attachment_read_bit = access.depth_stencil_read,
         .depth_stencil_attachment_write_bit = access.depth_stencil_write,
         .transfer_write_bit = access.transfer_write,
+        .vertex_attribute_read_bit = access.vertex_read,
         .uniform_read_bit = access.uniform_read,
     };
 }
 
-pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_barriers: []const gpu.CommandEncoder.MemoryBarrier) void {
-    const max = 8;
+pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_barriers: []const gpu.CommandEncoder.MemoryBarrier, alloc: std.mem.Allocator) !void {
+    var image_count: usize = 0;
+    var buffer_count: usize = 0;
 
-    var image_buffer: [max]vk.ImageMemoryBarrier2KHR = undefined;
-    var image_barriers: std.ArrayList(vk.ImageMemoryBarrier2KHR) = .initBuffer(&image_buffer);
+    for (memory_barriers) |barrier| {
+        switch (barrier) {
+            .image => |_| image_count += 1,
+            .buffer => |_| buffer_count += 1,
+        }
+    }
 
-    var buffer_buffer: [max]vk.BufferMemoryBarrier2KHR = undefined;
-    var buffer_barriers: std.ArrayList(vk.BufferMemoryBarrier2KHR) = .initBuffer(&buffer_buffer);
+    var image_barriers: std.ArrayList(vk.ImageMemoryBarrier2KHR) = try .initCapacity(alloc, image_count);
+    defer image_barriers.deinit(alloc);
+
+    var buffer_barriers: std.ArrayList(vk.BufferMemoryBarrier2KHR) = try .initCapacity(alloc, buffer_count);
+    defer buffer_barriers.deinit(alloc);
 
     for (memory_barriers) |barrier| {
         switch (barrier) {

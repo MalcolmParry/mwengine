@@ -368,6 +368,7 @@ pub const GraphicsPipeline = union {
         color_attachment_output: bool = false,
         early_depth_tests: bool = false,
         transfer: bool = false,
+        vertex_input: bool = false,
         vertex_shader: bool = false,
     };
 
@@ -664,6 +665,7 @@ pub const Access = packed struct {
     depth_stencil_write: bool = false,
     transfer_write: bool = false,
     uniform_read: bool = false,
+    vertex_read: bool = false,
 };
 
 pub const CommandEncoder = union {
@@ -709,8 +711,8 @@ pub const CommandEncoder = union {
         },
     };
 
-    pub fn cmdMemoryBarrier(this: CommandEncoder, device: Device, memory_barriers: []const MemoryBarrier) void {
-        return call(device, @src(), "CommandEncoder", .{ this, device, memory_barriers });
+    pub fn cmdMemoryBarrier(this: CommandEncoder, device: Device, memory_barriers: []const MemoryBarrier, alloc: std.mem.Allocator) anyerror!void {
+        return call(device, @src(), "CommandEncoder", .{ this, device, memory_barriers, alloc });
     }
 
     pub const cmdBeginRenderPass = RenderPassEncoder.cmdBegin;
