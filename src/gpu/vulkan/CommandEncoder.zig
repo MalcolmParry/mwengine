@@ -109,14 +109,14 @@ pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_bar
                 .dst_stage_mask = stageToNative2(image.dst_stage),
                 .src_access_mask = accessToNative(image.src_access),
                 .dst_access_mask = accessToNative(image.dst_access),
-                .src_queue_family_index = device.vk.queue_family_index,
-                .dst_queue_family_index = device.vk.queue_family_index,
+                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .subresource_range = .{
                     .aspect_mask = Image.aspectToNative(image.aspect),
                     .base_mip_level = 0,
-                    .level_count = 1,
+                    .level_count = vk.REMAINING_MIP_LEVELS,
                     .base_array_layer = 0,
-                    .layer_count = 1,
+                    .layer_count = vk.REMAINING_ARRAY_LAYERS,
                 },
             }),
             .buffer => |buffer| buffer_barriers.appendAssumeCapacity(.{
@@ -130,8 +130,8 @@ pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_bar
                 .dst_stage_mask = stageToNative2(buffer.dst_stage),
                 .src_access_mask = accessToNative(buffer.src_access),
                 .dst_access_mask = accessToNative(buffer.dst_access),
-                .src_queue_family_index = device.vk.queue_family_index,
-                .dst_queue_family_index = device.vk.queue_family_index,
+                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
             }),
         }
     }
