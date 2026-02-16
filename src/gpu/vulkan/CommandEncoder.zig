@@ -47,6 +47,41 @@ pub fn cmdCopyBuffer(this: gpu.CommandEncoder, device: gpu.Device, src: gpu.Buff
     device.vk.device.cmdCopyBuffer(this.vk.command_buffer, src.buffer.vk.buffer, dst.buffer.vk.buffer, 1, @ptrCast(&copy_region));
 }
 
+pub fn cmdCopyBufferToImage(this: gpu.CommandEncoder, info: gpu.CommandEncoder.BufferToImageCopyInfo) void {
+    const signed_offset: @Vector(3, i32) = @intCast(info.image_offset);
+
+    const buffer_image_copy: vk.BufferImageCopy = .{
+        .buffer_offset = info.src.offset,
+        .buffer_row_length = info.row_stride orelse 0,
+        .buffer_image_height = 0,
+        .image_offset = .{
+            .x = signed_offset[0],
+            .y = signed_offset[1],
+            .z = signed_offset[2],
+        },
+        .image_extent = .{
+            .width = info.image_size[0],
+            .height = info.image_size[1],
+            .depth = info.image_size[2],
+        },
+        .image_subresource = .{
+            .aspect_mask = Image.aspectToNative(info.aspect),
+            .mip_level = 0,
+            .base_array_layer = 0,
+            .layer_count = 1,
+        },
+    };
+
+    info.device.vk.device.cmdCopyBufferToImage(
+        this.vk.command_buffer,
+        info.src.buffer.vk.buffer,
+        info.dst.vk.image,
+        Image.layoutToNative(info.layout),
+        1,
+        @ptrCast(&buffer_image_copy),
+    );
+}
+
 pub fn stageToNative(stage: gpu.GraphicsPipeline.Stages) vk.PipelineStageFlags {
     return .{
         .top_of_pipe_bit = stage.pipeline_start,
@@ -56,6 +91,7 @@ pub fn stageToNative(stage: gpu.GraphicsPipeline.Stages) vk.PipelineStageFlags {
         .transfer_bit = stage.transfer,
         .vertex_input_bit = stage.vertex_input,
         .vertex_shader_bit = stage.vertex_shader,
+        .fragment_shader_bit = stage.pixel_shader,
     };
 }
 
@@ -68,6 +104,7 @@ pub fn stageToNative2(stage: gpu.GraphicsPipeline.Stages) vk.PipelineStageFlags2
         .all_transfer_bit = stage.transfer,
         .vertex_input_bit = stage.vertex_input,
         .vertex_shader_bit = stage.vertex_shader,
+        .fragment_shader_bit = stage.pixel_shader,
     };
 }
 
@@ -79,6 +116,7 @@ pub fn accessToNative(access: gpu.Access) vk.AccessFlags2KHR {
         .transfer_write_bit = access.transfer_write,
         .vertex_attribute_read_bit = access.vertex_read,
         .uniform_read_bit = access.uniform_read,
+        .shader_read_bit = access.shader_read,
     };
 }
 

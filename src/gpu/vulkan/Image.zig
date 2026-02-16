@@ -104,6 +104,7 @@ pub const View = struct {
 
 pub fn formatToNative(format_: gpu.Image.Format) vk.Format {
     return switch (format_) {
+        .rgba8_srgb => .r8g8b8a8_srgb,
         .bgra8_srgb => .b8g8r8a8_srgb,
         .d32_sfloat => .d32_sfloat,
         .unknown => .undefined,
@@ -112,6 +113,7 @@ pub fn formatToNative(format_: gpu.Image.Format) vk.Format {
 
 pub fn formatFromNative(format_: vk.Format) gpu.Image.Format {
     return switch (format_) {
+        .r8g8b8a8_srgb => .rgba8_srgb,
         .b8g8r8a8_srgb => .bgra8_srgb,
         .d32_sfloat => .d32_sfloat,
         else => .unknown,
@@ -124,6 +126,9 @@ pub fn layoutToNative(layout: gpu.Image.Layout) vk.ImageLayout {
         .color_attachment => .color_attachment_optimal,
         .depth_stencil => .depth_stencil_attachment_optimal,
         .present_src => .present_src_khr,
+        .transfer_src => .transfer_src_optimal,
+        .transfer_dst => .transfer_dst_optimal,
+        .shader_read_only => .shader_read_only_optimal,
     };
 }
 

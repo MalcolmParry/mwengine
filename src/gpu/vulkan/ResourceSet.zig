@@ -3,6 +3,7 @@ const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
 const Buffer = @import("Buffer.zig");
 const Shader = @import("Shader.zig");
+const Image = @import("Image.zig");
 
 const ResourceSet = @This();
 pub const Handle = *ResourceSet;
@@ -41,12 +42,17 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
     const descriptor_writes = try alloc.alloc(vk.WriteDescriptorSet, writes.len);
     defer alloc.free(descriptor_writes);
 
+    // TODO: there can be more buffer infos then writes. fix this
     var all_buffer_infos: std.ArrayList(vk.DescriptorBufferInfo) = try .initCapacity(alloc, writes.len);
     defer all_buffer_infos.deinit(alloc);
 
+    var all_image_infos: std.ArrayList(vk.DescriptorImageInfo) = try .initCapacity(alloc, writes.len);
+    defer all_image_infos.deinit(alloc);
+
     for (writes, descriptor_writes) |write, *descriptor_write| {
         var count: usize = undefined;
-        var buffer_infos: ?[*]vk.DescriptorBufferInfo = null;
+        var buffer_infos: [*]vk.DescriptorBufferInfo = undefined;
+        var image_infos: [*]vk.DescriptorImageInfo = undefined;
 
         switch (write.data) {
             .uniform => |buffer_regions| {
@@ -66,6 +72,20 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
 
                 buffer_infos = @ptrCast(&all_buffer_infos.items[buffer_infos_start]);
             },
+            .image => |images| {
+                count = images.len;
+                const image_infos_start = all_image_infos.items.len;
+
+                for (images) |image| {
+                    all_image_infos.appendAssumeCapacity(.{
+                        .image_layout = Image.layoutToNative(image.layout),
+                        .image_view = image.view.vk.image_view,
+                        .sampler = image.sampler.vk.sampler,
+                    });
+                }
+
+                image_infos = @ptrCast(&all_image_infos.items[image_infos_start]);
+            },
         }
 
         descriptor_write.* = .{
@@ -74,10 +94,11 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
             .dst_array_element = 0,
             .descriptor_type = switch (write.data) {
                 .uniform => .uniform_buffer,
+                .image => .combined_image_sampler,
             },
             .descriptor_count = @intCast(count),
-            .p_buffer_info = buffer_infos.?,
-            .p_image_info = undefined,
+            .p_buffer_info = buffer_infos,
+            .p_image_info = image_infos,
             .p_texel_buffer_view = undefined,
         };
     }
@@ -120,7 +141,7 @@ pub const Layout = struct {
         for (bindings, this.sizes, info.descriptors, 0..) |*binding, *size, descriptor, i| {
             const t: vk.DescriptorType = switch (descriptor.t) {
                 .uniform => .uniform_buffer,
-                // .image => .combined_image_sampler,
+                .image => .combined_image_sampler,
             };
 
             binding.* = .{

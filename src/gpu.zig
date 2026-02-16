@@ -370,6 +370,7 @@ pub const GraphicsPipeline = union {
         transfer: bool = false,
         vertex_input: bool = false,
         vertex_shader: bool = false,
+        pixel_shader: bool = false,
     };
 
     pub const PolygonMode = enum {
@@ -481,10 +482,17 @@ pub const ResourceSet = union {
         return call(device, @src(), "ResourceSet", .{ this, device, alloc });
     }
 
+    pub const CombinedImageSampler = struct {
+        layout: Image.Layout,
+        view: Image.View,
+        sampler: Sampler,
+    };
+
     pub const Write = struct {
         binding: u32,
         data: union(Type) {
             uniform: []const Buffer.Region,
+            image: []const CombinedImageSampler,
         },
     };
 
@@ -494,7 +502,7 @@ pub const ResourceSet = union {
 
     pub const Type = enum {
         uniform,
-        // image,
+        image,
     };
 
     pub const Layout = union {
@@ -622,6 +630,7 @@ pub const Image = union {
     }
 
     pub const Format = enum {
+        rgba8_srgb,
         bgra8_srgb,
         d32_sfloat,
         unknown,
@@ -632,6 +641,9 @@ pub const Image = union {
         color_attachment,
         depth_stencil,
         present_src,
+        transfer_src,
+        transfer_dst,
+        shader_read_only,
     };
 
     pub const Usage = packed struct {
@@ -659,6 +671,39 @@ pub const Image = union {
     };
 };
 
+pub const Sampler = union {
+    vk: vk.Sampler.Handle,
+
+    pub const Filter = enum {
+        linear,
+        nearest,
+    };
+
+    pub const AddressMode = enum {
+        repeat,
+        mirror_repeat,
+        clamp_to_edge,
+        mirror_clamp_to_edge,
+    };
+
+    pub const InitInfo = struct {
+        alloc: std.mem.Allocator,
+        min_filter: Filter,
+        mag_filter: Filter,
+        address_mode_u: AddressMode,
+        address_mode_v: AddressMode,
+        address_mode_w: AddressMode,
+    };
+
+    pub fn init(device: Device, info: InitInfo) anyerror!Sampler {
+        return call(device, @src(), "Sampler", .{ device, info });
+    }
+
+    pub fn deinit(this: Sampler, device: Device, alloc: std.mem.Allocator) void {
+        return call(device, @src(), "Sampler", .{ this, device, alloc });
+    }
+};
+
 pub const Access = packed struct {
     color_attachment_write: bool = false,
     depth_stencil_read: bool = false,
@@ -666,6 +711,7 @@ pub const Access = packed struct {
     transfer_write: bool = false,
     uniform_read: bool = false,
     vertex_read: bool = false,
+    shader_read: bool = false,
 };
 
 pub const CommandEncoder = union {
@@ -689,6 +735,21 @@ pub const CommandEncoder = union {
 
     pub fn cmdCopyBuffer(this: CommandEncoder, device: Device, src: Buffer.Region, dst: Buffer.Region) void {
         return call(device, @src(), "CommandEncoder", .{ this, device, src, dst });
+    }
+
+    pub const BufferToImageCopyInfo = struct {
+        device: Device,
+        src: Buffer.Region,
+        row_stride: ?u32 = null,
+        dst: Image,
+        layout: Image.Layout,
+        aspect: Image.Aspect,
+        image_offset: @Vector(3, u32),
+        image_size: @Vector(3, u32),
+    };
+
+    pub fn cmdCopyBufferToImage(this: CommandEncoder, info: BufferToImageCopyInfo) void {
+        return call(info.device, @src(), "CommandEncoder", .{ this, info });
     }
 
     pub const MemoryBarrier = union(enum) {
