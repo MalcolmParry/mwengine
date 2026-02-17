@@ -56,12 +56,17 @@ pub fn size(this: gpu.Buffer, _: gpu.Device) gpu.Size {
 
 pub const Region = struct {
     pub fn map(this: gpu.Buffer.Region, device: gpu.Device) ![]u8 {
-        const size_ = switch (this.size_or_whole) {
+        const vk_size = switch (this.size_or_whole) {
             .size => |x| x,
             .whole => vk.WHOLE_SIZE,
         };
 
-        const data = (try device.vk.device.mapMemory(this.buffer.vk.memory_region.memory, this.offset, size_, .{})).?;
+        const size_ = switch (this.size_or_whole) {
+            .size => |x| x,
+            .whole => this.buffer.vk.size_,
+        };
+
+        const data = (try device.vk.device.mapMemory(this.buffer.vk.memory_region.memory, this.offset, vk_size, .{})).?;
         const many_ptr: [*]u8 = @ptrCast(data);
         return many_ptr[0..size_];
     }
