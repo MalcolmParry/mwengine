@@ -67,8 +67,8 @@ pub fn cmdCopyBufferToImage(this: gpu.CommandEncoder, info: gpu.CommandEncoder.B
         .image_subresource = .{
             .aspect_mask = Image.aspectToNative(info.aspect),
             .mip_level = 0,
-            .base_array_layer = 0,
-            .layer_count = 1,
+            .base_array_layer = info.layer_offset,
+            .layer_count = info.layer_count,
         },
     };
 
@@ -153,8 +153,8 @@ pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_bar
                     .aspect_mask = Image.aspectToNative(image.aspect),
                     .base_mip_level = 0,
                     .level_count = vk.REMAINING_MIP_LEVELS,
-                    .base_array_layer = 0,
-                    .layer_count = vk.REMAINING_ARRAY_LAYERS,
+                    .base_array_layer = image.layer_offset,
+                    .layer_count = if (image.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
                 },
             }),
             .buffer => |buffer| buffer_barriers.appendAssumeCapacity(.{

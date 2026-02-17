@@ -615,6 +615,7 @@ pub const Image = union {
         usage: Usage,
         loc: MemLocation,
         size: @Vector(2, u32),
+        layer_count: u32 = 1,
     };
 
     pub fn init(device: Device, info: InitInfo) anyerror!Image {
@@ -656,8 +657,16 @@ pub const Image = union {
     pub const View = union {
         vk: vk.Image.View.Handle,
 
-        pub fn init(device: Device, image: Image, aspect: Aspect, alloc: std.mem.Allocator) anyerror!View {
-            return call(device, @src(), .{ "Image", "View" }, .{ device, image, aspect, alloc });
+        pub const InitInfo = struct {
+            alloc: std.mem.Allocator,
+            image: Image,
+            aspect: Aspect,
+            layer_offset: u32 = 0,
+            layer_count: u32 = 1,
+        };
+
+        pub fn init(device: Device, info: View.InitInfo) anyerror!View {
+            return call(device, @src(), .{ "Image", "View" }, .{ device, info });
         }
 
         pub fn deinit(this: View, device: Device, alloc: std.mem.Allocator) void {
@@ -746,6 +755,8 @@ pub const CommandEncoder = union {
         aspect: Image.Aspect,
         image_offset: @Vector(3, u32),
         image_size: @Vector(3, u32),
+        layer_offset: u32 = 0,
+        layer_count: u32 = 1,
     };
 
     pub fn cmdCopyBufferToImage(this: CommandEncoder, info: BufferToImageCopyInfo) void {
@@ -762,6 +773,8 @@ pub const CommandEncoder = union {
             dst_stage: GraphicsPipeline.Stages,
             src_access: Access,
             dst_access: Access,
+            layer_offset: u32 = 0,
+            layer_count: ?u32 = null,
         },
         buffer: struct {
             region: Buffer.Region,

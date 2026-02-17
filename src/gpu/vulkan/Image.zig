@@ -23,7 +23,7 @@ pub fn init(device: gpu.Device, info: gpu.Image.InitInfo) !gpu.Image {
             .depth = 1,
         },
         .mip_levels = 1,
-        .array_layers = 1,
+        .array_layers = info.layer_count,
         .format = formatToNative(info.format),
         .tiling = .optimal,
         .initial_layout = .undefined,
@@ -68,15 +68,14 @@ pub const View = struct {
 
     image_view: vk.ImageView,
 
-    pub fn init(device: gpu.Device, image: gpu.Image, aspect: gpu.Image.Aspect, alloc: std.mem.Allocator) !gpu.Image.View {
+    pub fn init(device: gpu.Device, info: gpu.Image.View.InitInfo) !gpu.Image.View {
         var this: View = undefined;
 
-        _ = alloc;
         const vk_alloc: ?*vk.AllocationCallbacks = null;
         this.image_view = try device.vk.device.createImageView(&.{
-            .image = image.vk.image,
-            .view_type = .@"2d",
-            .format = formatToNative(image.vk.format_),
+            .image = info.image.vk.image,
+            .view_type = if (info.layer_count == 1) .@"2d" else .@"2d_array",
+            .format = formatToNative(info.image.vk.format_),
             .components = .{
                 .r = .identity,
                 .b = .identity,
@@ -84,11 +83,11 @@ pub const View = struct {
                 .a = .identity,
             },
             .subresource_range = .{
-                .aspect_mask = aspectToNative(aspect),
+                .aspect_mask = aspectToNative(info.aspect),
                 .base_mip_level = 0,
                 .level_count = 1,
-                .base_array_layer = 0,
-                .layer_count = 1,
+                .base_array_layer = info.layer_offset,
+                .layer_count = info.layer_count,
             },
         }, vk_alloc);
 
