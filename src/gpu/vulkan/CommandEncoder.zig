@@ -4,6 +4,7 @@ const vk = @import("vulkan");
 const Semaphore = @import("wait_objects.zig").Semaphore;
 const ResourceSet = @import("ResourceSet.zig");
 const Image = @import("Image.zig");
+const Sampler = @import("Sampler.zig");
 
 const CommandEncoder = @This();
 pub const Handle = CommandEncoder;
@@ -48,7 +49,7 @@ pub fn cmdCopyBuffer(this: gpu.CommandEncoder, device: gpu.Device, src: gpu.Buff
 }
 
 pub fn cmdCopyBufferToImage(this: gpu.CommandEncoder, info: gpu.CommandEncoder.BufferToImageCopyInfo) void {
-    const signed_offset: @Vector(3, i32) = @intCast(info.image_offset);
+    const signed_offset: @Vector(3, i32) = @intCast(info.region.offset);
 
     const buffer_image_copy: vk.BufferImageCopy = .{
         .buffer_offset = info.src.offset,
@@ -60,15 +61,15 @@ pub fn cmdCopyBufferToImage(this: gpu.CommandEncoder, info: gpu.CommandEncoder.B
             .z = signed_offset[2],
         },
         .image_extent = .{
-            .width = info.image_size[0],
-            .height = info.image_size[1],
-            .depth = info.image_size[2],
+            .width = info.region.size[0],
+            .height = info.region.size[1],
+            .depth = info.region.size[2],
         },
         .image_subresource = .{
-            .aspect_mask = Image.aspectToNative(info.aspect),
-            .mip_level = 0,
-            .base_array_layer = info.layer_offset,
-            .layer_count = info.layer_count,
+            .aspect_mask = Image.aspectToNative(info.subresource.aspect),
+            .mip_level = info.subresource.mip_level,
+            .base_array_layer = info.subresource.layer_offset,
+            .layer_count = info.subresource.layer_count,
         },
     };
 
@@ -79,6 +80,48 @@ pub fn cmdCopyBufferToImage(this: gpu.CommandEncoder, info: gpu.CommandEncoder.B
         Image.layoutToNative(info.layout),
         1,
         @ptrCast(&buffer_image_copy),
+    );
+}
+
+pub fn cmdCopyImageWithScaling(cmd_encoder: gpu.CommandEncoder, info: gpu.CommandEncoder.ImageCopyWithScalingInfo) !void {
+    const blit: vk.ImageBlit = .{
+        .src_subresource = Image.subresourceLayersToNative(info.src_subresource),
+        .dst_subresource = Image.subresourceLayersToNative(info.dst_subresource),
+        .src_offsets = .{
+            .{
+                .x = @intCast(info.src_rect.offset[0]),
+                .y = @intCast(info.src_rect.offset[1]),
+                .z = 0,
+            },
+            .{
+                .x = @intCast(info.src_rect.offset[0] + info.src_rect.size[0]),
+                .y = @intCast(info.src_rect.offset[1] + info.src_rect.size[1]),
+                .z = 1,
+            },
+        },
+        .dst_offsets = .{
+            .{
+                .x = @intCast(info.dst_rect.offset[0]),
+                .y = @intCast(info.dst_rect.offset[1]),
+                .z = 0,
+            },
+            .{
+                .x = @intCast(info.dst_rect.offset[0] + info.dst_rect.size[0]),
+                .y = @intCast(info.dst_rect.offset[1] + info.dst_rect.size[1]),
+                .z = 1,
+            },
+        },
+    };
+
+    info.device.vk.device.cmdBlitImage(
+        cmd_encoder.vk.command_buffer,
+        info.src.vk.image,
+        Image.layoutToNative(info.src_layout),
+        info.dst.vk.image,
+        Image.layoutToNative(info.dst_layout),
+        1,
+        @ptrCast(&blit),
+        Sampler.filterToNative(info.filter),
     );
 }
 
@@ -113,6 +156,7 @@ pub fn accessToNative(access: gpu.Access) vk.AccessFlags2KHR {
         .color_attachment_write_bit = access.color_attachment_write,
         .depth_stencil_attachment_read_bit = access.depth_stencil_read,
         .depth_stencil_attachment_write_bit = access.depth_stencil_write,
+        .transfer_read_bit = access.transfer_read,
         .transfer_write_bit = access.transfer_write,
         .vertex_attribute_read_bit = access.vertex_read,
         .uniform_read_bit = access.uniform_read,
@@ -150,11 +194,11 @@ pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_bar
                 .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
                 .subresource_range = .{
-                    .aspect_mask = Image.aspectToNative(image.aspect),
-                    .base_mip_level = 0,
-                    .level_count = vk.REMAINING_MIP_LEVELS,
-                    .base_array_layer = image.layer_offset,
-                    .layer_count = if (image.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
+                    .aspect_mask = Image.aspectToNative(image.subresource_range.aspect),
+                    .base_mip_level = image.subresource_range.mip_offset,
+                    .level_count = if (image.subresource_range.mip_count) |x| x else vk.REMAINING_MIP_LEVELS,
+                    .base_array_layer = image.subresource_range.layer_offset,
+                    .layer_count = if (image.subresource_range.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
                 },
             }),
             .buffer => |buffer| buffer_barriers.appendAssumeCapacity(.{

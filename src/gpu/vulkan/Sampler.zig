@@ -22,9 +22,9 @@ pub fn init(device: gpu.Device, info: gpu.Sampler.InitInfo) !gpu.Sampler {
         .compare_enable = .false,
         .compare_op = .always,
         .mipmap_mode = .linear,
-        .mip_lod_bias = 0,
-        .min_lod = 0,
-        .max_lod = 0,
+        .mip_lod_bias = info.lod_bias,
+        .min_lod = info.min_lod,
+        .max_lod = if (info.max_lod) |x| x else vk.LOD_CLAMP_NONE,
     }, vk_alloc);
 
     return sampler;
@@ -36,7 +36,7 @@ pub fn deinit(sampler: gpu.Sampler, device: gpu.Device, alloc: std.mem.Allocator
     device.vk.device.destroySampler(sampler.vk.sampler, vk_alloc);
 }
 
-fn filterToNative(filter: gpu.Sampler.Filter) vk.Filter {
+pub fn filterToNative(filter: gpu.Sampler.Filter) vk.Filter {
     return switch (filter) {
         .linear => .linear,
         .nearest => .nearest,

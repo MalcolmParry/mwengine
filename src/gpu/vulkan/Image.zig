@@ -22,13 +22,14 @@ pub fn init(device: gpu.Device, info: gpu.Image.InitInfo) !gpu.Image {
             .height = info.size[1],
             .depth = 1,
         },
-        .mip_levels = 1,
+        .mip_levels = info.mip_count,
         .array_layers = info.layer_count,
         .format = formatToNative(info.format),
         .tiling = .optimal,
         .initial_layout = .undefined,
         .usage = .{
             .sampled_bit = info.usage.sampled,
+            .transfer_src_bit = info.usage.src,
             .transfer_dst_bit = info.usage.dst,
             .color_attachment_bit = info.usage.color_attachment,
             .depth_stencil_attachment_bit = info.usage.depth_stencil_attachment,
@@ -74,7 +75,10 @@ pub const View = struct {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
         this.image_view = try device.vk.device.createImageView(&.{
             .image = info.image.vk.image,
-            .view_type = if (info.layer_count == 1) .@"2d" else .@"2d_array",
+            .view_type = switch (info.kind) {
+                .@"2d" => .@"2d",
+                .array_2d => .@"2d_array",
+            },
             .format = formatToNative(info.image.vk.format_),
             .components = .{
                 .r = .identity,
@@ -83,11 +87,11 @@ pub const View = struct {
                 .a = .identity,
             },
             .subresource_range = .{
-                .aspect_mask = aspectToNative(info.aspect),
-                .base_mip_level = 0,
-                .level_count = 1,
-                .base_array_layer = info.layer_offset,
-                .layer_count = info.layer_count,
+                .aspect_mask = aspectToNative(info.subresource_range.aspect),
+                .base_mip_level = info.subresource_range.mip_offset,
+                .level_count = if (info.subresource_range.mip_count) |x| x else vk.REMAINING_MIP_LEVELS,
+                .base_array_layer = info.subresource_range.layer_offset,
+                .layer_count = if (info.subresource_range.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
             },
         }, vk_alloc);
 
@@ -135,5 +139,14 @@ pub fn aspectToNative(aspect: gpu.Image.Aspect) vk.ImageAspectFlags {
     return .{
         .color_bit = aspect.color,
         .depth_bit = aspect.depth,
+    };
+}
+
+pub fn subresourceLayersToNative(subresource: gpu.Image.Subresource.Layers) vk.ImageSubresourceLayers {
+    return .{
+        .aspect_mask = aspectToNative(subresource.aspect),
+        .base_array_layer = subresource.layer_offset,
+        .layer_count = subresource.layer_count,
+        .mip_level = subresource.mip_level,
     };
 }

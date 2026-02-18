@@ -165,7 +165,7 @@ pub const Display = union(Api) {
         return call(this, @src(), "Display", .{ this, index, wait_semaphores, maybe_signal_fence });
     }
 
-    pub fn rebuild(this: Display, image_size: @Vector(2, u32), alloc: std.mem.Allocator) anyerror!void {
+    pub fn rebuild(this: Display, image_size: Image.Size2D, alloc: std.mem.Allocator) anyerror!void {
         return call(this, @src(), "Display", .{ this, image_size, alloc });
     }
 
@@ -177,7 +177,7 @@ pub const Display = union(Api) {
         return call(this, @src(), "Display", .{this});
     }
 
-    pub fn imageSize(this: Display) @Vector(2, u32) {
+    pub fn imageSize(this: Display) Image.Size2D {
         return call(this, @src(), "Display", .{this});
     }
 
@@ -418,7 +418,7 @@ pub const GraphicsPipeline = union {
 };
 
 pub const RenderTarget = struct {
-    color_clear_value: @Vector(4, f32),
+    color_clear_value: Image.ColorRGBA32,
     color_image_view: Image.View,
     depth_image_view: ?Image.View,
 
@@ -614,8 +614,9 @@ pub const Image = union {
         format: Format,
         usage: Usage,
         loc: MemLocation,
-        size: @Vector(2, u32),
+        size: Size2D,
         layer_count: u32 = 1,
+        mip_count: u32 = 1,
     };
 
     pub fn init(device: Device, info: InitInfo) anyerror!Image {
@@ -651,18 +652,23 @@ pub const Image = union {
         color_attachment: bool = false,
         depth_stencil_attachment: bool = false,
         sampled: bool = false,
+        src: bool = false,
         dst: bool = false,
     };
 
     pub const View = union {
         vk: vk.Image.View.Handle,
 
+        pub const Kind = enum {
+            @"2d",
+            array_2d,
+        };
+
         pub const InitInfo = struct {
             alloc: std.mem.Allocator,
             image: Image,
-            aspect: Aspect,
-            layer_offset: u32 = 0,
-            layer_count: u32 = 1,
+            kind: Kind,
+            subresource_range: Subresource.Range,
         };
 
         pub fn init(device: Device, info: View.InitInfo) anyerror!View {
@@ -677,6 +683,44 @@ pub const Image = union {
     pub const Aspect = packed struct {
         color: bool = false,
         depth: bool = false,
+    };
+
+    pub const Subresource = struct {
+        aspect: Aspect,
+        mip_level: u32 = 0,
+        layer: u32 = 0,
+
+        pub const Range = struct {
+            aspect: Aspect,
+            mip_offset: u32 = 0,
+            /// null means all mips
+            mip_count: ?u32 = null,
+            layer_offset: u32 = 0,
+            /// null means all layers
+            layer_count: ?u32 = null,
+        };
+
+        pub const Layers = struct {
+            aspect: Aspect,
+            mip_level: u32 = 0,
+            layer_offset: u32 = 0,
+            layer_count: u32 = 1,
+        };
+    };
+
+    pub const ColorRGBA32 = @Vector(4, f32);
+    pub const Offset2D = @Vector(2, u32);
+    pub const Size2D = @Vector(2, u32);
+    pub const Rect = struct {
+        offset: Offset2D = @splat(0),
+        size: Size2D,
+    };
+
+    pub const Offset3D = @Vector(3, u32);
+    pub const Size3D = @Vector(3, u32);
+    pub const Region3D = struct {
+        offset: Offset3D = @splat(0),
+        size: Size3D,
     };
 };
 
@@ -702,6 +746,10 @@ pub const Sampler = union {
         address_mode_u: AddressMode,
         address_mode_v: AddressMode,
         address_mode_w: AddressMode,
+        lod_bias: f32 = 0,
+        min_lod: f32 = 0,
+        /// if null then no maximum
+        max_lod: ?f32 = null,
     };
 
     pub fn init(device: Device, info: InitInfo) anyerror!Sampler {
@@ -717,6 +765,7 @@ pub const Access = packed struct {
     color_attachment_write: bool = false,
     depth_stencil_read: bool = false,
     depth_stencil_write: bool = false,
+    transfer_read: bool = false,
     transfer_write: bool = false,
     uniform_read: bool = false,
     vertex_read: bool = false,
@@ -751,30 +800,42 @@ pub const CommandEncoder = union {
         src: Buffer.Region,
         row_stride: ?u32 = null,
         dst: Image,
+        region: Image.Region3D,
         layout: Image.Layout,
-        aspect: Image.Aspect,
-        image_offset: @Vector(3, u32),
-        image_size: @Vector(3, u32),
-        layer_offset: u32 = 0,
-        layer_count: u32 = 1,
+        subresource: Image.Subresource.Layers,
     };
 
     pub fn cmdCopyBufferToImage(this: CommandEncoder, info: BufferToImageCopyInfo) void {
         return call(info.device, @src(), "CommandEncoder", .{ this, info });
     }
 
+    pub const ImageCopyWithScalingInfo = struct {
+        device: Device,
+        filter: Sampler.Filter,
+        src: Image,
+        src_layout: Image.Layout,
+        src_subresource: Image.Subresource.Layers,
+        src_rect: Image.Rect,
+        dst: Image,
+        dst_layout: Image.Layout,
+        dst_subresource: Image.Subresource.Layers,
+        dst_rect: Image.Rect,
+    };
+
+    pub fn cmdCopyImageWithScaling(cmd_encoder: CommandEncoder, info: ImageCopyWithScalingInfo) anyerror!void {
+        return call(info.device, @src(), "CommandEncoder", .{ cmd_encoder, info });
+    }
+
     pub const MemoryBarrier = union(enum) {
         image: struct {
             image: Image,
-            aspect: Image.Aspect,
+            subresource_range: Image.Subresource.Range,
             old_layout: Image.Layout,
             new_layout: Image.Layout,
             src_stage: GraphicsPipeline.Stages,
             dst_stage: GraphicsPipeline.Stages,
             src_access: Access,
             dst_access: Access,
-            layer_offset: u32 = 0,
-            layer_count: ?u32 = null,
         },
         buffer: struct {
             region: Buffer.Region,
@@ -798,7 +859,7 @@ pub const RenderPassEncoder = union {
     pub const BeginInfo = struct {
         device: Device,
         target: RenderTarget,
-        image_size: @Vector(2, u32),
+        image_size: Image.Size2D,
     };
 
     pub fn cmdBegin(command_encoder: CommandEncoder, info: BeginInfo) RenderPassEncoder {
@@ -809,7 +870,7 @@ pub const RenderPassEncoder = union {
         return call(device, @src(), "RenderPassEncoder", .{ this, device });
     }
 
-    pub fn cmdBindPipeline(this: RenderPassEncoder, device: Device, graphics_pipeline: GraphicsPipeline, image_size: @Vector(2, u32)) void {
+    pub fn cmdBindPipeline(this: RenderPassEncoder, device: Device, graphics_pipeline: GraphicsPipeline, image_size: Image.Size2D) void {
         return call(device, @src(), "RenderPassEncoder", .{ this, device, graphics_pipeline, image_size });
     }
 
