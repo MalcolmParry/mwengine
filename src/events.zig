@@ -6,6 +6,8 @@ pub const Event = union(enum) {
     key_down: Keycode,
     key_up: Keycode,
     key_repeat: Keycode,
+    mouse_down: MouseButton,
+    mouse_up: MouseButton,
 };
 
 pub const Queue = struct {
@@ -180,4 +182,15 @@ pub const Keycode = enum {
     right_super,
     menu,
     unknown,
+};
+
+pub const MouseButton = enum {
+    left,
+    right,
+    middle,
+    four,
+    five,
+    six,
+    seven,
+    eight,
 };

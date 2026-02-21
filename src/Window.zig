@@ -23,6 +23,7 @@ pub fn init(alloc: std.mem.Allocator, title: []const u8, size: @Vector(2, u32), 
         glfw.setWindowUserPointer(window, event_queue);
         _ = glfw.setFramebufferSizeCallback(window, framebufferSizeCallback);
         _ = glfw.setKeyCallback(window, keyCallback);
+        _ = glfw.setMouseButtonCallback(window, mouseButtonCallback);
     }
 
     return .{
@@ -54,6 +55,10 @@ pub fn shouldClose(this: *Window) bool {
 
 pub fn isKeyDown(this: *const Window, key: events.Keycode) bool {
     return glfw.getKey(this._window, keycodeToGlfw(key)) == .press;
+}
+
+pub fn isMouseDown(this: *const Window, button: events.MouseButton) bool {
+    return glfw.getMouseButton(this._window, mouseButtonToGlfw(button)) == .press;
 }
 
 pub fn getCursorPos(this: *const Window) @Vector(2, f32) {
@@ -103,6 +108,18 @@ fn keyCallback(window: *glfw.Window, glfw_kc: glfw.Key, scancode: c_int, action:
         .press => .{ .key_down = keycode },
         .release => .{ .key_up = keycode },
         .repeat => .{ .key_repeat = keycode },
+    }) catch @panic("out of memory");
+}
+
+fn mouseButtonCallback(window: *glfw.Window, glfw_button: glfw.MouseButton, action: glfw.Action, mods: glfw.Mods) callconv(.c) void {
+    _ = mods;
+
+    const event_queue: *events.Queue = glfw.getWindowUserPointer(window, events.Queue).?;
+    const button = mouseButtonFromGlfw(glfw_button);
+    event_queue.push(switch (action) {
+        .press => .{ .mouse_down = button },
+        .release => .{ .mouse_up = button },
+        .repeat => unreachable,
     }) catch @panic("out of memory");
 }
 
@@ -357,6 +374,32 @@ fn keycodeToGlfw(kc: events.Keycode) glfw.Key {
         .right_super => .right_super,
         .menu => .menu,
         else => .unknown,
+    };
+}
+
+fn mouseButtonToGlfw(button: events.MouseButton) glfw.MouseButton {
+    return switch (button) {
+        .left => .left,
+        .right => .right,
+        .middle => .middle,
+        .four => .four,
+        .five => .five,
+        .six => .six,
+        .seven => .seven,
+        .eight => .eight,
+    };
+}
+
+fn mouseButtonFromGlfw(button: glfw.MouseButton) events.MouseButton {
+    return switch (button) {
+        .left => .left,
+        .right => .right,
+        .middle => .middle,
+        .four => .four,
+        .five => .five,
+        .six => .six,
+        .seven => .seven,
+        .eight => .eight,
     };
 }
 
