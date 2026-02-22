@@ -2,6 +2,7 @@ const std = @import("std");
 const Window = @import("Window.zig");
 const vk = @import("gpu/vulkan.zig");
 
+pub const StagingManager = @import("gpu/StagingManager.zig");
 pub const AnyObject = @import("gpu/any_object.zig").AnyObject;
 pub const Size = u64;
 pub const SizeOrWhole = union(enum) {
