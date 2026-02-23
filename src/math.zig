@@ -23,6 +23,14 @@ pub const dir_forward: Vec3 = .{ 1, 0, 0 };
 pub const dir_right: Vec3 = .{ 0, 1, 0 };
 pub const dir_up: Vec3 = .{ 0, 0, 1 };
 
+pub fn powComptime(a: anytype, b: comptime_int) @TypeOf(a) {
+    var result: @TypeOf(a) = 1;
+    inline for (0..b) |_| {
+        result *= a;
+    }
+    return result;
+}
+
 pub fn rad(degrees: anytype) @TypeOf(degrees) {
     return degrees * (pi / 180.0);
 }
