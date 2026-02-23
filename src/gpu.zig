@@ -3,6 +3,7 @@ const Window = @import("Window.zig");
 const vk = @import("gpu/vulkan.zig");
 
 pub const StagingManager = @import("gpu/StagingManager.zig");
+pub const UploadManager = @import("gpu/UploadManager.zig");
 pub const AnyObject = @import("gpu/any_object.zig").AnyObject;
 pub const Size = u64;
 pub const SizeOrWhole = union(enum) {
@@ -773,6 +774,26 @@ pub const Access = packed struct {
     shader_read: bool = false,
 };
 
+pub const MemoryBarrier = union(enum) {
+    image: struct {
+        image: Image,
+        subresource_range: Image.Subresource.Range,
+        old_layout: Image.Layout,
+        new_layout: Image.Layout,
+        src_stage: GraphicsPipeline.Stages,
+        dst_stage: GraphicsPipeline.Stages,
+        src_access: Access,
+        dst_access: Access,
+    },
+    buffer: struct {
+        region: Buffer.Region,
+        src_stage: GraphicsPipeline.Stages,
+        dst_stage: GraphicsPipeline.Stages,
+        src_access: Access,
+        dst_access: Access,
+    },
+};
+
 pub const CommandEncoder = union {
     vk: vk.CommandEncoder.Handle,
 
@@ -826,26 +847,6 @@ pub const CommandEncoder = union {
     pub fn cmdCopyImageWithScaling(cmd_encoder: CommandEncoder, info: ImageCopyWithScalingInfo) anyerror!void {
         return call(info.device, @src(), "CommandEncoder", .{ cmd_encoder, info });
     }
-
-    pub const MemoryBarrier = union(enum) {
-        image: struct {
-            image: Image,
-            subresource_range: Image.Subresource.Range,
-            old_layout: Image.Layout,
-            new_layout: Image.Layout,
-            src_stage: GraphicsPipeline.Stages,
-            dst_stage: GraphicsPipeline.Stages,
-            src_access: Access,
-            dst_access: Access,
-        },
-        buffer: struct {
-            region: Buffer.Region,
-            src_stage: GraphicsPipeline.Stages,
-            dst_stage: GraphicsPipeline.Stages,
-            src_access: Access,
-            dst_access: Access,
-        },
-    };
 
     pub fn cmdMemoryBarrier(this: CommandEncoder, device: Device, memory_barriers: []const MemoryBarrier, alloc: std.mem.Allocator) anyerror!void {
         return call(device, @src(), "CommandEncoder", .{ this, device, memory_barriers, alloc });

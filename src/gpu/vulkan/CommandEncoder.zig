@@ -164,7 +164,7 @@ pub fn accessToNative(access: gpu.Access) vk.AccessFlags2KHR {
     };
 }
 
-pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_barriers: []const gpu.CommandEncoder.MemoryBarrier, alloc: std.mem.Allocator) !void {
+pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, device: gpu.Device, memory_barriers: []const gpu.MemoryBarrier, alloc: std.mem.Allocator) !void {
     var image_count: usize = 0;
     var buffer_count: usize = 0;
 
