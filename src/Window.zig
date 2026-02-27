@@ -404,11 +404,30 @@ fn mouseButtonFromGlfw(button: glfw.MouseButton) events.MouseButton {
 }
 
 pub const vulkan = struct {
+    const gpu = @import("gpu.zig");
     const vk = @import("vulkan");
+
+    const Error = gpu.Instance.InitError;
+    fn glfwErrorToInstanceInit(err: glfw.Error) Error {
+        return switch (err) {
+            error.OutOfMemory => Error.OutOfMemory,
+            error.NotInitialized,
+            error.NoCurrentContext,
+            => Error.InitFailed,
+            error.APIUnavailable,
+            error.VersionUnavailable,
+            error.FeatureUnimplemented,
+            error.FeatureUnavailable,
+            error.PlatformError,
+            error.PlatformUnavailable,
+            => Error.NotSupported,
+            else => Error.Unknown,
+        };
+    }
 
     pub const Wrapper = struct {
         pub fn init() !@This() {
-            try addRef();
+            addRef() catch |err| return glfwErrorToInstanceInit(err);
             return .{};
         }
 
@@ -424,7 +443,7 @@ pub const vulkan = struct {
     };
 
     pub fn getRequiredInstanceExtensions() ![][*:0]const u8 {
-        return try glfw.getRequiredInstanceExtensions();
+        return glfw.getRequiredInstanceExtensions() catch |err| return glfwErrorToInstanceInit(err);
     }
 
     pub fn createSurface(window: *Window, instance: vk.InstanceProxy) !vk.SurfaceKHR {

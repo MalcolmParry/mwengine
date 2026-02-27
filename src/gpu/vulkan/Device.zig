@@ -35,7 +35,7 @@ queue: vk.Queue,
 queue_family_index: u32,
 command_pool: vk.CommandPool,
 
-pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc: std.mem.Allocator) !gpu.Device {
+pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc: std.mem.Allocator) gpu.Device.InitError!gpu.Device {
     const this = try alloc.create(Device);
     errdefer alloc.destroy(this);
     this.instance = instance.vk;
@@ -76,7 +76,7 @@ pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc:
     };
 
     // TODO: check extention support
-    const device_handle = try instance.vk.instance.createDevice(this.phys, &.{
+    const device_handle = instance.vk.instance.createDevice(this.phys, &.{
         .p_queue_create_infos = @ptrCast(&queue_create_info),
         .queue_create_info_count = 1,
         .enabled_extension_count = required_extensions.len,
@@ -89,21 +89,32 @@ pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc:
             },
             .p_next = &sync2,
         },
-    }, vk_alloc);
+    }, vk_alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.ExtensionNotPresent, error.FeatureNotPresent => error.NotSupported,
+        error.InitializationFailed, error.TooManyObjects, error.DeviceLost => error.InitFailed,
+        error.Unknown => error.Unknown,
+    };
 
     const device_wrapper = try alloc.create(vk.DeviceWrapper);
     errdefer alloc.destroy(device_wrapper);
-    device_wrapper.* = .load(device_handle, instance.vk.instance.wrapper.dispatch.vkGetDeviceProcAddr orelse return error.CantLoadVulkan);
+    device_wrapper.* = .load(device_handle, instance.vk.instance.wrapper.dispatch.vkGetDeviceProcAddr orelse return error.Unknown);
     this.device = vk.DeviceProxy.init(device_handle, device_wrapper);
     errdefer this.device.destroyDevice(vk_alloc);
 
     this.queue = this.device.getDeviceQueue(this.queue_family_index, 0);
-    this.command_pool = try this.device.createCommandPool(&.{
+    this.command_pool = this.device.createCommandPool(&.{
         .queue_family_index = this.queue_family_index,
         .flags = .{
             .reset_command_buffer_bit = true,
         },
-    }, vk_alloc);
+    }, vk_alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.Unknown => error.Unknown,
+    };
+
     errdefer this.device.destroyCommandPool(this.command_pool, vk_alloc);
 
     return .{ .vk = this };
@@ -121,7 +132,7 @@ pub fn waitUntilIdle(this: gpu.Device) void {
     this.vk.device.deviceWaitIdle() catch @panic("failed to wait for device");
 }
 
-pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) !void {
+pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) gpu.Device.SubmitError!void {
     std.debug.assert(info.wait_semaphores.len == info.wait_dst_stages.len);
     var wait_dst_stage_mask_buffer: [8]vk.PipelineStageFlags = undefined;
     var wait_dst_stage_masks: std.ArrayList(vk.PipelineStageFlags) = .initBuffer(&wait_dst_stage_mask_buffer);
@@ -140,7 +151,12 @@ pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) !voi
         .p_signal_semaphores = Semaphore.nativesFromSlice(info.signal_semaphores),
     };
 
-    try this.vk.device.queueSubmit(this.vk.queue, 1, @ptrCast(&submit_info), native_fence);
+    this.vk.device.queueSubmit(this.vk.queue, 1, @ptrCast(&submit_info), native_fence) catch |err| return switch (err) {
+        error.DeviceLost => error.DeviceLost,
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.Unknown => error.Unknown,
+    };
 }
 
 pub const MemoryRegion = struct {

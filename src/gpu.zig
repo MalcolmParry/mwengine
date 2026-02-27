@@ -15,6 +15,17 @@ pub const Api = enum {
     vk,
 };
 
+pub const Error = error{
+    OutOfMemory,
+    OutOfDeviceMemory,
+    InitFailed,
+    NotSupported,
+    NoSuitableDevice,
+    NoSuitableQueue,
+    DeviceLost,
+    Unknown,
+};
+
 pub const Instance = union(Api) {
     vk: vk.Instance.Handle,
 
@@ -22,7 +33,15 @@ pub const Instance = union(Api) {
         return @as(Api, this);
     }
 
-    pub fn init(debug_logging: bool, alloc: std.mem.Allocator) anyerror!Instance {
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        InitFailed,
+        NotSupported,
+        Unknown,
+    };
+
+    pub fn init(debug_logging: bool, alloc: std.mem.Allocator) InitError!Instance {
         return call(.vk, @src(), "Instance", .{ debug_logging, alloc });
     }
 
@@ -30,7 +49,12 @@ pub const Instance = union(Api) {
         return call(this.api(), @src(), "Instance", .{ this, alloc });
     }
 
-    pub fn bestPhysicalDevice(this: Instance) anyerror!Device.Physical {
+    pub const BestPhysicalDeviceError = error{
+        OutOfMemory,
+        NoSuitableDevice,
+    };
+
+    pub fn bestPhysicalDevice(this: Instance) BestPhysicalDeviceError!Device.Physical {
         return call(this.api(), @src(), "Instance", .{this});
     }
 
@@ -44,7 +68,16 @@ pub const Device = union(Api) {
         vk: vk.Device.Physical.Handle,
     };
 
-    pub fn init(instance: Instance, physical_device: Physical, alloc: std.mem.Allocator) anyerror!Device {
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        InitFailed,
+        NotSupported,
+        NoSuitableQueue,
+        Unknown,
+    };
+
+    pub fn init(instance: Instance, physical_device: Physical, alloc: std.mem.Allocator) InitError!Device {
         return call(instance, @src(), "Device", .{ instance, physical_device, alloc });
     }
 
@@ -65,7 +98,14 @@ pub const Device = union(Api) {
         signal_fence: ?Fence,
     };
 
-    pub fn submitCommands(this: Device, info: CommandSubmitInfo) anyerror!void {
+    pub const SubmitError = error{
+        DeviceLost,
+        OutOfMemory,
+        OutOfDeviceMemory,
+        Unknown,
+    };
+
+    pub fn submitCommands(this: Device, info: CommandSubmitInfo) SubmitError!void {
         return call(this, @src(), "Device", .{ this, info });
     }
 

@@ -24,7 +24,7 @@ maybe_debug_messenger: ?vk.DebugUtilsMessengerEXT,
 physical_devices: []Device.Physical,
 
 //  TODO: add app version to paramerers
-pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !gpu.Instance {
+pub fn init(debug_logging: bool, alloc: std.mem.Allocator) gpu.Instance.InitError!gpu.Instance {
     const this = try alloc.create(Instance);
     errdefer alloc.destroy(this);
 
@@ -41,7 +41,7 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !gpu.Instance {
 
     const layers: []const [*:0]const u8 = if (debug_logging) &validation_layer else &.{};
 
-    const instance_handle = try vkb.createInstance(&.{
+    const instance_handle = vkb.createInstance(&.{
         .p_application_info = &.{
             .p_application_name = "placeholder",
             .application_version = 0,
@@ -54,16 +54,25 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !gpu.Instance {
         .enabled_layer_count = @intCast(layers.len),
         .pp_enabled_layer_names = layers.ptr,
         .flags = .{},
-    }, vk_alloc);
+    }, vk_alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.InitializationFailed => error.InitFailed,
+        error.LayerNotPresent,
+        error.ExtensionNotPresent,
+        error.IncompatibleDriver,
+        => error.NotSupported,
+        error.Unknown => error.Unknown,
+    };
 
     const instance_wrapper = try alloc.create(vk.InstanceWrapper);
     errdefer alloc.destroy(instance_wrapper);
-    instance_wrapper.* = .load(instance_handle, vkb.dispatch.vkGetInstanceProcAddr orelse return error.CantLoadVulkan);
+    instance_wrapper.* = .load(instance_handle, vkb.dispatch.vkGetInstanceProcAddr orelse return error.Unknown);
     this.instance = .init(instance_handle, instance_wrapper);
     errdefer this.instance.destroyInstance(vk_alloc);
 
     this.maybe_debug_messenger = if (debug_logging) blk: {
-        break :blk try this.instance.createDebugUtilsMessengerEXT(&.{
+        break :blk this.instance.createDebugUtilsMessengerEXT(&.{
             .message_severity = .{
                 .verbose_bit_ext = true,
                 .warning_bit_ext = true,
@@ -76,13 +85,22 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) !gpu.Instance {
             },
             .pfn_user_callback = debugMessengerCallback,
             .p_user_data = null,
-        }, vk_alloc);
+        }, vk_alloc) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.Unknown => error.Unknown,
+        };
     } else null;
 
     errdefer if (this.maybe_debug_messenger) |debug_messenger|
         this.instance.destroyDebugUtilsMessengerEXT(debug_messenger, vk_alloc);
 
-    const native_phyical_devices = try this.instance.enumeratePhysicalDevicesAlloc(alloc);
+    const native_phyical_devices = this.instance.enumeratePhysicalDevicesAlloc(alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory, error.OutOfMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.InitializationFailed => error.InitFailed,
+        error.Unknown => error.Unknown,
+    };
+
     defer alloc.free(native_phyical_devices);
     this.physical_devices = try alloc.alloc(Device.Physical, native_phyical_devices.len);
     errdefer alloc.free(this.physical_devices);
@@ -128,7 +146,7 @@ pub fn deinit(this: gpu.Instance, alloc: std.mem.Allocator) void {
     alloc.destroy(this.vk);
 }
 
-pub fn bestPhysicalDevice(this: gpu.Instance) !gpu.Device.Physical {
+pub fn bestPhysicalDevice(this: gpu.Instance) gpu.Instance.BestPhysicalDeviceError!gpu.Device.Physical {
     var best_device: ?Device.Physical = null;
     var best_score: i32 = -1;
     for (this.vk.physical_devices) |device| {
@@ -159,7 +177,7 @@ pub fn bestPhysicalDevice(this: gpu.Instance) !gpu.Device.Physical {
     const properties = this.vk.instance.getPhysicalDeviceProperties(best_device.?.device);
     std.log.info("{s}\n", .{properties.device_name});
     return .{
-        .vk = best_device orelse return error.NoDeviceAvailable,
+        .vk = best_device orelse return error.NoSuitableDevice,
     };
 }
 
