@@ -411,9 +411,6 @@ pub const vulkan = struct {
     fn glfwErrorToInstanceInit(err: glfw.Error) Error {
         return switch (err) {
             error.OutOfMemory => Error.OutOfMemory,
-            error.NotInitialized,
-            error.NoCurrentContext,
-            => Error.InitFailed,
             error.APIUnavailable,
             error.VersionUnavailable,
             error.FeatureUnimplemented,
@@ -446,10 +443,20 @@ pub const vulkan = struct {
         return glfw.getRequiredInstanceExtensions() catch |err| return glfwErrorToInstanceInit(err);
     }
 
-    pub fn createSurface(window: *Window, instance: vk.InstanceProxy) !vk.SurfaceKHR {
+    pub fn createSurface(window: *Window, instance: vk.InstanceProxy) gpu.Display.InitError!vk.SurfaceKHR {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
         var surface: vk.SurfaceKHR = undefined;
-        try glfw.createWindowSurface(instance.handle, window._window, vk_alloc, &surface);
+        glfw.createWindowSurface(instance.handle, window._window, vk_alloc, &surface) catch |err| return switch (err) {
+            error.OutOfMemory => Error.OutOfMemory,
+            error.APIUnavailable,
+            error.VersionUnavailable,
+            error.FeatureUnimplemented,
+            error.FeatureUnavailable,
+            error.PlatformError,
+            error.PlatformUnavailable,
+            => Error.NotSupported,
+            else => Error.Unknown,
+        };
         return surface;
     }
 };

@@ -18,7 +18,7 @@ surface_format: vk.SurfaceFormatKHR,
 instance: vk.InstanceProxy,
 device: *Device,
 
-pub fn init(device: gpu.Device, window: *Window, alloc: std.mem.Allocator) !gpu.Display {
+pub fn init(device: gpu.Device, window: *Window, alloc: std.mem.Allocator) gpu.Display.InitError!gpu.Display {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const this = try alloc.create(Display);
     errdefer alloc.destroy(this);
@@ -29,9 +29,25 @@ pub fn init(device: gpu.Device, window: *Window, alloc: std.mem.Allocator) !gpu.
     this.swapchain = .null_handle;
     errdefer this.instance.destroySurfaceKHR(this.surface, vk_alloc);
 
-    this.surface_format = try chooseSurfaceFormat(this.instance.wrapper, device.vk.phys, this.surface, alloc);
+    this.surface_format = chooseSurfaceFormat(this.instance.wrapper, device.vk.phys, this.surface, alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory, error.OutOfMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.SurfaceLostKHR => error.SurfaceLost,
+        error.Unknown => error.Unknown,
+    };
 
-    try this.initSwapchain(window.getFramebufferSize(), alloc);
+    this.initSwapchain(window.getFramebufferSize(), alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory, error.OutOfMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.SurfaceLostKHR => error.SurfaceLost,
+        error.DeviceLost => error.DeviceLost,
+        error.InitializationFailed => error.InitFailed,
+        error.NativeWindowInUseKHR => error.SurfaceInUse,
+        error.CompressionExhaustedEXT,
+        error.InvalidOpaqueCaptureAddressKHR,
+        error.Unknown,
+        => error.Unknown,
+    };
 
     return .{ .vk = this };
 }
@@ -44,25 +60,36 @@ pub fn deinit(this: gpu.Display, alloc: std.mem.Allocator) void {
     alloc.destroy(this.vk);
 }
 
-pub fn acquireImageIndex(this: gpu.Display, maybe_signal_semaphore: ?gpu.Semaphore, maybe_signal_fence: ?gpu.Fence, timeout_ns: u64) !gpu.Display.AcquireImageIndexResult {
+pub fn acquireImageIndex(this: gpu.Display, maybe_signal_semaphore: ?gpu.Semaphore, maybe_signal_fence: ?gpu.Fence, timeout_ns: u64) gpu.Display.AcquireImageIndexError!gpu.Display.AcquireImageIndexResult {
     const native_semaphore = if (maybe_signal_semaphore) |x| x.vk.semaphore else .null_handle;
     const native_fence = if (maybe_signal_fence) |x| x.vk.fence else .null_handle;
 
-    const result = this.vk.device.device.acquireNextImageKHR(this.vk.swapchain, timeout_ns, native_semaphore, native_fence) catch |err| switch (err) {
-        error.OutOfDateKHR => return .out_of_date,
-        else => return err,
+    const result = this.vk.device.device.acquireNextImageKHR(this.vk.swapchain, timeout_ns, native_semaphore, native_fence) catch |err| return switch (err) {
+        error.OutOfDateKHR => error.OutOfDate,
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.DeviceLost => error.DeviceLost,
+        error.SurfaceLostKHR => error.SurfaceLost,
+        // full screen not supported yet
+        error.FullScreenExclusiveModeLostEXT,
+        error.Unknown,
+        => error.Unknown,
     };
 
-    return switch (result.result) {
-        .success => .{ .success = result.image_index },
-        .timeout => error.Timeout,
-        .not_ready => error.NotReady,
-        .suboptimal_khr => .{ .suboptimal = result.image_index },
-        else => unreachable,
+    return .{
+        .image_index = result.image_index,
+        .optimal = switch (result.result) {
+            .success => true,
+            .suboptimal_khr => false,
+            .timeout => return error.Timeout,
+            // only happens when timeout is 0
+            .not_ready => unreachable,
+            else => unreachable,
+        },
     };
 }
 
-pub fn presentImage(this: gpu.Display, index: u32, wait_semaphores: []const gpu.Semaphore, maybe_signal_fence: ?gpu.Fence) !gpu.Display.PresentResult {
+pub fn presentImage(this: gpu.Display, index: u32, wait_semaphores: []const gpu.Semaphore, maybe_signal_fence: ?gpu.Fence) gpu.Display.PresentImageError!void {
     const maybe_fence_info: ?vk.SwapchainPresentFenceInfoEXT = if (maybe_signal_fence) |fence| .{
         .swapchain_count = 1,
         .p_fences = @ptrCast(&fence.vk.fence),
@@ -77,13 +104,20 @@ pub fn presentImage(this: gpu.Display, index: u32, wait_semaphores: []const gpu.
         .p_results = null,
         .p_next = if (maybe_fence_info) |x| @ptrCast(&x) else null,
     }) catch |err| return switch (err) {
-        error.OutOfDateKHR => .out_of_date,
-        else => err,
+        error.OutOfDateKHR => error.OutOfDate,
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.DeviceLost => error.DeviceLost,
+        error.SurfaceLostKHR => error.SurfaceLost,
+        // full screen not supported yet
+        error.FullScreenExclusiveModeLostEXT,
+        error.Unknown,
+        => error.Unknown,
     };
 
     return switch (result) {
-        .success => .success,
-        .suboptimal_khr => .suboptimal,
+        .success => {},
+        .suboptimal_khr => error.Suboptimal,
         else => unreachable,
     };
 }

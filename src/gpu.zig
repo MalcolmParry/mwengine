@@ -23,6 +23,10 @@ pub const Error = error{
     NoSuitableDevice,
     NoSuitableQueue,
     DeviceLost,
+    SurfaceLost,
+    SurfaceInUse,
+    Timeout,
+    OutOfDate,
     Unknown,
 };
 
@@ -178,7 +182,18 @@ pub const Device = union(Api) {
 pub const Display = union(Api) {
     vk: vk.Display.Handle,
 
-    pub fn init(device: Device, window: *Window, alloc: std.mem.Allocator) anyerror!Display {
+    pub const InitError = error{
+        InitFailed,
+        DeviceLost,
+        OutOfMemory,
+        OutOfDeviceMemory,
+        NotSupported,
+        SurfaceLost,
+        SurfaceInUse,
+        Unknown,
+    };
+
+    pub fn init(device: Device, window: *Window, alloc: std.mem.Allocator) InitError!Display {
         return call(device, @src(), "Display", .{ device, window, alloc });
     }
 
@@ -187,23 +202,36 @@ pub const Display = union(Api) {
     }
 
     pub const ImageIndex = u32;
-    pub const AcquireImageIndexResult = union(PresentResult) {
-        success: ImageIndex,
-        suboptimal: ImageIndex,
-        out_of_date: void,
+    pub const AcquireImageIndexResult = struct {
+        image_index: ImageIndex,
+        optimal: bool,
     };
 
-    pub fn acquireImageIndex(this: Display, maybe_signal_semaphore: ?Semaphore, maybe_signal_fence: ?Fence, timeout_ns: u64) anyerror!AcquireImageIndexResult {
+    pub const AcquireImageIndexError = error{
+        DeviceLost,
+        SurfaceLost,
+        OutOfMemory,
+        OutOfDeviceMemory,
+        Timeout,
+        OutOfDate,
+        Unknown,
+    };
+
+    pub fn acquireImageIndex(this: Display, maybe_signal_semaphore: ?Semaphore, maybe_signal_fence: ?Fence, timeout_ns: u64) AcquireImageIndexError!AcquireImageIndexResult {
         return call(this, @src(), "Display", .{ this, maybe_signal_semaphore, maybe_signal_fence, timeout_ns });
     }
 
-    pub const PresentResult = enum {
-        success,
-        suboptimal,
-        out_of_date,
+    pub const PresentImageError = error{
+        DeviceLost,
+        SurfaceLost,
+        OutOfMemory,
+        OutOfDeviceMemory,
+        OutOfDate,
+        Suboptimal,
+        Unknown,
     };
 
-    pub fn presentImage(this: Display, index: u32, wait_semaphores: []const Semaphore, maybe_signal_fence: ?Fence) anyerror!PresentResult {
+    pub fn presentImage(this: Display, index: ImageIndex, wait_semaphores: []const Semaphore, maybe_signal_fence: ?Fence) PresentImageError!void {
         return call(this, @src(), "Display", .{ this, index, wait_semaphores, maybe_signal_fence });
     }
 
