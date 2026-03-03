@@ -28,6 +28,7 @@ pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !void {
 
     var maybe_glyf_tab: ?Slice = null;
     var maybe_cmap_tab: ?Slice = null;
+    var maybe_maxp_tab: ?Slice = null;
 
     for (0..offset_subtable.table_count) |_| {
         const table = try reader.interface.takeStruct(TableDirEntry, .big);
@@ -35,6 +36,7 @@ pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !void {
         switch (tagAsU32(table.tag)) {
             tagAsU32("glyf".*) => maybe_glyf_tab = table.slice,
             tagAsU32("cmap".*) => maybe_cmap_tab = table.slice,
+            tagAsU32("maxp".*) => maybe_maxp_tab = table.slice,
             else => {},
         }
 
@@ -43,7 +45,12 @@ pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !void {
 
     const glyf_tab_slice = if (maybe_glyf_tab) |x| x else return error.BadFile;
     const cmap_tab_slice = if (maybe_cmap_tab) |x| x else return error.BadFile;
+    const maxp_tab_slice = if (maybe_maxp_tab) |x| x else return error.BadFile;
     _ = cmap_tab_slice;
+
+    try reader.seekTo(maxp_tab_slice.offset + 4);
+    const glyph_count = try reader.interface.takeInt(u16, .big);
+    std.log.info("glyph count: {}", .{glyph_count});
 
     var state: ParserState = .{
         .reader = reader,
@@ -55,12 +62,10 @@ pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !void {
     }
 
     try reader.seekTo(glyf_tab_slice.offset);
-    std.log.info("", .{});
-    _ = try parseSimpleGlyph(&state);
-    std.log.info("", .{});
-    std.log.info("", .{});
-    std.log.info("", .{});
-    _ = try parseSimpleGlyph(&state);
+    for (0..glyph_count) |_| {
+        std.log.info("", .{});
+        _ = try parseSimpleGlyph(&state);
+    }
 }
 
 fn parseSimpleGlyph(state: *ParserState) !SimpleGlyph {
@@ -69,18 +74,25 @@ fn parseSimpleGlyph(state: *ParserState) !SimpleGlyph {
 
     const desc = try reader.takeStruct(GlyphDesc, .big);
     std.log.info("{}", .{desc.contour_count});
-    if (desc.contour_count < 0) return error.Unsupported;
-    const contour_count: u16 = @intCast(desc.contour_count);
+
+    const contour_count: u16 = switch (std.math.order(desc.contour_count, 0)) {
+        .lt => return error.Unsupported,
+        .eq => return .{
+            .contour_count = 0,
+            .countour_ends_offset = 0,
+            .point_count = 0,
+            .points_offset = 0,
+        },
+        .gt => @intCast(desc.contour_count),
+    };
 
     const contour_end_index_offset = state.contour_end_indices.items.len;
-    try state.contour_end_indices.ensureUnusedCapacity(state.alloc, contour_count);
-    const contour_end_indices = state.contour_end_indices.unusedCapacitySlice()[0..contour_count];
-    state.contour_end_indices.items.len += contour_count;
+    const contour_end_indices = try state.contour_end_indices.addManyAsSlice(alloc, contour_count);
     try reader.readSliceEndian(u16, contour_end_indices, .big);
 
     for (contour_end_indices) |x| std.log.info("contour end at index {}", .{x});
 
-    const point_count = contour_end_indices[contour_count - 1] + 1;
+    const point_count = std.math.add(u16, contour_end_indices[contour_count - 1], 1) catch return error.BadFile;
     std.log.info("point count: {}", .{point_count});
 
     // skip instructions
@@ -100,6 +112,7 @@ fn parseSimpleGlyph(state: *ParserState) !SimpleGlyph {
             const copies = try reader.takeByte();
             for (0..copies) |_| {
                 i += 1;
+                if (i >= point_count) return error.BadFile;
                 all_flags[i] = flags;
             }
         }
@@ -107,9 +120,7 @@ fn parseSimpleGlyph(state: *ParserState) !SimpleGlyph {
 
     // read coords
     const point_offset = state.points.items.len;
-    try state.points.ensureUnusedCapacity(state.alloc, point_count);
-    const coords = state.points.unusedCapacitySlice()[0..point_count];
-    state.points.items.len += point_count;
+    const coords = try state.points.addManyAsSlice(alloc, point_count);
 
     try parseCoords(reader, coords, all_flags, .x);
     try parseCoords(reader, coords, all_flags, .y);
@@ -128,20 +139,19 @@ fn parseCoords(reader: *std.Io.Reader, coords: [][2]i16, all_flags: []const Simp
     var last_coord: i16 = 0;
 
     for (coords, all_flags) |*coord_ptr, flags| {
-        var coord = last_coord;
-
-        switch (flags.getType(component)) {
-            .u8 => {
-                const offset: i16 = try reader.takeByte();
+        const offset: i16 = switch (flags.getType(component)) {
+            .u8 => blk: {
+                const unsigned_offset: i16 = try reader.takeByte();
                 const positive = flags.getSignOrRepeat(component);
-                coord += if (positive) offset else -offset;
+                break :blk if (positive) unsigned_offset else -unsigned_offset;
             },
-            .i16 => {
-                if (!flags.getSignOrRepeat(component))
-                    coord += try reader.takeInt(i16, .big);
-            },
-        }
+            .i16 => if (!flags.getSignOrRepeat(component))
+                try reader.takeInt(i16, .big)
+            else
+                0,
+        };
 
+        const coord = std.math.add(i16, offset, last_coord) catch return error.BadFile;
         coord_ptr.*[@intFromEnum(component)] = coord;
         last_coord = coord;
     }
