@@ -187,7 +187,7 @@ fn debugMessengerCallback(message_severity: vk.DebugUtilsMessageSeverityFlagsEXT
     const message = callback_data.?.p_message.?;
 
     if (message_severity.error_bit_ext) {
-        std.log.err("VULKAN ERROR: {s}\n", .{message});
+        std.debug.panic("VULKAN ERROR: {s}\n", .{message});
     } else if (message_severity.warning_bit_ext) {
         std.log.warn("VULKAN WARN: {s}\n", .{message});
     } else if (message_severity.info_bit_ext) {

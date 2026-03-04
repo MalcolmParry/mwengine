@@ -39,6 +39,9 @@ pub fn end(this: gpu.CommandEncoder, device: gpu.Device) !void {
 
 pub fn cmdCopyBuffer(this: gpu.CommandEncoder, device: gpu.Device, src: gpu.Buffer.Region, dst: gpu.Buffer.Region) void {
     std.debug.assert(src.size(device) == dst.size(device));
+    std.debug.assert(std.mem.isAligned(src.offset, 4));
+    std.debug.assert(std.mem.isAligned(dst.offset, 4));
+
     const copy_region: vk.BufferCopy = .{
         .size = src.size(device),
         .src_offset = src.offset,
@@ -232,37 +235,45 @@ pub const RenderPassEncoder = struct {
 
     command_encoder: gpu.CommandEncoder,
 
-    pub fn cmdBegin(command_encoder: gpu.CommandEncoder, info: gpu.RenderPassEncoder.BeginInfo) gpu.RenderPassEncoder {
-        const color_attachment: vk.RenderingAttachmentInfo = .{
-            .image_layout = .attachment_optimal,
-            .image_view = info.target.color_image_view.vk.image_view,
-            .load_op = .clear,
-            .store_op = .store,
-            .clear_value = .{
-                .color = .{
-                    .float_32 = info.target.color_clear_value,
-                },
-            },
-            .resolve_image_layout = .undefined,
-            .resolve_image_view = .null_handle,
-            .resolve_mode = .{},
+    fn clearValueToVk(val: gpu.RenderAttachment.ClearValue) vk.ClearValue {
+        return switch (val) {
+            .color => |x| .{ .color = .{ .float_32 = x } },
+            .depth => |x| .{ .depth_stencil = .{
+                .depth = x,
+                .stencil = 0,
+            } },
         };
+    }
 
-        const depth_attachment: vk.RenderingAttachmentInfo = .{
-            .image_layout = .depth_stencil_attachment_optimal,
-            .image_view = if (info.target.depth_image_view) |x| x.vk.image_view else .null_handle,
-            .load_op = .clear,
-            .store_op = .store,
-            .clear_value = .{
-                .depth_stencil = .{
-                    .depth = 1.0,
-                    .stencil = 0.0,
-                },
+    fn attachmentToNative(attachment: gpu.RenderAttachment, layout: vk.ImageLayout) vk.RenderingAttachmentInfo {
+        return .{
+            .image_layout = layout,
+            .image_view = attachment.image_view.vk.image_view,
+            .load_op = switch (attachment.load) {
+                .dont_care => .dont_care,
+                .load => .load,
+                .clear => .clear,
+            },
+            .store_op = switch (attachment.store) {
+                .dont_care => .dont_care,
+                .store => .store,
+            },
+            .clear_value = switch (attachment.load) {
+                .clear => |val| clearValueToVk(val),
+                else => undefined,
             },
             .resolve_image_layout = .undefined,
             .resolve_image_view = .null_handle,
             .resolve_mode = .{},
         };
+    }
+
+    pub fn cmdBegin(command_encoder: gpu.CommandEncoder, info: gpu.RenderPassEncoder.BeginInfo) gpu.RenderPassEncoder {
+        const color_attachment = attachmentToNative(info.target.color_attachment, .attachment_optimal);
+        const depth_attachment: vk.RenderingAttachmentInfo = if (info.target.depth_attachment) |attachment|
+            attachmentToNative(attachment, .depth_stencil_attachment_optimal)
+        else
+            undefined;
 
         info.device.vk.device.cmdBeginRenderingKHR(command_encoder.vk.command_buffer, &.{
             .render_area = .{
@@ -279,7 +290,7 @@ pub const RenderPassEncoder = struct {
             .view_mask = 0,
             .color_attachment_count = 1,
             .p_color_attachments = @ptrCast(&color_attachment),
-            .p_depth_attachment = if (info.target.depth_image_view) |_| @ptrCast(&depth_attachment) else null,
+            .p_depth_attachment = if (info.target.depth_attachment) |_| @ptrCast(&depth_attachment) else null,
             .flags = .{},
         });
 

@@ -487,10 +487,31 @@ pub const GraphicsPipeline = union {
     }
 };
 
+pub const RenderAttachment = struct {
+    pub const ClearValue = union(enum) {
+        color: Image.ColorRGBA32,
+        depth: f32,
+    };
+
+    pub const Load = union(enum) {
+        dont_care,
+        load,
+        clear: ClearValue,
+    };
+
+    pub const Store = enum {
+        dont_care,
+        store,
+    };
+
+    image_view: Image.View,
+    load: Load,
+    store: Store,
+};
+
 pub const RenderTarget = struct {
-    color_clear_value: Image.ColorRGBA32,
-    color_image_view: Image.View,
-    depth_image_view: ?Image.View,
+    color_attachment: RenderAttachment,
+    depth_attachment: ?RenderAttachment = null,
 
     pub const Desc = Descriptor;
     pub const Descriptor = struct {
