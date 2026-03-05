@@ -2,6 +2,8 @@ const std = @import("std");
 
 const TTF = @This();
 
+glyphs: []Glyph,
+glyph_components: []GlyphComponent,
 simple_glyphs: []SimpleGlyph,
 points: [][2]i16,
 contour_end_indices: []u16,
@@ -10,18 +12,36 @@ pub const SimpleGlyph = struct {
     point_count: u16,
     contour_count: u16,
     points_offset: u32,
-    countour_ends_offset: u32,
+    contour_ends_offset: u32,
 
     pub fn points(glyph: SimpleGlyph, ttf: *const TTF) [][2]i16 {
-        return ttf.points[glyph.point_offset .. glyph.point_offset + glyph.point_count];
+        return ttf.points[glyph.points_offset .. glyph.points_offset + glyph.point_count];
     }
 
     pub fn contourEndIndices(glyph: SimpleGlyph, ttf: *const TTF) []u16 {
-        return ttf.contour_end_indices[glyph.contour_ends_offset .. glyph.countour_ends_offsets + glyph.contour_count];
+        return ttf.contour_end_indices[glyph.contour_ends_offset .. glyph.contour_ends_offset + glyph.contour_count];
     }
 };
 
-pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !void {
+pub const Glyph = packed struct {
+    /// if not compound then this is index into glyph_components otherwise it is start index into glyph_component_indices
+    offset: u16,
+    /// ignored if not compound
+    count: u15,
+    compound: bool,
+
+    pub fn components(glyph: Glyph, ttf: *const TTF) []GlyphComponent {
+        std.debug.assert(glyph.compound);
+        return ttf.glyph_components[glyph.offset .. glyph.offset + glyph.count];
+    }
+};
+
+pub const GlyphComponent = struct {
+    index: u16,
+    offset: [2]i16,
+};
+
+pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !TTF {
     const offset_subtable = try reader.interface.takeStruct(OffsetSubtable, .big);
 
     std.log.info("table count {}", .{offset_subtable.table_count});
@@ -29,6 +49,8 @@ pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !void {
     var maybe_glyf_tab: ?Slice = null;
     var maybe_cmap_tab: ?Slice = null;
     var maybe_maxp_tab: ?Slice = null;
+    var maybe_head_tab: ?Slice = null;
+    var maybe_loca_tab: ?Slice = null;
 
     for (0..offset_subtable.table_count) |_| {
         const table = try reader.interface.takeStruct(TableDirEntry, .big);
@@ -37,6 +59,8 @@ pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !void {
             tagAsU32("glyf".*) => maybe_glyf_tab = table.slice,
             tagAsU32("cmap".*) => maybe_cmap_tab = table.slice,
             tagAsU32("maxp".*) => maybe_maxp_tab = table.slice,
+            tagAsU32("head".*) => maybe_head_tab = table.slice,
+            tagAsU32("loca".*) => maybe_loca_tab = table.slice,
             else => {},
         }
 
@@ -46,7 +70,16 @@ pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !void {
     const glyf_tab_slice = if (maybe_glyf_tab) |x| x else return error.BadFile;
     const cmap_tab_slice = if (maybe_cmap_tab) |x| x else return error.BadFile;
     const maxp_tab_slice = if (maybe_maxp_tab) |x| x else return error.BadFile;
+    const head_tab_slice = if (maybe_head_tab) |x| x else return error.BadFile;
+    const loca_tab_slice = if (maybe_loca_tab) |x| x else return error.BadFile;
     _ = cmap_tab_slice;
+
+    try reader.seekTo(head_tab_slice.offset + 50);
+    const glyph_loc_type: GlyphLocType = switch (try reader.interface.takeInt(u16, .big)) {
+        0 => .u16,
+        1 => .u32,
+        else => return error.BadFile,
+    };
 
     try reader.seekTo(maxp_tab_slice.offset + 4);
     const glyph_count = try reader.interface.takeInt(u16, .big);
@@ -56,30 +89,100 @@ pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !void {
         .reader = reader,
         .alloc = alloc,
     };
-    defer {
-        state.points.deinit(alloc);
-        state.contour_end_indices.deinit(alloc);
+
+    var glyphs: std.ArrayList(Glyph) = try .initCapacity(alloc, glyph_count);
+
+    for (0..glyph_count) |i| {
+        try reader.seekTo(loca_tab_slice.offset + i * glyph_loc_type.size());
+        const glyph_offset = switch (glyph_loc_type) {
+            .u16 => try reader.interface.takeInt(u16, .big) * 2,
+            .u32 => try reader.interface.takeInt(u32, .big),
+        };
+
+        try reader.seekTo(glyf_tab_slice.offset + glyph_offset);
+        glyphs.appendAssumeCapacity(try parseGlyph(&state));
     }
 
-    try reader.seekTo(glyf_tab_slice.offset);
-    for (0..glyph_count) |_| {
-        std.log.info("", .{});
-        _ = try parseSimpleGlyph(&state);
+    return .{
+        .glyphs = try glyphs.toOwnedSlice(alloc),
+        .glyph_components = try state.glyph_components.toOwnedSlice(alloc),
+        .simple_glyphs = try state.simple_glyphs.toOwnedSlice(alloc),
+        .points = try state.points.toOwnedSlice(alloc),
+        .contour_end_indices = try state.contour_end_indices.toOwnedSlice(alloc),
+    };
+}
+
+pub fn deinit(ttf: *TTF, alloc: std.mem.Allocator) void {
+    alloc.free(ttf.glyphs);
+    alloc.free(ttf.glyph_components);
+    alloc.free(ttf.simple_glyphs);
+    alloc.free(ttf.points);
+    alloc.free(ttf.contour_end_indices);
+}
+
+fn parseGlyph(state: *ParserState) !Glyph {
+    const reader = &state.reader.interface;
+    const desc = try reader.takeStruct(GlyphDesc, .big);
+    std.log.info("contour count: {}", .{desc.contour_count});
+
+    if (desc.contour_count >= 0) {
+        try state.simple_glyphs.append(state.alloc, try parseSimpleGlyph(state, desc));
+
+        return .{
+            .compound = false,
+            .offset = @intCast(state.simple_glyphs.items.len - 1),
+            .count = 1,
+        };
+    } else {
+        // compound glyph
+        const component_offset = state.glyph_components.items.len;
+        var count: u15 = 0;
+
+        while (true) {
+            const flags = try reader.takeStruct(CompoundComponentFlags, .big);
+            const index = try reader.takeInt(u16, .big);
+            const offset: [2]i16 = switch (flags.arg_type) {
+                .i8 => .{
+                    try reader.takeInt(i8, .big),
+                    try reader.takeInt(i8, .big),
+                },
+                .i16 => .{
+                    try reader.takeInt(i16, .big),
+                    try reader.takeInt(i16, .big),
+                },
+            };
+
+            if (flags.has_scale or flags.has_vec2_scale or flags.has_2x2_scale) {
+                return error.NotSupported;
+            }
+
+            try state.glyph_components.append(state.alloc, .{
+                .index = index,
+                .offset = offset,
+            });
+            std.log.info("{}", .{flags.more_components});
+            count += 1;
+            if (!flags.more_components) break;
+        }
+
+        return .{
+            .compound = true,
+            .offset = @intCast(component_offset),
+            .count = count,
+        };
     }
 }
 
-fn parseSimpleGlyph(state: *ParserState) !SimpleGlyph {
+fn parseSimpleGlyph(state: *ParserState, desc: GlyphDesc) !SimpleGlyph {
     const reader = &state.reader.interface;
     const alloc = state.alloc;
 
-    const desc = try reader.takeStruct(GlyphDesc, .big);
-    std.log.info("{}", .{desc.contour_count});
-
     const contour_count: u16 = switch (std.math.order(desc.contour_count, 0)) {
-        .lt => return error.Unsupported,
+        // should have already been handled
+        .lt => unreachable,
         .eq => return .{
             .contour_count = 0,
-            .countour_ends_offset = 0,
+            .contour_ends_offset = 0,
             .point_count = 0,
             .points_offset = 0,
         },
@@ -129,7 +232,7 @@ fn parseSimpleGlyph(state: *ParserState) !SimpleGlyph {
 
     return .{
         .contour_count = contour_count,
-        .countour_ends_offset = @intCast(contour_end_index_offset),
+        .contour_ends_offset = @intCast(contour_end_index_offset),
         .point_count = point_count,
         .points_offset = @intCast(point_offset),
     };
@@ -162,6 +265,8 @@ const ParserState = struct {
     alloc: std.mem.Allocator,
     points: std.ArrayList([2]i16) = .empty,
     contour_end_indices: std.ArrayList(u16) = .empty,
+    glyph_components: std.ArrayList(GlyphComponent) = .empty,
+    simple_glyphs: std.ArrayList(SimpleGlyph) = .empty,
 };
 
 const OffsetSubtable = extern struct {
@@ -219,6 +324,42 @@ const SimpleGlyphPointFlags = packed struct(u8) {
     reserved: u2 = 0,
 };
 
+const CompoundComponentFlags = packed struct(u16) {
+    const ArgType = enum(u1) {
+        i8 = 0,
+        i16 = 1,
+
+        fn size(t: ArgType) u8 {
+            return switch (t) {
+                .i8 => 1,
+                .i16 => 2,
+            };
+        }
+    };
+
+    arg_type: ArgType,
+    dont_care: u2,
+    has_scale: bool,
+    reserved: u1,
+    more_components: bool,
+    has_vec2_scale: bool,
+    has_2x2_scale: bool,
+    has_instructions: bool,
+    dont_care_2: u7,
+};
+
 fn tagAsU32(tag: [4]u8) u32 {
     return @bitCast(tag);
 }
+
+const GlyphLocType = enum {
+    u16,
+    u32,
+
+    fn size(t: GlyphLocType) usize {
+        return switch (t) {
+            .u16 => 2,
+            .u32 => 4,
+        };
+    }
+};
