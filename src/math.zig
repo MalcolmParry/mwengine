@@ -55,6 +55,15 @@ pub fn normalize(vec: anytype) @TypeOf(vec) {
     return vec / @as(@TypeOf(vec), @splat(length(vec)));
 }
 
+pub fn lerp(T: type, a: T, b: T, t: f32) T {
+    const new_t: T = switch (@typeInfo(T)) {
+        .vector => @splat(t),
+        else => t,
+    };
+
+    return (b - a) * new_t + a;
+}
+
 pub fn cross(a: Vec3, b: Vec3) Vec3 {
     const ax, const ay, const az = a;
     const bx, const by, const bz = b;

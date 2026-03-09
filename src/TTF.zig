@@ -5,7 +5,7 @@ const TTF = @This();
 glyphs: []Glyph,
 glyph_components: []GlyphComponent,
 simple_glyphs: []SimpleGlyph,
-points: [][2]i16,
+points: []Point,
 contour_end_indices: []u16,
 
 pub const SimpleGlyph = struct {
@@ -14,7 +14,7 @@ pub const SimpleGlyph = struct {
     points_offset: u32,
     contour_ends_offset: u32,
 
-    pub fn points(glyph: SimpleGlyph, ttf: *const TTF) [][2]i16 {
+    pub fn points(glyph: SimpleGlyph, ttf: *const TTF) []Point {
         return ttf.points[glyph.points_offset .. glyph.points_offset + glyph.point_count];
     }
 
@@ -39,6 +39,11 @@ pub const Glyph = packed struct {
 pub const GlyphComponent = struct {
     index: u16,
     offset: [2]i16,
+};
+
+pub const Point = struct {
+    coords: [2]i16,
+    on_curve: bool,
 };
 
 pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !TTF {
@@ -95,7 +100,7 @@ pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !TTF {
     for (0..glyph_count) |i| {
         try reader.seekTo(loca_tab_slice.offset + i * glyph_loc_type.size());
         const glyph_offset = switch (glyph_loc_type) {
-            .u16 => try reader.interface.takeInt(u16, .big) * 2,
+            .u16 => @as(u32, try reader.interface.takeInt(u16, .big)) * 2,
             .u32 => try reader.interface.takeInt(u32, .big),
         };
 
@@ -223,12 +228,12 @@ fn parseSimpleGlyph(state: *ParserState, desc: GlyphDesc) !SimpleGlyph {
 
     // read coords
     const point_offset = state.points.items.len;
-    const coords = try state.points.addManyAsSlice(alloc, point_count);
+    const points = try state.points.addManyAsSlice(alloc, point_count);
 
-    try parseCoords(reader, coords, all_flags, .x);
-    try parseCoords(reader, coords, all_flags, .y);
+    try parseCoords(reader, points, all_flags, .x);
+    try parseCoords(reader, points, all_flags, .y);
 
-    for (coords) |coord| std.log.info("point at x={} y={}", .{ coord[0], coord[1] });
+    for (points) |point| std.log.info("point at x={} y={}", .{ point.coords[0], point.coords[1] });
 
     return .{
         .contour_count = contour_count,
@@ -238,10 +243,10 @@ fn parseSimpleGlyph(state: *ParserState, desc: GlyphDesc) !SimpleGlyph {
     };
 }
 
-fn parseCoords(reader: *std.Io.Reader, coords: [][2]i16, all_flags: []const SimpleGlyphPointFlags, component: SimpleGlyphPointFlags.Component) !void {
+fn parseCoords(reader: *std.Io.Reader, points: []Point, all_flags: []const SimpleGlyphPointFlags, component: SimpleGlyphPointFlags.Component) !void {
     var last_coord: i16 = 0;
 
-    for (coords, all_flags) |*coord_ptr, flags| {
+    for (points, all_flags) |*point_ptr, flags| {
         const offset: i16 = switch (flags.getType(component)) {
             .u8 => blk: {
                 const unsigned_offset: i16 = try reader.takeByte();
@@ -255,7 +260,8 @@ fn parseCoords(reader: *std.Io.Reader, coords: [][2]i16, all_flags: []const Simp
         };
 
         const coord = std.math.add(i16, offset, last_coord) catch return error.BadFile;
-        coord_ptr.*[@intFromEnum(component)] = coord;
+        point_ptr.coords[@intFromEnum(component)] = coord;
+        point_ptr.on_curve = flags.on_curve;
         last_coord = coord;
     }
 }
@@ -263,7 +269,7 @@ fn parseCoords(reader: *std.Io.Reader, coords: [][2]i16, all_flags: []const Simp
 const ParserState = struct {
     reader: *std.fs.File.Reader,
     alloc: std.mem.Allocator,
-    points: std.ArrayList([2]i16) = .empty,
+    points: std.ArrayList(Point) = .empty,
     contour_end_indices: std.ArrayList(u16) = .empty,
     glyph_components: std.ArrayList(GlyphComponent) = .empty,
     simple_glyphs: std.ArrayList(SimpleGlyph) = .empty,
