@@ -55,6 +55,10 @@ pub fn normalize(vec: anytype) @TypeOf(vec) {
     return vec / @as(@TypeOf(vec), @splat(length(vec)));
 }
 
+pub fn mid(T: type, a: T, b: T) T {
+    return lerp(T, a, b, 0.5);
+}
+
 pub fn lerp(T: type, a: T, b: T, t: f32) T {
     const new_t: T = switch (@typeInfo(T)) {
         .vector => @splat(t),
