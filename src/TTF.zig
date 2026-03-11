@@ -1,6 +1,8 @@
 const std = @import("std");
+const math = @import("math.zig");
 
 const TTF = @This();
+const i16x2 = @Vector(2, i16);
 
 glyphs: []Glyph,
 glyph_components: []GlyphComponent,
@@ -21,6 +23,106 @@ pub const SimpleGlyph = struct {
     pub fn contourEndIndices(glyph: SimpleGlyph, ttf: *const TTF) []u16 {
         return ttf.contour_end_indices[glyph.contour_ends_offset .. glyph.contour_ends_offset + glyph.contour_count];
     }
+
+    pub const ContourIterator = struct {
+        ttf: *const TTF,
+        glyph: SimpleGlyph,
+        index: u16 = 0,
+
+        pub fn next(iter: *ContourIterator) ?[]Point {
+            if (iter.index >= iter.glyph.contour_count) return null;
+            defer iter.index += 1;
+
+            const contour_ends = iter.glyph.contourEndIndices(iter.ttf);
+            const contour_points = iter.glyph.points(iter.ttf);
+
+            const contour_end = contour_ends[iter.index];
+            const first_point = if (iter.index == 0) 0 else contour_ends[iter.index - 1] + 1;
+            return contour_points[first_point .. contour_end + 1];
+        }
+    };
+};
+
+pub const OutlineSegment = union(enum) {
+    line: struct {
+        start: math.Vec2,
+        end: math.Vec2,
+    },
+    bezier: struct {
+        start: math.Vec2,
+        mid: math.Vec2,
+        end: math.Vec2,
+    },
+};
+
+pub const ContourOutlineIterator = struct {
+    contour: []const Point,
+    read: usize = 0,
+    i: usize = undefined,
+    a: math.Vec2 = undefined,
+
+    pub fn next(iter: *ContourOutlineIterator) ?OutlineSegment {
+        if (iter.read >= iter.contour.len) return null;
+        if (iter.read == 0) {
+            const first = iter.contour[0];
+            const last = iter.contour[iter.contour.len - 1];
+
+            if (first.on_curve) {
+                iter.i = 0;
+                iter.a = first.floatCoords();
+            } else if (last.on_curve) {
+                iter.i = iter.contour.len - 1;
+                iter.a = last.floatCoords();
+            } else {
+                iter.i = iter.contour.len - 1;
+                iter.a = math.mid(math.Vec2, first.floatCoords(), last.floatCoords());
+            }
+        }
+
+        const contour = iter.contour;
+        const p1 = contour[(iter.i + 1) % contour.len];
+        const b = p1.floatCoords();
+
+        if (p1.on_curve) {
+            const result: OutlineSegment = .{ .line = .{
+                .start = iter.a,
+                .end = b,
+            } };
+
+            iter.i += 1;
+            iter.read += 1;
+            iter.a = b;
+            return result;
+        } else {
+            const p2 = contour[(iter.i + 2) % contour.len];
+            const c = p2.floatCoords();
+
+            if (p2.on_curve) {
+                const result: OutlineSegment = .{ .bezier = .{
+                    .start = iter.a,
+                    .mid = b,
+                    .end = c,
+                } };
+
+                iter.i += 2;
+                iter.read += 2;
+                iter.a = c;
+                return result;
+            } else {
+                const mid = math.mid(math.Vec2, b, c);
+                const result: OutlineSegment = .{ .bezier = .{
+                    .start = iter.a,
+                    .mid = b,
+                    .end = mid,
+                } };
+
+                iter.i += 1;
+                iter.read += 1;
+                iter.a = mid;
+                return result;
+            }
+        }
+    }
 };
 
 pub const Glyph = packed struct {
@@ -39,11 +141,19 @@ pub const Glyph = packed struct {
 pub const GlyphComponent = struct {
     index: u16,
     offset: [2]i16,
+
+    pub fn floatOffset(comp: GlyphComponent) math.Vec2 {
+        return @floatFromInt(@as(i16x2, comp.offset));
+    }
 };
 
 pub const Point = struct {
     coords: [2]i16,
     on_curve: bool,
+
+    pub fn floatCoords(point: Point) math.Vec2 {
+        return @floatFromInt(@as(i16x2, point.coords));
+    }
 };
 
 pub fn parse(alloc: std.mem.Allocator, reader: *std.fs.File.Reader) !TTF {
