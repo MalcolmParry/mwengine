@@ -165,6 +165,26 @@ pub fn drawLine(renderer: *DebugRenderer, start: math.Vec2, end: math.Vec2, thic
     });
 }
 
+pub fn drawBezier(renderer: *@This(), a: math.Vec2, b: math.Vec2, c: math.Vec2, thickness: f32, res: u32) !void {
+    const step = 1.0 / @as(f32, @floatFromInt(res));
+
+    var last = a;
+    for (1..res + 1) |i| {
+        const fi: f32 = @floatFromInt(i);
+        const t = fi * step;
+
+        const next = math.lerp(
+            math.Vec2,
+            math.lerp(math.Vec2, a, b, t),
+            math.lerp(math.Vec2, b, c, t),
+            t,
+        );
+
+        try renderer.drawLine(last, next, thickness);
+        last = next;
+    }
+}
+
 fn vbufferOffsetBase(renderer: *DebugRenderer) gpu.Size {
     return renderer.vbuffer_size * renderer.frame_index;
 }
