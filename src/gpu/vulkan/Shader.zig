@@ -8,7 +8,7 @@ pub const Handle = *Shader;
 shader_module: vk.ShaderModule,
 stage: vk.ShaderStageFlags,
 
-pub fn fromSpirv(device: gpu.Device, stage: gpu.Shader.Stage, spirv_byte_code: []const u32, alloc: std.mem.Allocator) !gpu.Shader {
+pub fn fromSpirv(device: gpu.Device, stage: gpu.Shader.Stage, spirv_byte_code: []const u32, alloc: std.mem.Allocator) gpu.Shader.InitError!gpu.Shader {
     const this = try alloc.create(Shader);
     errdefer alloc.destroy(this);
     this.stage = switch (stage) {
@@ -17,10 +17,15 @@ pub fn fromSpirv(device: gpu.Device, stage: gpu.Shader.Stage, spirv_byte_code: [
     };
 
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    this.shader_module = try device.vk.device.createShaderModule(&.{
+    this.shader_module = device.vk.device.createShaderModule(&.{
         .code_size = spirv_byte_code.len * @sizeOf(u32),
         .p_code = spirv_byte_code.ptr,
-    }, vk_alloc);
+    }, vk_alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.InvalidShaderNV => error.BadShader,
+        error.Unknown => error.Unknown,
+    };
 
     return .{ .vk = this };
 }

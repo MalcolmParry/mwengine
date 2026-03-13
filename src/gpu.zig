@@ -263,7 +263,14 @@ pub const Display = union(Api) {
 pub const Shader = union {
     vk: vk.Shader.Handle,
 
-    pub fn fromSpirv(device: Device, stage: Stage, spirv_byte_code: []const u32, alloc: std.mem.Allocator) anyerror!Shader {
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        BadShader,
+        Unknown,
+    };
+
+    pub fn fromSpirv(device: Device, stage: Stage, spirv_byte_code: []const u32, alloc: std.mem.Allocator) InitError!Shader {
         return call(device, @src(), "Shader", .{ device, stage, spirv_byte_code, alloc });
     }
 
