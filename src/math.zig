@@ -417,6 +417,26 @@ pub fn toArray(x: anytype) ToArrayReturnType(@TypeOf(x)) {
     }
 }
 
+pub const SNorm16 = enum(i16) { _ };
+
+/// x must be between -1 and 1
+pub fn f32ToSNorm16(x: f32) SNorm16 {
+    const as_int: i16 = if (x == -1)
+        std.math.minInt(i16)
+    else
+        @intFromFloat(x * @as(comptime_float, std.math.maxInt(i16) - 1));
+
+    return @enumFromInt(as_int);
+}
+
+pub fn snorm16ToF32(x: SNorm16) f32 {
+    const as_int = @intFromEnum(x);
+    if (as_int == -32768) return -1;
+
+    const big: f32 = @floatFromInt(as_int);
+    return big / 32767.0;
+}
+
 test "dot" {
     try std.testing.expect(dot(dir_forward, dir_right) == 0);
     try std.testing.expect(dot(dir_forward, dir_up) == 0);

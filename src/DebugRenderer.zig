@@ -14,7 +14,6 @@ vbuffer: gpu.Buffer,
 vbuffer_offset: gpu.Size,
 vbuffer_size: usize,
 line_pipeline: gpu.GraphicsPipeline,
-viewport: gpu.Image.Size2D = @splat(1),
 
 pub const InitInfo = struct {
     alloc: std.mem.Allocator,
@@ -41,8 +40,18 @@ pub fn init(info: InitInfo) !DebugRenderer {
         .shaders = info.line_shaders,
         .vertex_input_bindings = &.{.{
             .binding = 0,
-            .rate = .per_vertex,
-            .fields = &.{.{ .type = .float32x2 }},
+            .rate = .per_instance,
+            .fields = &.{
+                .{ .type = .float32x2 },
+                .{ .type = .snorm16x2 },
+                .{ .type = .float16 },
+                .{ .type = .float16 },
+            },
+        }},
+        .push_constant_ranges = &.{.{
+            .size = @sizeOf(f32) * 4 * 4,
+            .offset = 0,
+            .stages = .{ .vertex = true },
         }},
         .polygon_mode = .fill,
         .cull_mode = .none,
@@ -78,7 +87,7 @@ pub fn deinit(renderer: *DebugRenderer) void {
     renderer.upload_man.deinit();
 }
 
-pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target: gpu.RenderTarget, image_size: gpu.Image.Size2D) !void {
+pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target: gpu.RenderTarget, image_size: gpu.Image.Size2D, matrix: math.Mat4) !void {
     try renderer.upload_man.upload(renderer.device, cmd_encoder);
 
     const render_pass = cmd_encoder.cmdBeginRenderPass(.{
@@ -93,10 +102,21 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
         .offset = renderer.vbufferOffsetBase(),
         .size_or_whole = .{ .size = renderer.vbuffer_offset },
     });
+    render_pass.cmdPushConstants(
+        renderer.device,
+        renderer.line_pipeline,
+        .{
+            .size = @sizeOf(f32) * 4 * 4,
+            .offset = 0,
+            .stages = .{ .vertex = true },
+        },
+        @ptrCast(&math.toArray(matrix)),
+    );
     render_pass.cmdDraw(.{
         .device = renderer.device,
         .indexed = false,
-        .vertex_count = @intCast(renderer.vbuffer_offset / @sizeOf(Vertex)),
+        .vertex_count = 6,
+        .instance_count = @intCast(renderer.vbuffer_offset / @sizeOf(GPULine)),
     });
 
     render_pass.cmdEnd(renderer.device);
@@ -116,34 +136,23 @@ fn toDeviceCoords(renderer: *DebugRenderer, vec: math.Vec2) math.Vec2 {
     return new;
 }
 
-pub fn drawLine(renderer: *DebugRenderer, start: math.Vec2, end: math.Vec2, thickness: f32) !void {
+pub fn drawLine(renderer: *DebugRenderer, start: math.Vec2, end: math.Vec2, thickness: f16) !void {
+    if (@reduce(.And, start == end)) return;
+
     const to = end - start;
-    const len = math.length(to);
-    if (len == 0) return;
+    const n = math.normalize(to);
 
-    const n = to / @as(math.Vec2, @splat(len));
-    const thick_vec: math.Vec2 = @splat(thickness / 2);
-    const right = math.Vec2{
-        n[1],
-        -n[0],
-    } * thick_vec;
-
-    const br = renderer.toDeviceCoords(start + right);
-    const bl = renderer.toDeviceCoords(start - right);
-    const tr = renderer.toDeviceCoords(end + right);
-    const tl = renderer.toDeviceCoords(end - right);
-
-    const vertices: [6]Vertex = .{
-        .{ .pos = bl },
-        .{ .pos = br },
-        .{ .pos = tl },
-
-        .{ .pos = br },
-        .{ .pos = tr },
-        .{ .pos = tl },
+    const line: GPULine = .{
+        .pos = start,
+        .dir = .{
+            math.f32ToSNorm16(n[0]),
+            math.f32ToSNorm16(n[1]),
+        },
+        .length = @floatCast(math.length(to)),
+        .width = thickness,
     };
 
-    const size = @sizeOf(Vertex) * 6;
+    const size = @sizeOf(GPULine);
     const region: gpu.Buffer.Region = .{
         .buffer = renderer.vbuffer,
         .offset = renderer.vbufferOffsetBase() + renderer.vbuffer_offset,
@@ -152,9 +161,9 @@ pub fn drawLine(renderer: *DebugRenderer, start: math.Vec2, end: math.Vec2, thic
     renderer.vbuffer_offset += size;
     if (renderer.vbuffer_offset > renderer.vbuffer_size) return error.BufferFull;
 
-    try renderer.upload_man.submit([6]Vertex, .{
+    try renderer.upload_man.submit(GPULine, .{
         .region = region,
-        .data = @ptrCast(&vertices),
+        .data = @ptrCast(&line),
         .post_copy_barrier = .{ .buffer = .{
             .region = region,
             .src_stage = .{ .transfer = true },
@@ -165,7 +174,7 @@ pub fn drawLine(renderer: *DebugRenderer, start: math.Vec2, end: math.Vec2, thic
     });
 }
 
-pub fn drawBezier(renderer: *@This(), a: math.Vec2, b: math.Vec2, c: math.Vec2, thickness: f32, res: u32) !void {
+pub fn drawBezier(renderer: *@This(), a: math.Vec2, b: math.Vec2, c: math.Vec2, thickness: f16, res: u32) !void {
     const step = 1.0 / @as(f32, @floatFromInt(res));
 
     var last = a;
@@ -189,6 +198,9 @@ fn vbufferOffsetBase(renderer: *DebugRenderer) gpu.Size {
     return renderer.vbuffer_size * renderer.frame_index;
 }
 
-const Vertex = extern struct {
+const GPULine = extern struct {
     pos: [2]f32,
+    dir: [2]math.SNorm16,
+    length: f16,
+    width: f16,
 };
