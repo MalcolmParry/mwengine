@@ -5,8 +5,14 @@ pub const Vec3 = @Vector(3, f32);
 pub const Vec4 = @Vector(4, f32);
 // xyzw
 pub const Quat = Vec4;
-// row major
-pub const Mat4 = [4]Vec4;
+
+/// row major
+pub fn Matrix(Child: type, rows: comptime_int, cols: comptime_int) type {
+    return [rows]@Vector(cols, Child);
+}
+
+pub const Mat4 = Matrix(f32, 4, 4);
+pub const Mat2 = Matrix(f32, 2, 2);
 
 pub const pi = std.math.pi;
 pub const tau = std.math.tau;
@@ -39,7 +45,7 @@ pub fn deg(radians: anytype) @TypeOf(radians) {
     return radians * (180.0 / pi);
 }
 
-pub fn dot(left: anytype, right: anytype) Base(@TypeOf(left)) {
+pub fn dot(T: type, left: T, right: T) Base(T) {
     return @reduce(.Add, left * right);
 }
 
@@ -194,12 +200,39 @@ pub fn quatMulVec(q: Quat, v: Vec3) Vec3 {
 }
 
 // matrix
-pub const identity: Mat4 = .{
-    .{ 1, 0, 0, 0 },
-    .{ 0, 1, 0, 0 },
-    .{ 0, 0, 1, 0 },
-    .{ 0, 0, 0, 1 },
+pub const MatrixDesc = struct {
+    Child: type,
+    rows: u8,
+    cols: u8,
+
+    pub fn get(T: type) MatrixDesc {
+        const tinfo = @typeInfo(T).array;
+        const vecinfo = @typeInfo(tinfo.child).vector;
+
+        return .{
+            .Child = vecinfo.child,
+            .rows = tinfo.len,
+            .cols = vecinfo.len,
+        };
+    }
+
+    pub fn Row(desc: MatrixDesc) type {
+        return @Vector(desc.cols, desc.Child);
+    }
 };
+
+pub fn identity(T: type) T {
+    const info = MatrixDesc.get(T);
+    var result: T = undefined;
+
+    for (0..info.rows) |row| {
+        for (0..info.cols) |col| {
+            result[row][col] = if (row == col) 1 else 0;
+        }
+    }
+
+    return result;
+}
 
 pub fn column(mat: Mat4, index: u2) Vec4 {
     return .{
@@ -210,12 +243,14 @@ pub fn column(mat: Mat4, index: u2) Vec4 {
     };
 }
 
-pub fn matMul(left: Mat4, right: Mat4) Mat4 {
-    var result: Mat4 = undefined;
+pub fn matMul(T: type, left: anytype, right: anytype) T {
+    const info = MatrixDesc.get(T);
+    var result: T = undefined;
 
-    for (0..4) |row| {
-        for (0..4) |col| {
+    inline for (0..info.rows) |row| {
+        inline for (0..info.cols) |col| {
             result[row][col] = dot(
+                info.Row(),
                 left[row],
                 column(right, @intCast(col)),
             );
@@ -225,30 +260,33 @@ pub fn matMul(left: Mat4, right: Mat4) Mat4 {
     return result;
 }
 
-pub fn matMulMany(operands: anytype) Mat4 {
-    var result: Mat4 = identity;
+pub fn matMulMany(T: type, operands: anytype) T {
+    var result: T = identity(T);
 
     inline for (operands) |x| {
-        result = matMul(result, x);
+        result = matMul(T, result, x);
     }
 
     return result;
 }
 
-pub fn matMulScalar(mat: Mat4, scalar: f32) Mat4 {
-    var result: Mat4 = mat;
+pub fn matMulScalar(T: type, mat: T, scalar: MatrixDesc.get(T).Child) T {
+    const desc = MatrixDesc.get(T);
+    const Scalar = desc.Child;
+    var result: T = mat;
 
-    for (0..4) |row| {
-        result[row] *= @splat(scalar);
+    for (0..desc.rows) |row| {
+        result[row] *= @as(Scalar, @splat(scalar));
     }
 
     return result;
 }
 
-pub fn matMulVec(mat: Mat4, vec: Vec4) Vec4 {
-    var result: Vec4 = undefined;
+pub fn matMulVec(T: type, mat: [@typeInfo(T).vector.len]T, vec: T) T {
+    const desc = MatrixDesc.get(T);
+    var result: T = undefined;
 
-    for (0..4) |row| {
+    for (0..desc.rows) |row| {
         result[row] = dot(mat[row], vec);
     }
 
@@ -312,7 +350,7 @@ pub fn rotateZ(angle: f32) Mat4 {
 pub fn rotateEuler(euler_angles: Vec3) Mat4 {
     const x, const y, const z = euler_angles;
 
-    return matMulMany(.{
+    return matMulMany(Mat4, .{
         rotateX(x),
         rotateY(y),
         rotateZ(z),
@@ -321,6 +359,7 @@ pub fn rotateEuler(euler_angles: Vec3) Mat4 {
 
 pub fn orthographic(pos: Vec3, size: Vec3) Mat4 {
     return matMul(
+        Mat4,
         scale(.{ 2 / size[0], 2 / size[1], 1 / size[2] }),
         translate(-pos),
     );
@@ -333,15 +372,12 @@ pub fn perspective(aspect_ratio: f32, v_fov: f32, near: f32, far: f32) Mat4 {
     const c = far / (near - far);
     const d = -(far * near) / (far - near);
 
-    return matMul(
-        .{
-            .{ a, 0, 0, 0 },
-            .{ 0, b, 0, 0 },
-            .{ 0, 0, c, d },
-            .{ 0, 0, -1, 0 },
-        },
-        to_vulkan,
-    );
+    return .{
+        .{ a, 0, 0, 0 },
+        .{ 0, b, 0, 0 },
+        .{ 0, 0, c, d },
+        .{ 0, 0, -1, 0 },
+    };
 }
 
 pub const to_vulkan: Mat4 = .{
