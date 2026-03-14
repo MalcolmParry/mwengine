@@ -7,13 +7,11 @@ const DebugRenderer = @This();
 alloc: std.mem.Allocator,
 device: gpu.Device,
 stage_man: *gpu.StagingManager,
-upload_man: gpu.UploadManager,
 frame_index: usize,
 frames_in_flight: usize,
 vbuffer: gpu.Buffer,
-vbuffer_offset: gpu.Size,
-vbuffer_size: usize,
 line_pipeline: gpu.GraphicsPipeline,
+lines: std.ArrayList(GPULine),
 
 pub const InitInfo = struct {
     alloc: std.mem.Allocator,
@@ -67,28 +65,44 @@ pub fn init(info: InitInfo) !DebugRenderer {
         .alloc = info.alloc,
         .device = info.device,
         .stage_man = info.stage_man,
-        .upload_man = .{
-            .alloc = info.alloc,
-            .stage_man = info.stage_man,
-        },
         .frame_index = 0,
         .frames_in_flight = info.frames_in_flight,
         .vbuffer = vbuffer,
-        .vbuffer_offset = 0,
-        .vbuffer_size = info.vbuffer_size,
 
         .line_pipeline = line_pipeline,
+        .lines = .empty,
     };
 }
 
 pub fn deinit(renderer: *DebugRenderer) void {
     renderer.line_pipeline.deinit(renderer.device, renderer.alloc);
     renderer.vbuffer.deinit(renderer.device, renderer.alloc);
-    renderer.upload_man.deinit();
+    renderer.lines.deinit(renderer.alloc);
 }
 
 pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target: gpu.RenderTarget, image_size: gpu.Image.Size2D, matrix: math.Mat4) !void {
-    try renderer.upload_man.upload(renderer.device, cmd_encoder);
+    const vbuffer_base_offset = renderer.vbufferOffsetBase();
+    const vbuffer_size_pf = renderer.vbufferSizePerFrame();
+
+    const line_bytes = renderer.lines.items.len * @sizeOf(GPULine);
+    if (line_bytes > vbuffer_size_pf) return error.OutOfDeviceMemory;
+
+    const line_staging = try renderer.stage_man.allocate(GPULine, renderer.lines.items.len);
+    @memcpy(line_staging.slice, renderer.lines.items);
+    const line_region: gpu.Buffer.Region = .{
+        .buffer = renderer.vbuffer,
+        .offset = vbuffer_base_offset,
+        .size_or_whole = .{ .size = line_bytes },
+    };
+
+    cmd_encoder.cmdCopyBuffer(renderer.device, line_staging.region, line_region);
+    try cmd_encoder.cmdMemoryBarrier(renderer.device, &.{.{ .buffer = .{
+        .region = line_region,
+        .src_stage = .{ .transfer = true },
+        .src_access = .{ .transfer_write = true },
+        .dst_stage = .{ .vertex_input = true },
+        .dst_access = .{ .vertex_read = true },
+    } }}, renderer.alloc);
 
     const render_pass = cmd_encoder.cmdBeginRenderPass(.{
         .device = renderer.device,
@@ -97,11 +111,7 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
     });
 
     render_pass.cmdBindPipeline(renderer.device, renderer.line_pipeline, image_size);
-    render_pass.cmdBindVertexBuffer(renderer.device, 0, .{
-        .buffer = renderer.vbuffer,
-        .offset = renderer.vbufferOffsetBase(),
-        .size_or_whole = .{ .size = renderer.vbuffer_offset },
-    });
+    render_pass.cmdBindVertexBuffer(renderer.device, 0, line_region);
     render_pass.cmdPushConstants(
         renderer.device,
         renderer.line_pipeline,
@@ -116,61 +126,32 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
         .device = renderer.device,
         .indexed = false,
         .vertex_count = 6,
-        .instance_count = @intCast(renderer.vbuffer_offset / @sizeOf(GPULine)),
+        .instance_count = @intCast(renderer.lines.items.len),
     });
 
     render_pass.cmdEnd(renderer.device);
 }
 
 pub fn nextFrame(renderer: *DebugRenderer) void {
-    renderer.vbuffer_offset = 0;
     renderer.frame_index = (renderer.frame_index + 1) % renderer.frames_in_flight;
-}
-
-fn toDeviceCoords(renderer: *DebugRenderer, vec: math.Vec2) math.Vec2 {
-    var new = vec;
-    new /= @as(math.Vec2, @floatFromInt(renderer.viewport));
-    new *= @as(math.Vec2, @splat(2));
-    new -= @as(math.Vec2, @splat(1));
-    new[1] *= -1;
-    return new;
+    renderer.lines.clearRetainingCapacity();
 }
 
 pub fn drawLine(renderer: *DebugRenderer, start: math.Vec2, end: math.Vec2, thickness: f16) !void {
     if (@reduce(.And, start == end)) return;
 
     const to = end - start;
-    const n = math.normalize(to);
+    const len = math.length(to);
+    const norm = to / math.splat2(f32, len);
 
-    const line: GPULine = .{
+    try renderer.lines.append(renderer.alloc, .{
         .pos = start,
         .dir = .{
-            math.f32ToSNorm16(n[0]),
-            math.f32ToSNorm16(n[1]),
+            math.f32ToSNorm16(norm[0]),
+            math.f32ToSNorm16(norm[1]),
         },
-        .length = @floatCast(math.length(to)),
+        .length = @floatCast(len),
         .width = thickness,
-    };
-
-    const size = @sizeOf(GPULine);
-    const region: gpu.Buffer.Region = .{
-        .buffer = renderer.vbuffer,
-        .offset = renderer.vbufferOffsetBase() + renderer.vbuffer_offset,
-        .size_or_whole = .{ .size = size },
-    };
-    renderer.vbuffer_offset += size;
-    if (renderer.vbuffer_offset > renderer.vbuffer_size) return error.BufferFull;
-
-    try renderer.upload_man.submit(GPULine, .{
-        .region = region,
-        .data = @ptrCast(&line),
-        .post_copy_barrier = .{ .buffer = .{
-            .region = region,
-            .src_stage = .{ .transfer = true },
-            .src_access = .{ .transfer_write = true },
-            .dst_stage = .{ .vertex_input = true },
-            .dst_access = .{ .vertex_read = true },
-        } },
     });
 }
 
@@ -194,8 +175,12 @@ pub fn drawBezier(renderer: *@This(), a: math.Vec2, b: math.Vec2, c: math.Vec2, 
     }
 }
 
-fn vbufferOffsetBase(renderer: *DebugRenderer) gpu.Size {
-    return renderer.vbuffer_size * renderer.frame_index;
+fn vbufferSizePerFrame(renderer: *const DebugRenderer) gpu.Size {
+    return renderer.vbuffer.size(renderer.device) / renderer.frames_in_flight;
+}
+
+fn vbufferOffsetBase(renderer: *const DebugRenderer) gpu.Size {
+    return renderer.vbufferSizePerFrame() * renderer.frame_index;
 }
 
 const GPULine = extern struct {
