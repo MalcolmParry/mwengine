@@ -42,11 +42,10 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
     const descriptor_writes = try alloc.alloc(vk.WriteDescriptorSet, writes.len);
     defer alloc.free(descriptor_writes);
 
-    // TODO: there can be more buffer infos then writes. fix this
-    var all_buffer_infos: std.ArrayList(vk.DescriptorBufferInfo) = try .initCapacity(alloc, writes.len);
+    var all_buffer_infos: std.ArrayList(vk.DescriptorBufferInfo) = .empty;
     defer all_buffer_infos.deinit(alloc);
 
-    var all_image_infos: std.ArrayList(vk.DescriptorImageInfo) = try .initCapacity(alloc, writes.len);
+    var all_image_infos: std.ArrayList(vk.DescriptorImageInfo) = .empty;
     defer all_image_infos.deinit(alloc);
 
     for (writes, descriptor_writes) |write, *descriptor_write| {
@@ -60,7 +59,7 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
                 const buffer_infos_start = all_buffer_infos.items.len;
 
                 for (buffer_regions) |buffer_region| {
-                    all_buffer_infos.appendAssumeCapacity(.{
+                    try all_buffer_infos.append(alloc, .{
                         .buffer = buffer_region.buffer.vk.buffer,
                         .offset = buffer_region.offset,
                         .range = switch (buffer_region.size_or_whole) {
@@ -77,7 +76,7 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
                 const image_infos_start = all_image_infos.items.len;
 
                 for (images) |image| {
-                    all_image_infos.appendAssumeCapacity(.{
+                    try all_image_infos.append(alloc, .{
                         .image_layout = Image.layoutToNative(image.layout),
                         .image_view = image.view.vk.image_view,
                         .sampler = image.sampler.vk.sampler,
@@ -129,16 +128,20 @@ pub const Layout = struct {
     pub const Handle = *Layout;
 
     pub fn init(device: gpu.Device, info: gpu.ResourceSet.Layout.CreateInfo) !gpu.ResourceSet.Layout {
+        const vk_alloc: ?*vk.AllocationCallbacks = null;
         const this = try info.alloc.create(Layout);
         errdefer info.alloc.destroy(this);
 
         const bindings = try info.alloc.alloc(vk.DescriptorSetLayoutBinding, info.descriptors.len);
         defer info.alloc.free(bindings);
 
+        const binding_flags = try info.alloc.alloc(vk.DescriptorBindingFlags, info.descriptors.len);
+        defer info.alloc.free(binding_flags);
+
         this.sizes = try info.alloc.alloc(vk.DescriptorPoolSize, info.descriptors.len);
         errdefer info.alloc.free(this.sizes);
 
-        for (bindings, this.sizes, info.descriptors, 0..) |*binding, *size, descriptor, i| {
+        for (bindings, binding_flags, this.sizes, info.descriptors, 0..) |*binding, *flags, *size, descriptor, i| {
             const t: vk.DescriptorType = switch (descriptor.t) {
                 .uniform => .uniform_buffer,
                 .image => .combined_image_sampler,
@@ -154,16 +157,25 @@ pub const Layout = struct {
                 },
             };
 
+            flags.* = .{
+                .partially_bound_bit = descriptor.flags.partially_bound,
+            };
+
             size.* = .{
                 .type = t,
                 .descriptor_count = descriptor.count,
             };
         }
 
-        const vk_alloc: ?*vk.AllocationCallbacks = null;
+        const flags_info: vk.DescriptorSetLayoutBindingFlagsCreateInfo = .{
+            .binding_count = @intCast(binding_flags.len),
+            .p_binding_flags = @ptrCast(binding_flags.ptr),
+        };
+
         this.layout = try device.vk.device.createDescriptorSetLayout(&.{
             .binding_count = @intCast(bindings.len),
             .p_bindings = @ptrCast(bindings.ptr),
+            .p_next = @ptrCast(&flags_info),
         }, vk_alloc);
         errdefer device.vk.device.destroyDescriptorSetLayout(this.layout, vk_alloc);
 

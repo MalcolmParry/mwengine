@@ -74,6 +74,7 @@ pub fn dataTypeToNative(t: gpu.Shader.DataType) vk.Format {
         .float32x2 => .r32g32_sfloat,
         .float32x3 => .r32g32b32_sfloat,
         .float32x4 => .r32g32b32a32_sfloat,
+        .float32x2x2 => unreachable,
         .float32x4x4 => unreachable,
         .snorm16 => .r16_snorm,
         .snorm16x2 => .r16g16_snorm,

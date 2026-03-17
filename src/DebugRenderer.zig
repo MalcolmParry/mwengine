@@ -11,7 +11,16 @@ frame_index: usize,
 frames_in_flight: usize,
 vbuffer: gpu.Buffer,
 line_pipeline: gpu.GraphicsPipeline,
-lines: std.ArrayList(GPULine),
+line_draws: std.ArrayList(GpuLine),
+
+image_sampler: gpu.Sampler,
+image_resource_layout: gpu.ResourceSet.Layout,
+image_resource_set: gpu.ResourceSet,
+image_pipeline: gpu.GraphicsPipeline,
+image_draws: std.ArrayList(GpuImage),
+images: std.ArrayList(gpu.ResourceSet.CombinedImageSampler),
+
+const max_images = 64;
 
 pub const InitInfo = struct {
     alloc: std.mem.Allocator,
@@ -20,6 +29,7 @@ pub const InitInfo = struct {
     frames_in_flight: usize,
     vbuffer_size: usize = 1024 * 8,
     line_shaders: []const gpu.Shader,
+    image_shaders: []const gpu.Shader,
     render_target_desc: gpu.RenderTarget.Desc,
 };
 
@@ -61,6 +71,60 @@ pub fn init(info: InitInfo) !DebugRenderer {
     });
     errdefer line_pipeline.deinit(info.device, info.alloc);
 
+    const image_sampler = try info.device.initSampler(.{
+        .alloc = info.alloc,
+        .min_filter = .linear,
+        .mag_filter = .nearest,
+        .address_mode_u = .repeat,
+        .address_mode_v = .repeat,
+        .address_mode_w = .repeat,
+    });
+    errdefer image_sampler.deinit(info.device, info.alloc);
+
+    const image_resource_layout = try info.device.initResourceLayout(.{
+        .alloc = info.alloc,
+        .descriptors = &.{.{
+            .t = .image,
+            .stages = .{ .pixel = true },
+            .flags = .{ .partially_bound = true },
+            .binding = 0,
+            .count = max_images,
+        }},
+    });
+    errdefer image_resource_layout.deinit(info.device, info.alloc);
+
+    // TODO: need resource set per frame in flight
+    const image_resource_set = try info.device.initResourceSet(image_resource_layout, info.alloc);
+    errdefer image_resource_set.deinit(info.device, info.alloc);
+
+    const image_pipeline = try info.device.initGraphicsPipeline(.{
+        .alloc = info.alloc,
+        .render_target_desc = info.render_target_desc,
+        .shaders = info.image_shaders,
+        .vertex_input_bindings = &.{.{
+            .binding = 0,
+            .rate = .per_instance,
+            .fields = &.{
+                .{ .type = .float32x2x2 },
+                .{ .type = .uint32 },
+            },
+        }},
+        .resource_layouts = &.{image_resource_layout},
+        .push_constant_ranges = &.{.{
+            .size = @sizeOf(f32) * 4 * 4,
+            .offset = 0,
+            .stages = .{ .vertex = true },
+        }},
+        .polygon_mode = .fill,
+        .cull_mode = .none,
+        .depth_mode = .{
+            .testing = false,
+            .writing = false,
+            .compare_op = .always,
+        },
+    });
+    errdefer image_pipeline.deinit(info.device, info.alloc);
+
     return .{
         .alloc = info.alloc,
         .device = info.device,
@@ -70,34 +134,65 @@ pub fn init(info: InitInfo) !DebugRenderer {
         .vbuffer = vbuffer,
 
         .line_pipeline = line_pipeline,
-        .lines = .empty,
+        .line_draws = .empty,
+
+        .image_sampler = image_sampler,
+        .image_resource_layout = image_resource_layout,
+        .image_resource_set = image_resource_set,
+        .image_pipeline = image_pipeline,
+        .image_draws = .empty,
+        .images = .empty,
     };
 }
 
 pub fn deinit(renderer: *DebugRenderer) void {
     renderer.line_pipeline.deinit(renderer.device, renderer.alloc);
     renderer.vbuffer.deinit(renderer.device, renderer.alloc);
-    renderer.lines.deinit(renderer.alloc);
+    renderer.line_draws.deinit(renderer.alloc);
+
+    renderer.image_sampler.deinit(renderer.device, renderer.alloc);
+    renderer.image_pipeline.deinit(renderer.device, renderer.alloc);
+    renderer.image_resource_set.deinit(renderer.device, renderer.alloc);
+    renderer.image_resource_layout.deinit(renderer.device, renderer.alloc);
+    renderer.image_draws.deinit(renderer.alloc);
+    renderer.images.deinit(renderer.alloc);
 }
 
 pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target: gpu.RenderTarget, image_size: gpu.Image.Size2D, matrix: math.Mat4) !void {
     const vbuffer_base_offset = renderer.vbufferOffsetBase();
     const vbuffer_size_pf = renderer.vbufferSizePerFrame();
 
-    const line_bytes = renderer.lines.items.len * @sizeOf(GPULine);
-    if (line_bytes > vbuffer_size_pf) return error.OutOfDeviceMemory;
-
-    const line_staging = try renderer.stage_man.allocate(GPULine, renderer.lines.items.len);
-    @memcpy(line_staging.slice, renderer.lines.items);
+    const line_bytes = renderer.line_draws.items.len * @sizeOf(GpuLine);
+    if (line_bytes > vbuffer_size_pf) return error.BufferFull;
     const line_region: gpu.Buffer.Region = .{
         .buffer = renderer.vbuffer,
         .offset = vbuffer_base_offset,
         .size_or_whole = .{ .size = line_bytes },
     };
 
-    cmd_encoder.cmdCopyBuffer(renderer.device, line_staging.region, line_region);
+    const images_offset = line_bytes;
+    const images_bytes = renderer.image_draws.items.len * @sizeOf(GpuImage);
+    if (images_offset + images_bytes > vbuffer_size_pf) return error.BufferFull;
+    const images_region: gpu.Buffer.Region = .{
+        .buffer = renderer.vbuffer,
+        .offset = vbuffer_base_offset + line_bytes,
+        .size_or_whole = .{ .size = images_bytes },
+    };
+
+    const all_bytes = line_bytes + images_bytes;
+    const staging = try renderer.stage_man.allocateBytesAligned(all_bytes, .@"16");
+    const region: gpu.Buffer.Region = .{
+        .buffer = renderer.vbuffer,
+        .offset = vbuffer_base_offset,
+        .size_or_whole = .{ .size = all_bytes },
+    };
+
+    @memcpy(staging.slice[0..line_bytes], std.mem.sliceAsBytes(renderer.line_draws.items));
+    @memcpy(staging.slice[line_bytes .. line_bytes + images_bytes], std.mem.sliceAsBytes(renderer.image_draws.items));
+
+    cmd_encoder.cmdCopyBuffer(renderer.device, staging.region, region);
     try cmd_encoder.cmdMemoryBarrier(renderer.device, &.{.{ .buffer = .{
-        .region = line_region,
+        .region = region,
         .src_stage = .{ .transfer = true },
         .src_access = .{ .transfer_write = true },
         .dst_stage = .{ .vertex_input = true },
@@ -126,7 +221,22 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
         .device = renderer.device,
         .indexed = false,
         .vertex_count = 6,
-        .instance_count = @intCast(renderer.lines.items.len),
+        .instance_count = @intCast(renderer.line_draws.items.len),
+    });
+
+    try renderer.image_resource_set.update(renderer.device, &.{.{
+        .binding = 0,
+        .data = .{ .image = renderer.images.items },
+    }}, renderer.alloc);
+
+    render_pass.cmdBindPipeline(renderer.device, renderer.image_pipeline, image_size);
+    render_pass.cmdBindVertexBuffer(renderer.device, 0, images_region);
+    render_pass.cmdBindResourceSets(renderer.device, renderer.image_pipeline, &.{renderer.image_resource_set}, 0);
+    render_pass.cmdDraw(.{
+        .device = renderer.device,
+        .indexed = false,
+        .vertex_count = 6,
+        .instance_count = @intCast(renderer.image_draws.items.len),
     });
 
     render_pass.cmdEnd(renderer.device);
@@ -134,7 +244,9 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
 
 pub fn nextFrame(renderer: *DebugRenderer) void {
     renderer.frame_index = (renderer.frame_index + 1) % renderer.frames_in_flight;
-    renderer.lines.clearRetainingCapacity();
+    renderer.line_draws.clearRetainingCapacity();
+    renderer.image_draws.clearRetainingCapacity();
+    renderer.images.clearRetainingCapacity();
 }
 
 pub fn drawLine(renderer: *DebugRenderer, start: math.Vec2, end: math.Vec2, thickness: f16) !void {
@@ -144,7 +256,7 @@ pub fn drawLine(renderer: *DebugRenderer, start: math.Vec2, end: math.Vec2, thic
     const len = math.length(to);
     const norm = to / math.splat2(f32, len);
 
-    try renderer.lines.append(renderer.alloc, .{
+    try renderer.line_draws.append(renderer.alloc, .{
         .pos = start,
         .dir = .{
             math.f32ToSNorm16(norm[0]),
@@ -175,6 +287,20 @@ pub fn drawBezier(renderer: *@This(), a: math.Vec2, b: math.Vec2, c: math.Vec2, 
     }
 }
 
+pub fn drawImage(renderer: *@This(), view: gpu.Image.View, mat: math.Mat2) !void {
+    // TODO: 1 entry in descriptor array per draw. should use array hash map instead
+    try renderer.images.append(renderer.alloc, .{
+        .layout = .shader_read_only,
+        .view = view,
+        .sampler = renderer.image_sampler,
+    });
+
+    try renderer.image_draws.append(renderer.alloc, .{
+        .mat = math.toArray(mat),
+        .id = @intCast(renderer.images.items.len - 1),
+    });
+}
+
 fn vbufferSizePerFrame(renderer: *const DebugRenderer) gpu.Size {
     return renderer.vbuffer.size(renderer.device) / renderer.frames_in_flight;
 }
@@ -183,9 +309,14 @@ fn vbufferOffsetBase(renderer: *const DebugRenderer) gpu.Size {
     return renderer.vbufferSizePerFrame() * renderer.frame_index;
 }
 
-const GPULine = extern struct {
+const GpuLine = extern struct {
     pos: [2]f32,
     dir: [2]math.SNorm16,
     length: f16,
     width: f16,
+};
+
+const GpuImage = extern struct {
+    mat: [2 * 2]f32,
+    id: u32,
 };

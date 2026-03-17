@@ -61,8 +61,13 @@ pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc:
         .p_queue_priorities = @ptrCast(&queue_priority),
     };
 
+    var indexing: vk.PhysicalDeviceDescriptorIndexingFeatures = .{
+        .descriptor_binding_partially_bound = .true,
+    };
+
     var swapchain_maintenance: vk.PhysicalDeviceSwapchainMaintenance1FeaturesEXT = .{
         .swapchain_maintenance_1 = .true,
+        .p_next = @ptrCast(&indexing),
     };
 
     var dynamic_rendering: vk.PhysicalDeviceDynamicRenderingFeatures = .{

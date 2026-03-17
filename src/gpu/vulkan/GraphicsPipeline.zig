@@ -57,6 +57,7 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
     for (info.vertex_input_bindings) |binding| {
         for (binding.fields) |field| {
             vert_atrib_desc_count += switch (field.type) {
+                .float32x2x2 => 2,
                 .float32x4x4 => 4,
                 else => 1,
             };
@@ -77,31 +78,45 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
             const alignment = field.alignment orelse field.type.alignment();
             stride = alignment.forward(stride);
 
-            if (field.type == .float32x4x4) {
-                for (0..4) |_| {
+            switch (field.type) {
+                .float32x2x2 => {
+                    for (0..2) |_| {
+                        vert_atrib_descs.appendAssumeCapacity(.{
+                            .binding = bind.binding,
+                            .location = loc,
+                            .format = .r32g32_sfloat,
+                            .offset = @intCast(stride),
+                        });
+
+                        loc += 1;
+                        stride += 8;
+                    }
+                },
+                .float32x4x4 => {
+                    for (0..4) |_| {
+                        vert_atrib_descs.appendAssumeCapacity(.{
+                            .binding = bind.binding,
+                            .location = loc,
+                            .format = .r32g32b32a32_sfloat,
+                            .offset = @intCast(stride),
+                        });
+
+                        loc += 1;
+                        stride += 16;
+                    }
+                },
+                else => {
                     vert_atrib_descs.appendAssumeCapacity(.{
                         .binding = bind.binding,
                         .location = loc,
-                        .format = .r32g32b32a32_sfloat,
+                        .format = Shader.dataTypeToNative(field.type),
                         .offset = @intCast(stride),
                     });
 
+                    stride += field.type.size();
                     loc += 1;
-                    stride += 4;
-                }
-
-                continue;
+                },
             }
-
-            vert_atrib_descs.appendAssumeCapacity(.{
-                .binding = bind.binding,
-                .location = loc,
-                .format = Shader.dataTypeToNative(field.type),
-                .offset = @intCast(stride),
-            });
-
-            stride += field.type.size();
-            loc += 1;
         }
 
         native.* = .{

@@ -171,6 +171,7 @@ pub const Device = union(Api) {
     pub const initDisplay = Display.init;
     pub const initBuffer = Buffer.init;
     pub const initImage = Image.init;
+    pub const initSampler = Sampler.init;
     pub const initResourceLayout = ResourceSet.Layout.init;
     pub const initResourceSet = ResourceSet.init;
     pub const initCommandEncoder = CommandEncoder.init;
@@ -325,6 +326,7 @@ pub const Shader = union {
         float32x2,
         float32x3,
         float32x4,
+        float32x2x2,
         float32x4x4,
         snorm16,
         snorm16x2,
@@ -369,6 +371,7 @@ pub const Shader = union {
                 .float32x2 => 8,
                 .float32x3 => 12,
                 .float32x4 => 16,
+                .float32x2x2 => 16,
                 .float32x4x4 => 64,
                 .snorm16 => 2,
                 .snorm16x2 => 4,
@@ -415,6 +418,7 @@ pub const Shader = union {
                 .float32x2 => .@"4",
                 .float32x3 => .@"4",
                 .float32x4 => .@"4",
+                .float32x2x2 => .@"4",
                 .float32x4x4 => .@"4",
                 .snorm16 => .@"2",
                 .snorm16x2 => .@"2",
@@ -619,8 +623,13 @@ pub const ResourceSet = union {
         vk: vk.ResourceSet.Layout.Handle,
 
         pub const Descriptor = struct {
+            pub const Flags = packed struct {
+                partially_bound: bool = false,
+            };
+
             t: Type,
             stages: Shader.StageFlags,
+            flags: Flags,
             binding: u32,
             count: u32,
         };
