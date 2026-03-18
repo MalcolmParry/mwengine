@@ -18,7 +18,20 @@ image_resource_layout: gpu.ResourceSet.Layout,
 image_resource_set: gpu.ResourceSet,
 image_pipeline: gpu.GraphicsPipeline,
 image_draws: std.ArrayList(GpuImage),
-images: std.ArrayList(gpu.ResourceSet.CombinedImageSampler),
+images: std.ArrayHashMapUnmanaged(gpu.ResourceSet.CombinedImageSampler, void, ImageHashContext, false),
+
+const ImageHashContext = struct {
+    api: gpu.Api,
+
+    const Key = gpu.ResourceSet.CombinedImageSampler;
+    pub fn hash(ctx: ImageHashContext, key: Key) u32 {
+        return @truncate(gpu.hashByApi(ctx.api, key.view));
+    }
+
+    pub fn eql(ctx: ImageHashContext, a: Key, b: Key, _: usize) bool {
+        return gpu.eqlByApi(ctx.api, a.view, b.view);
+    }
+};
 
 const max_images = 64;
 
@@ -226,7 +239,7 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
 
     try renderer.image_resource_set.update(renderer.device, &.{.{
         .binding = 0,
-        .data = .{ .image = renderer.images.items },
+        .data = .{ .image = renderer.images.keys() },
     }}, renderer.alloc);
 
     render_pass.cmdBindPipeline(renderer.device, renderer.image_pipeline, image_size);
@@ -288,16 +301,18 @@ pub fn drawBezier(renderer: *@This(), a: math.Vec2, b: math.Vec2, c: math.Vec2, 
 }
 
 pub fn drawImage(renderer: *@This(), view: gpu.Image.View, mat: math.Mat2) !void {
-    // TODO: 1 entry in descriptor array per draw. should use array hash map instead
-    try renderer.images.append(renderer.alloc, .{
+    const key: gpu.ResourceSet.CombinedImageSampler = .{
         .layout = .shader_read_only,
         .view = view,
         .sampler = renderer.image_sampler,
-    });
+    };
+
+    try renderer.images.put(renderer.alloc, key, {});
+    const index = renderer.images.getIndex(key).?;
 
     try renderer.image_draws.append(renderer.alloc, .{
         .mat = math.toArray(mat),
-        .id = @intCast(renderer.images.items.len - 1),
+        .id = @intCast(index),
     });
 }
 
