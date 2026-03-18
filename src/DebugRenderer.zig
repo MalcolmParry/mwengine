@@ -25,11 +25,11 @@ const ImageHashContext = struct {
 
     const Key = gpu.ResourceSet.CombinedImageSampler;
     pub fn hash(ctx: ImageHashContext, key: Key) u32 {
-        return @truncate(gpu.hashByApi(ctx.api, key.view));
+        return @truncate(ctx.api.hashBy(key.view));
     }
 
     pub fn eql(ctx: ImageHashContext, a: Key, b: Key, _: usize) bool {
-        return gpu.eqlByApi(ctx.api, a.view, b.view);
+        return ctx.api.eqlBy(a.view, b.view);
     }
 };
 

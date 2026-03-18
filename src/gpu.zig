@@ -13,6 +13,18 @@ pub const SizeOrWhole = union(enum) {
 
 pub const Api = enum {
     vk,
+
+    pub fn hashBy(api: Api, x: anytype) u64 {
+        return switch (api) {
+            .vk => std.hash.Wyhash.hash(0, std.mem.asBytes(&x.vk)),
+        };
+    }
+
+    pub fn eqlBy(api: Api, a: anytype, b: anytype) bool {
+        return switch (api) {
+            .vk => std.meta.eql(a.vk, b.vk),
+        };
+    }
 };
 
 pub const Error = error{
@@ -1038,18 +1050,6 @@ pub const CompareOp = enum {
     greater_or_equal,
     always,
 };
-
-pub fn hashByApi(api: Api, x: anytype) u64 {
-    return switch (api) {
-        .vk => std.hash.Wyhash.hash(0, std.mem.asBytes(&x.vk)),
-    };
-}
-
-pub fn eqlByApi(api: Api, a: anytype, b: anytype) bool {
-    return switch (api) {
-        .vk => std.meta.eql(a.vk, b.vk),
-    };
-}
 
 fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: anytype, args: anytype) CallRetType(src, type_name) {
     const fn_name = src.fn_name;
