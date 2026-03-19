@@ -8,14 +8,13 @@ alloc: std.mem.Allocator,
 device: gpu.Device,
 stage_man: *gpu.StagingManager,
 frame_index: usize,
-frames_in_flight: usize,
+pf: []PerFrame,
 vbuffer: gpu.Buffer,
 line_pipeline: gpu.GraphicsPipeline,
 line_draws: std.ArrayList(GpuLine),
 
 image_sampler: gpu.Sampler,
 image_resource_layout: gpu.ResourceSet.Layout,
-image_resource_set: gpu.ResourceSet,
 image_pipeline: gpu.GraphicsPipeline,
 image_draws: std.ArrayList(GpuImage),
 images: std.ArrayHashMapUnmanaged(gpu.ResourceSet.CombinedImageSampler, void, ImageHashContext, false),
@@ -106,10 +105,6 @@ pub fn init(info: InitInfo) !DebugRenderer {
     });
     errdefer image_resource_layout.deinit(info.device, info.alloc);
 
-    // TODO: need resource set per frame in flight
-    const image_resource_set = try info.device.initResourceSet(image_resource_layout, info.alloc);
-    errdefer image_resource_set.deinit(info.device, info.alloc);
-
     const image_pipeline = try info.device.initGraphicsPipeline(.{
         .alloc = info.alloc,
         .render_target_desc = info.render_target_desc,
@@ -118,7 +113,7 @@ pub fn init(info: InitInfo) !DebugRenderer {
             .binding = 0,
             .rate = .per_instance,
             .fields = &.{
-                .{ .type = .float32x2x2 },
+                .{ .type = .float32x3x3 },
                 .{ .type = .uint32 },
             },
         }},
@@ -138,12 +133,22 @@ pub fn init(info: InitInfo) !DebugRenderer {
     });
     errdefer image_pipeline.deinit(info.device, info.alloc);
 
+    const pf = try info.alloc.alloc(PerFrame, info.frames_in_flight);
+    errdefer info.alloc.free(pf);
+
+    var init_count: usize = 0;
+    errdefer for (pf[0..init_count]) |*x| x.image_resource_set.deinit(info.device, info.alloc);
+    for (pf) |*x| {
+        x.image_resource_set = try info.device.initResourceSet(image_resource_layout, info.alloc);
+        init_count += 1;
+    }
+
     return .{
         .alloc = info.alloc,
         .device = info.device,
         .stage_man = info.stage_man,
         .frame_index = 0,
-        .frames_in_flight = info.frames_in_flight,
+        .pf = pf,
         .vbuffer = vbuffer,
 
         .line_pipeline = line_pipeline,
@@ -151,7 +156,6 @@ pub fn init(info: InitInfo) !DebugRenderer {
 
         .image_sampler = image_sampler,
         .image_resource_layout = image_resource_layout,
-        .image_resource_set = image_resource_set,
         .image_pipeline = image_pipeline,
         .image_draws = .empty,
         .images = .empty,
@@ -159,13 +163,15 @@ pub fn init(info: InitInfo) !DebugRenderer {
 }
 
 pub fn deinit(renderer: *DebugRenderer) void {
+    for (renderer.pf) |*x| x.image_resource_set.deinit(renderer.device, renderer.alloc);
+    renderer.alloc.free(renderer.pf);
+
     renderer.line_pipeline.deinit(renderer.device, renderer.alloc);
     renderer.vbuffer.deinit(renderer.device, renderer.alloc);
     renderer.line_draws.deinit(renderer.alloc);
 
     renderer.image_sampler.deinit(renderer.device, renderer.alloc);
     renderer.image_pipeline.deinit(renderer.device, renderer.alloc);
-    renderer.image_resource_set.deinit(renderer.device, renderer.alloc);
     renderer.image_resource_layout.deinit(renderer.device, renderer.alloc);
     renderer.image_draws.deinit(renderer.alloc);
     renderer.images.deinit(renderer.alloc);
@@ -218,8 +224,16 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
         .image_size = image_size,
     });
 
+    try renderer.renderLines(render_pass, image_size, matrix, line_region);
+    try renderer.renderImages(render_pass, image_size, matrix, images_region);
+
+    render_pass.cmdEnd(renderer.device);
+}
+
+fn renderLines(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, image_size: gpu.Image.Size2D, matrix: math.Mat4, vertex_input: gpu.Buffer.Region) !void {
+    if (vertex_input.size_or_whole.size == 0) return;
+
     render_pass.cmdBindPipeline(renderer.device, renderer.line_pipeline, image_size);
-    render_pass.cmdBindVertexBuffer(renderer.device, 0, line_region);
     render_pass.cmdPushConstants(
         renderer.device,
         renderer.line_pipeline,
@@ -230,33 +244,47 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
         },
         @ptrCast(&math.toArray(matrix)),
     );
+    render_pass.cmdBindVertexBuffer(renderer.device, 0, vertex_input);
     render_pass.cmdDraw(.{
         .device = renderer.device,
         .indexed = false,
         .vertex_count = 6,
-        .instance_count = @intCast(renderer.line_draws.items.len),
+        .instance_count = @intCast(vertex_input.size_or_whole.size / @sizeOf(GpuLine)),
     });
+}
 
-    try renderer.image_resource_set.update(renderer.device, &.{.{
+fn renderImages(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, image_size: gpu.Image.Size2D, matrix: math.Mat4, vertex_input: gpu.Buffer.Region) !void {
+    if (vertex_input.size_or_whole.size == 0) return;
+
+    const resource_set = renderer.pf[renderer.frame_index].image_resource_set;
+    try resource_set.update(renderer.device, &.{.{
         .binding = 0,
         .data = .{ .image = renderer.images.keys() },
     }}, renderer.alloc);
 
     render_pass.cmdBindPipeline(renderer.device, renderer.image_pipeline, image_size);
-    render_pass.cmdBindVertexBuffer(renderer.device, 0, images_region);
-    render_pass.cmdBindResourceSets(renderer.device, renderer.image_pipeline, &.{renderer.image_resource_set}, 0);
+    render_pass.cmdPushConstants(
+        renderer.device,
+        renderer.line_pipeline,
+        .{
+            .size = @sizeOf(f32) * 4 * 4,
+            .offset = 0,
+            .stages = .{ .vertex = true },
+        },
+        @ptrCast(&math.toArray(matrix)),
+    );
+    render_pass.cmdBindVertexBuffer(renderer.device, 0, vertex_input);
+    render_pass.cmdBindResourceSets(renderer.device, renderer.image_pipeline, &.{resource_set}, 0);
     render_pass.cmdDraw(.{
         .device = renderer.device,
         .indexed = false,
         .vertex_count = 6,
-        .instance_count = @intCast(renderer.image_draws.items.len),
+        .instance_count = @intCast(vertex_input.size_or_whole.size / @sizeOf(GpuImage)),
     });
-
-    render_pass.cmdEnd(renderer.device);
 }
 
 pub fn nextFrame(renderer: *DebugRenderer) void {
-    renderer.frame_index = (renderer.frame_index + 1) % renderer.frames_in_flight;
+    renderer.frame_index = (renderer.frame_index + 1) % renderer.pf.len;
     renderer.line_draws.clearRetainingCapacity();
     renderer.image_draws.clearRetainingCapacity();
     renderer.images.clearRetainingCapacity();
@@ -300,15 +328,19 @@ pub fn drawBezier(renderer: *@This(), a: math.Vec2, b: math.Vec2, c: math.Vec2, 
     }
 }
 
-pub fn drawImage(renderer: *@This(), view: gpu.Image.View, mat: math.Mat2) !void {
+pub fn drawImage(renderer: *@This(), view: gpu.Image.View, mat: math.Mat3) !void {
     const key: gpu.ResourceSet.CombinedImageSampler = .{
         .layout = .shader_read_only,
         .view = view,
         .sampler = renderer.image_sampler,
     };
 
-    try renderer.images.put(renderer.alloc, key, {});
+    try renderer.images.putContext(renderer.alloc, key, {}, .{ .api = renderer.device });
     const index = renderer.images.getIndex(key).?;
+    if (index >= max_images) {
+        renderer.images.orderedRemoveAt(index);
+        return error.TooManyImages;
+    }
 
     try renderer.image_draws.append(renderer.alloc, .{
         .mat = math.toArray(mat),
@@ -317,7 +349,7 @@ pub fn drawImage(renderer: *@This(), view: gpu.Image.View, mat: math.Mat2) !void
 }
 
 fn vbufferSizePerFrame(renderer: *const DebugRenderer) gpu.Size {
-    return renderer.vbuffer.size(renderer.device) / renderer.frames_in_flight;
+    return renderer.vbuffer.size(renderer.device) / renderer.pf.len;
 }
 
 fn vbufferOffsetBase(renderer: *const DebugRenderer) gpu.Size {
@@ -332,6 +364,10 @@ const GpuLine = extern struct {
 };
 
 const GpuImage = extern struct {
-    mat: [2 * 2]f32,
+    mat: [3 * 3]f32,
     id: u32,
+};
+
+const PerFrame = struct {
+    image_resource_set: gpu.ResourceSet,
 };

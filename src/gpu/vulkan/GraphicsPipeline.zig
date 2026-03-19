@@ -58,6 +58,7 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
         for (binding.fields) |field| {
             vert_atrib_desc_count += switch (field.type) {
                 .float32x2x2 => 2,
+                .float32x3x3 => 3,
                 .float32x4x4 => 4,
                 else => 1,
             };
@@ -90,6 +91,19 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
 
                         loc += 1;
                         stride += 8;
+                    }
+                },
+                .float32x3x3 => {
+                    for (0..3) |_| {
+                        vert_atrib_descs.appendAssumeCapacity(.{
+                            .binding = bind.binding,
+                            .location = loc,
+                            .format = .r32g32b32_sfloat,
+                            .offset = @intCast(stride),
+                        });
+
+                        loc += 1;
+                        stride += 12;
                     }
                 },
                 .float32x4x4 => {

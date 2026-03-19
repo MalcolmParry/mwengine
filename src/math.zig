@@ -11,8 +11,9 @@ pub fn Matrix(Child: type, rows: comptime_int, cols: comptime_int) type {
     return [rows]@Vector(cols, Child);
 }
 
-pub const Mat4 = Matrix(f32, 4, 4);
 pub const Mat2 = Matrix(f32, 2, 2);
+pub const Mat3 = Matrix(f32, 3, 3);
+pub const Mat4 = Matrix(f32, 4, 4);
 
 pub const pi = std.math.pi;
 pub const tau = std.math.tau;

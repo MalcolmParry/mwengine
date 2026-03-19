@@ -1,7 +1,7 @@
 #version 450
 
-layout(location = 0) in mat2 i_mat;
-layout(location = 2) in uint i_id;
+layout(location = 0) in mat3 i_mat;
+layout(location = 3) in uint i_id;
 
 layout(location = 0) out vec2 p_uvs;
 layout(location = 1) out flat uint p_id;
@@ -24,5 +24,6 @@ void main() {
 
 	p_id = i_id;
 	p_uvs = base_pos;
-	gl_Position = pc.mat * vec4(i_mat * base_pos, 0, 1);
+	vec3 pos = i_mat * vec3(base_pos, 1);
+	gl_Position = pc.mat * vec4(pos.xy, 0, pos.z);
 }
