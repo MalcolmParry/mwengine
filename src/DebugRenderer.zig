@@ -209,8 +209,8 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
     @memcpy(staging.slice[0..line_bytes], std.mem.sliceAsBytes(renderer.line_draws.items));
     @memcpy(staging.slice[line_bytes .. line_bytes + images_bytes], std.mem.sliceAsBytes(renderer.image_draws.items));
 
-    cmd_encoder.cmdCopyBuffer(renderer.device, staging.region, region);
-    try cmd_encoder.cmdMemoryBarrier(renderer.device, &.{.{ .buffer = .{
+    cmd_encoder.cmdCopyBuffer(staging.region, region);
+    try cmd_encoder.cmdMemoryBarrier(&.{.{ .buffer = .{
         .region = region,
         .src_stage = .{ .transfer = true },
         .src_access = .{ .transfer_write = true },
@@ -219,7 +219,6 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
     } }}, renderer.alloc);
 
     const render_pass = cmd_encoder.cmdBeginRenderPass(.{
-        .device = renderer.device,
         .target = target,
         .image_size = image_size,
     });
@@ -227,15 +226,14 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
     try renderer.renderLines(render_pass, image_size, matrix, line_region);
     try renderer.renderImages(render_pass, image_size, matrix, images_region);
 
-    render_pass.cmdEnd(renderer.device);
+    render_pass.cmdEnd();
 }
 
 fn renderLines(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, image_size: gpu.Image.Size2D, matrix: math.Mat4, vertex_input: gpu.Buffer.Region) !void {
     if (vertex_input.size_or_whole.size == 0) return;
 
-    render_pass.cmdBindPipeline(renderer.device, renderer.line_pipeline, image_size);
+    render_pass.cmdBindPipeline(renderer.line_pipeline, image_size);
     render_pass.cmdPushConstants(
-        renderer.device,
         renderer.line_pipeline,
         .{
             .size = @sizeOf(f32) * 4 * 4,
@@ -244,9 +242,8 @@ fn renderLines(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, ima
         },
         @ptrCast(&math.toArray(matrix)),
     );
-    render_pass.cmdBindVertexBuffer(renderer.device, 0, vertex_input);
+    render_pass.cmdBindVertexBuffer(0, vertex_input);
     render_pass.cmdDraw(.{
-        .device = renderer.device,
         .indexed = false,
         .vertex_count = 6,
         .instance_count = @intCast(vertex_input.size_or_whole.size / @sizeOf(GpuLine)),
@@ -262,10 +259,9 @@ fn renderImages(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, im
         .data = .{ .image = renderer.images.keys() },
     }}, renderer.alloc);
 
-    render_pass.cmdBindPipeline(renderer.device, renderer.image_pipeline, image_size);
+    render_pass.cmdBindPipeline(renderer.image_pipeline, image_size);
     render_pass.cmdPushConstants(
-        renderer.device,
-        renderer.line_pipeline,
+        renderer.image_pipeline,
         .{
             .size = @sizeOf(f32) * 4 * 4,
             .offset = 0,
@@ -273,10 +269,9 @@ fn renderImages(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, im
         },
         @ptrCast(&math.toArray(matrix)),
     );
-    render_pass.cmdBindVertexBuffer(renderer.device, 0, vertex_input);
-    render_pass.cmdBindResourceSets(renderer.device, renderer.image_pipeline, &.{resource_set}, 0);
+    render_pass.cmdBindVertexBuffer(0, vertex_input);
+    render_pass.cmdBindResourceSets(renderer.image_pipeline, &.{resource_set}, 0);
     render_pass.cmdDraw(.{
-        .device = renderer.device,
         .indexed = false,
         .vertex_count = 6,
         .instance_count = @intCast(vertex_input.size_or_whole.size / @sizeOf(GpuImage)),

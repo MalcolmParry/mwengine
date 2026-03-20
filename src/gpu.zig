@@ -6,6 +6,7 @@ pub const StagingManager = @import("gpu/StagingManager.zig");
 pub const UploadManager = @import("gpu/UploadManager.zig");
 pub const AnyObject = @import("gpu/any_object.zig").AnyObject;
 pub const Size = u64;
+// remove
 pub const SizeOrWhole = union(enum) {
     size: Size,
     whole,
@@ -125,6 +126,7 @@ pub const Device = union(Api) {
         return call(this, @src(), "Device", .{ this, info });
     }
 
+    // TODO: move into separate file
     pub fn setBufferRegions(device: Device, regions: []const Buffer.Region, data: []const []const u8) !void {
         var alloc_buffer: [64]u8 = undefined;
         var alloc_obj = std.heap.FixedBufferAllocator.init(&alloc_buffer);
@@ -706,8 +708,8 @@ pub const Buffer = union {
         this.region().unmap(device);
     }
 
-    pub fn size(this: Buffer, device: Device) Size {
-        return call(device, @src(), "Buffer", .{ this, device });
+    pub fn size(this: Buffer, api: Api) Size {
+        return call(api, @src(), "Buffer", .{this});
     }
 
     pub fn region(this: Buffer) Region {
@@ -731,10 +733,10 @@ pub const Buffer = union {
             return call(device, @src(), .{ "Buffer", "Region" }, .{ this, device });
         }
 
-        pub fn size(this: Region, device: Device) Size {
+        pub fn size(this: Region, api: Api) Size {
             return switch (this.size_or_whole) {
                 .size => |x| x,
-                .whole => this.buffer.size(device),
+                .whole => this.buffer.size(api),
             };
         }
     };
@@ -926,7 +928,7 @@ pub const MemoryBarrier = union(enum) {
     },
 };
 
-pub const CommandEncoder = union {
+pub const CommandEncoder = union(Api) {
     vk: vk.CommandEncoder.Handle,
 
     pub fn init(device: Device) anyerror!CommandEncoder {
@@ -937,20 +939,19 @@ pub const CommandEncoder = union {
         return call(device, @src(), "CommandEncoder", .{ this, device });
     }
 
-    pub fn begin(this: CommandEncoder, device: Device) anyerror!void {
-        return call(device, @src(), "CommandEncoder", .{ this, device });
+    pub fn begin(this: CommandEncoder) anyerror!void {
+        return call(this, @src(), "CommandEncoder", .{this});
     }
 
-    pub fn end(this: CommandEncoder, device: Device) anyerror!void {
-        return call(device, @src(), "CommandEncoder", .{ this, device });
+    pub fn end(this: CommandEncoder) anyerror!void {
+        return call(this, @src(), "CommandEncoder", .{this});
     }
 
-    pub fn cmdCopyBuffer(this: CommandEncoder, device: Device, src: Buffer.Region, dst: Buffer.Region) void {
-        return call(device, @src(), "CommandEncoder", .{ this, device, src, dst });
+    pub fn cmdCopyBuffer(this: CommandEncoder, src: Buffer.Region, dst: Buffer.Region) void {
+        return call(this, @src(), "CommandEncoder", .{ this, src, dst });
     }
 
     pub const BufferToImageCopyInfo = struct {
-        device: Device,
         src: Buffer.Region,
         row_stride: ?u32 = null,
         dst: Image,
@@ -960,11 +961,10 @@ pub const CommandEncoder = union {
     };
 
     pub fn cmdCopyBufferToImage(this: CommandEncoder, info: BufferToImageCopyInfo) void {
-        return call(info.device, @src(), "CommandEncoder", .{ this, info });
+        return call(this, @src(), "CommandEncoder", .{ this, info });
     }
 
     pub const ImageCopyWithScalingInfo = struct {
-        device: Device,
         filter: Sampler.Filter,
         src: Image,
         src_layout: Image.Layout,
@@ -976,40 +976,40 @@ pub const CommandEncoder = union {
         dst_rect: Image.Rect,
     };
 
-    pub fn cmdCopyImageWithScaling(cmd_encoder: CommandEncoder, info: ImageCopyWithScalingInfo) anyerror!void {
-        return call(info.device, @src(), "CommandEncoder", .{ cmd_encoder, info });
+    pub fn cmdCopyImageWithScaling(cmd_encoder: CommandEncoder, info: ImageCopyWithScalingInfo) void {
+        return call(cmd_encoder, @src(), "CommandEncoder", .{ cmd_encoder, info });
     }
 
-    pub fn cmdMemoryBarrier(this: CommandEncoder, device: Device, memory_barriers: []const MemoryBarrier, alloc: std.mem.Allocator) anyerror!void {
-        return call(device, @src(), "CommandEncoder", .{ this, device, memory_barriers, alloc });
+    // TODO: remove allocator
+    pub fn cmdMemoryBarrier(this: CommandEncoder, memory_barriers: []const MemoryBarrier, alloc: std.mem.Allocator) anyerror!void {
+        return call(this, @src(), "CommandEncoder", .{ this, memory_barriers, alloc });
     }
 
     pub const cmdBeginRenderPass = RenderPassEncoder.cmdBegin;
 };
 
-pub const RenderPassEncoder = union {
+pub const RenderPassEncoder = union(Api) {
     vk: vk.RenderPassEncoder.Handle,
 
     pub const BeginInfo = struct {
-        device: Device,
         target: RenderTarget,
         image_size: Image.Size2D,
     };
 
     pub fn cmdBegin(command_encoder: CommandEncoder, info: BeginInfo) RenderPassEncoder {
-        return call(info.device, @src(), "RenderPassEncoder", .{ command_encoder, info });
+        return call(command_encoder, @src(), "RenderPassEncoder", .{ command_encoder, info });
     }
 
-    pub fn cmdEnd(this: RenderPassEncoder, device: Device) void {
-        return call(device, @src(), "RenderPassEncoder", .{ this, device });
+    pub fn cmdEnd(this: RenderPassEncoder) void {
+        return call(this, @src(), "RenderPassEncoder", .{this});
     }
 
-    pub fn cmdBindPipeline(this: RenderPassEncoder, device: Device, graphics_pipeline: GraphicsPipeline, image_size: Image.Size2D) void {
-        return call(device, @src(), "RenderPassEncoder", .{ this, device, graphics_pipeline, image_size });
+    pub fn cmdBindPipeline(this: RenderPassEncoder, graphics_pipeline: GraphicsPipeline, image_size: Image.Size2D) void {
+        return call(this, @src(), "RenderPassEncoder", .{ this, graphics_pipeline, image_size });
     }
 
-    pub fn cmdBindVertexBuffer(this: RenderPassEncoder, device: Device, binding: u32, buffer_region: Buffer.Region) void {
-        return call(device, @src(), "RenderPassEncoder", .{ this, device, binding, buffer_region });
+    pub fn cmdBindVertexBuffer(this: RenderPassEncoder, binding: u32, buffer_region: Buffer.Region) void {
+        return call(this, @src(), "RenderPassEncoder", .{ this, binding, buffer_region });
     }
 
     pub const IndexType = enum {
@@ -1017,20 +1017,19 @@ pub const RenderPassEncoder = union {
         uint32,
     };
 
-    pub fn cmdBindIndexBuffer(this: RenderPassEncoder, device: Device, buffer_region: Buffer.Region, index_type: IndexType) void {
-        return call(device, @src(), "RenderPassEncoder", .{ this, device, buffer_region, index_type });
+    pub fn cmdBindIndexBuffer(this: RenderPassEncoder, buffer_region: Buffer.Region, index_type: IndexType) void {
+        return call(this, @src(), "RenderPassEncoder", .{ this, buffer_region, index_type });
     }
 
-    pub fn cmdBindResourceSets(this: RenderPassEncoder, device: Device, pipeline: GraphicsPipeline, resource_sets: []const ResourceSet, first: u32) void {
-        return call(device, @src(), "RenderPassEncoder", .{ this, device, pipeline, resource_sets, first });
+    pub fn cmdBindResourceSets(this: RenderPassEncoder, pipeline: GraphicsPipeline, resource_sets: []const ResourceSet, first: u32) void {
+        return call(this, @src(), "RenderPassEncoder", .{ this, pipeline, resource_sets, first });
     }
 
-    pub fn cmdPushConstants(this: RenderPassEncoder, device: Device, pipeline: GraphicsPipeline, range: PushConstantRange, data: [*]const u8) void {
-        return call(device, @src(), "RenderPassEncoder", .{ this, device, pipeline, range, data });
+    pub fn cmdPushConstants(this: RenderPassEncoder, pipeline: GraphicsPipeline, range: PushConstantRange, data: [*]const u8) void {
+        return call(this, @src(), "RenderPassEncoder", .{ this, pipeline, range, data });
     }
 
     pub const DrawInfo = struct {
-        device: Device,
         vertex_count: u32,
         first_vertex: u32 = 0,
         instance_count: u32 = 1,
@@ -1039,7 +1038,7 @@ pub const RenderPassEncoder = union {
     };
 
     pub fn cmdDraw(this: RenderPassEncoder, info: DrawInfo) void {
-        return call(info.device, @src(), "RenderPassEncoder", .{ this, info });
+        return call(this, @src(), "RenderPassEncoder", .{ this, info });
     }
 };
 

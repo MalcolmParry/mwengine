@@ -20,16 +20,16 @@ pub fn deinit(man: *UploadManager) void {
     man.copies.deinit(man.alloc);
 }
 
-pub fn upload(man: *UploadManager, device: gpu.Device, cmd_encoder: gpu.CommandEncoder) !void {
+pub fn upload(man: *UploadManager, cmd_encoder: gpu.CommandEncoder) !void {
     if (man.pre_copy_barriers.items.len > 0)
-        try cmd_encoder.cmdMemoryBarrier(device, man.pre_copy_barriers.items, man.alloc);
+        try cmd_encoder.cmdMemoryBarrier(man.pre_copy_barriers.items, man.alloc);
 
     for (man.copies.items(.src), man.copies.items(.dst)) |src, dst| {
-        cmd_encoder.cmdCopyBuffer(device, src, dst);
+        cmd_encoder.cmdCopyBuffer(src, dst);
     }
 
     if (man.post_copy_barriers.items.len > 0)
-        try cmd_encoder.cmdMemoryBarrier(device, man.post_copy_barriers.items, man.alloc);
+        try cmd_encoder.cmdMemoryBarrier(man.post_copy_barriers.items, man.alloc);
 
     man.copies.clearRetainingCapacity();
     man.pre_copy_barriers.clearRetainingCapacity();

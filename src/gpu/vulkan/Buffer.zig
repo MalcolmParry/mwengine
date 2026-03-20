@@ -50,7 +50,7 @@ pub fn deinit(this: gpu.Buffer, device: gpu.Device, alloc: std.mem.Allocator) vo
     alloc.destroy(this.vk);
 }
 
-pub fn size(this: gpu.Buffer, _: gpu.Device) gpu.Size {
+pub fn size(this: gpu.Buffer) gpu.Size {
     return this.vk.size_;
 }
 
