@@ -6,8 +6,10 @@ const UploadManager = @This();
 alloc: std.mem.Allocator,
 stage_man: *gpu.StagingManager,
 copies: std.MultiArrayList(Copy) = .empty,
-pre_copy_barriers: std.ArrayList(gpu.MemoryBarrier) = .empty,
-post_copy_barriers: std.ArrayList(gpu.MemoryBarrier) = .empty,
+pre_copy_image_barriers: std.ArrayList(gpu.ImageBarrier) = .empty,
+pre_copy_buffer_barriers: std.ArrayList(gpu.BufferBarrier) = .empty,
+post_copy_image_barriers: std.ArrayList(gpu.ImageBarrier) = .empty,
+post_copy_buffer_barriers: std.ArrayList(gpu.BufferBarrier) = .empty,
 
 pub const Copy = struct {
     src: gpu.Buffer.Region,
@@ -15,33 +17,45 @@ pub const Copy = struct {
 };
 
 pub fn deinit(man: *UploadManager) void {
-    man.post_copy_barriers.deinit(man.alloc);
-    man.pre_copy_barriers.deinit(man.alloc);
+    man.post_copy_image_barriers.deinit(man.alloc);
+    man.post_copy_buffer_barriers.deinit(man.alloc);
+    man.pre_copy_image_barriers.deinit(man.alloc);
+    man.pre_copy_buffer_barriers.deinit(man.alloc);
     man.copies.deinit(man.alloc);
 }
 
 pub fn upload(man: *UploadManager, cmd_encoder: gpu.CommandEncoder) !void {
-    if (man.pre_copy_barriers.items.len > 0)
-        try cmd_encoder.cmdMemoryBarrier(man.pre_copy_barriers.items, man.alloc);
+    if (man.pre_copy_buffer_barriers.items.len > 0)
+        try cmd_encoder.cmdMemoryBarrier(.{
+            .alloc = man.alloc,
+            .image_barriers = man.pre_copy_image_barriers.items,
+            .buffer_barrier = man.pre_copy_buffer_barriers.items,
+        });
 
     for (man.copies.items(.src), man.copies.items(.dst)) |src, dst| {
         cmd_encoder.cmdCopyBuffer(src, dst);
     }
 
-    if (man.post_copy_barriers.items.len > 0)
-        try cmd_encoder.cmdMemoryBarrier(man.post_copy_barriers.items, man.alloc);
+    if (man.post_copy_buffer_barriers.items.len > 0)
+        try cmd_encoder.cmdMemoryBarrier(.{
+            .alloc = man.alloc,
+            .image_barriers = man.post_copy_image_barriers.items,
+            .buffer_barrier = man.post_copy_buffer_barriers.items,
+        });
 
     man.copies.clearRetainingCapacity();
-    man.pre_copy_barriers.clearRetainingCapacity();
-    man.post_copy_barriers.clearRetainingCapacity();
+    man.pre_copy_image_barriers.clearRetainingCapacity();
+    man.pre_copy_buffer_barriers.clearRetainingCapacity();
+    man.post_copy_image_barriers.clearRetainingCapacity();
+    man.post_copy_buffer_barriers.clearRetainingCapacity();
 }
 
 pub fn SubmitInfo(T: type) type {
     return struct {
         data: []const T,
         region: gpu.Buffer.Region,
-        pre_copy_barrier: ?gpu.MemoryBarrier = null,
-        post_copy_barrier: ?gpu.MemoryBarrier = null,
+        pre_copy_barrier: ?gpu.BufferBarrier = null,
+        post_copy_barrier: ?gpu.BufferBarrier = null,
     };
 }
 
@@ -57,13 +71,9 @@ pub fn submit(man: *UploadManager, T: type, info: SubmitInfo(T)) !void {
         .dst = info.region,
     });
 
-    if (info.pre_copy_barrier) |x| {
-        std.debug.assert(x == .buffer);
-        try man.pre_copy_barriers.append(man.alloc, x);
-    }
+    if (info.pre_copy_barrier) |x|
+        try man.pre_copy_buffer_barriers.append(man.alloc, x);
 
-    if (info.post_copy_barrier) |x| {
-        std.debug.assert(x == .buffer);
-        try man.post_copy_barriers.append(man.alloc, x);
-    }
+    if (info.post_copy_barrier) |x|
+        try man.post_copy_buffer_barriers.append(man.alloc, x);
 }

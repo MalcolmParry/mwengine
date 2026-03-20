@@ -137,6 +137,7 @@ pub fn waitUntilIdle(this: gpu.Device) void {
     this.vk.device.deviceWaitIdle() catch @panic("failed to wait for device");
 }
 
+// TODO: update to new submit format
 pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) gpu.Device.SubmitError!void {
     std.debug.assert(info.wait_semaphores.len == info.wait_dst_stages.len);
     var wait_dst_stage_mask_buffer: [8]vk.PipelineStageFlags = undefined;

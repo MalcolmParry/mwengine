@@ -169,65 +169,56 @@ pub fn accessToNative(access: gpu.Access) vk.AccessFlags2KHR {
     };
 }
 
-pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, memory_barriers: []const gpu.MemoryBarrier, alloc: std.mem.Allocator) !void {
-    var image_count: usize = 0;
-    var buffer_count: usize = 0;
+pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, info: gpu.CommandEncoder.MemoryBarrierInfo) !void {
+    const image_barriers = try info.alloc.alloc(vk.ImageMemoryBarrier2, info.image_barriers.len);
+    defer info.alloc.free(image_barriers);
 
-    for (memory_barriers) |barrier| {
-        switch (barrier) {
-            .image => |_| image_count += 1,
-            .buffer => |_| buffer_count += 1,
-        }
+    for (info.image_barriers, image_barriers) |barrier, *native| {
+        native.* = .{
+            .image = barrier.image.vk.image,
+            .old_layout = Image.layoutToNative(barrier.old_layout),
+            .new_layout = Image.layoutToNative(barrier.new_layout),
+            .src_stage_mask = stageToNative2(barrier.src_stage),
+            .dst_stage_mask = stageToNative2(barrier.dst_stage),
+            .src_access_mask = accessToNative(barrier.src_access),
+            .dst_access_mask = accessToNative(barrier.dst_access),
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .subresource_range = .{
+                .aspect_mask = Image.aspectToNative(barrier.subresource_range.aspect),
+                .base_mip_level = barrier.subresource_range.mip_offset,
+                .level_count = if (barrier.subresource_range.mip_count) |x| x else vk.REMAINING_MIP_LEVELS,
+                .base_array_layer = barrier.subresource_range.layer_offset,
+                .layer_count = if (barrier.subresource_range.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
+            },
+        };
     }
 
-    var image_barriers: std.ArrayList(vk.ImageMemoryBarrier2KHR) = try .initCapacity(alloc, image_count);
-    defer image_barriers.deinit(alloc);
+    const buffer_barriers = try info.alloc.alloc(vk.BufferMemoryBarrier2, info.buffer_barrier.len);
+    defer info.alloc.free(buffer_barriers);
 
-    var buffer_barriers: std.ArrayList(vk.BufferMemoryBarrier2KHR) = try .initCapacity(alloc, buffer_count);
-    defer buffer_barriers.deinit(alloc);
-
-    for (memory_barriers) |barrier| {
-        switch (barrier) {
-            .image => |image| image_barriers.appendAssumeCapacity(.{
-                .image = image.image.vk.image,
-                .old_layout = Image.layoutToNative(image.old_layout),
-                .new_layout = Image.layoutToNative(image.new_layout),
-                .src_stage_mask = stageToNative2(image.src_stage),
-                .dst_stage_mask = stageToNative2(image.dst_stage),
-                .src_access_mask = accessToNative(image.src_access),
-                .dst_access_mask = accessToNative(image.dst_access),
-                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-                .subresource_range = .{
-                    .aspect_mask = Image.aspectToNative(image.subresource_range.aspect),
-                    .base_mip_level = image.subresource_range.mip_offset,
-                    .level_count = if (image.subresource_range.mip_count) |x| x else vk.REMAINING_MIP_LEVELS,
-                    .base_array_layer = image.subresource_range.layer_offset,
-                    .layer_count = if (image.subresource_range.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
-                },
-            }),
-            .buffer => |buffer| buffer_barriers.appendAssumeCapacity(.{
-                .buffer = buffer.region.buffer.vk.buffer,
-                .size = switch (buffer.region.size_or_whole) {
-                    .size => |x| x,
-                    .whole => vk.WHOLE_SIZE,
-                },
-                .offset = buffer.region.offset,
-                .src_stage_mask = stageToNative2(buffer.src_stage),
-                .dst_stage_mask = stageToNative2(buffer.dst_stage),
-                .src_access_mask = accessToNative(buffer.src_access),
-                .dst_access_mask = accessToNative(buffer.dst_access),
-                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            }),
-        }
+    for (info.buffer_barrier, buffer_barriers) |barrier, *native| {
+        native.* = .{
+            .buffer = barrier.region.buffer.vk.buffer,
+            .size = switch (barrier.region.size_or_whole) {
+                .size => |x| x,
+                .whole => vk.WHOLE_SIZE,
+            },
+            .offset = barrier.region.offset,
+            .src_stage_mask = stageToNative2(barrier.src_stage),
+            .dst_stage_mask = stageToNative2(barrier.dst_stage),
+            .src_access_mask = accessToNative(barrier.src_access),
+            .dst_access_mask = accessToNative(barrier.dst_access),
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+        };
     }
 
     this.vk.dispatch.cmdPipelineBarrier2KHR(this.vk.command_buffer, &.{
-        .image_memory_barrier_count = @intCast(image_barriers.items.len),
-        .p_image_memory_barriers = image_barriers.items.ptr,
-        .buffer_memory_barrier_count = @intCast(buffer_barriers.items.len),
-        .p_buffer_memory_barriers = buffer_barriers.items.ptr,
+        .image_memory_barrier_count = @intCast(image_barriers.len),
+        .p_image_memory_barriers = image_barriers.ptr,
+        .buffer_memory_barrier_count = @intCast(buffer_barriers.len),
+        .p_buffer_memory_barriers = buffer_barriers.ptr,
     });
 }
 

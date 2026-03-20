@@ -210,13 +210,16 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
     @memcpy(staging.slice[line_bytes .. line_bytes + images_bytes], std.mem.sliceAsBytes(renderer.image_draws.items));
 
     cmd_encoder.cmdCopyBuffer(staging.region, region);
-    try cmd_encoder.cmdMemoryBarrier(&.{.{ .buffer = .{
-        .region = region,
-        .src_stage = .{ .transfer = true },
-        .src_access = .{ .transfer_write = true },
-        .dst_stage = .{ .vertex_input = true },
-        .dst_access = .{ .vertex_read = true },
-    } }}, renderer.alloc);
+    try cmd_encoder.cmdMemoryBarrier(.{
+        .alloc = renderer.alloc,
+        .buffer_barrier = &.{.{
+            .region = region,
+            .src_stage = .{ .transfer = true },
+            .src_access = .{ .transfer_write = true },
+            .dst_stage = .{ .vertex_input = true },
+            .dst_access = .{ .vertex_read = true },
+        }},
+    });
 
     const render_pass = cmd_encoder.cmdBeginRenderPass(.{
         .target = target,

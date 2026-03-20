@@ -908,24 +908,23 @@ pub const Access = packed struct {
     shader_read: bool = false,
 };
 
-pub const MemoryBarrier = union(enum) {
-    image: struct {
-        image: Image,
-        subresource_range: Image.Subresource.Range,
-        old_layout: Image.Layout,
-        new_layout: Image.Layout,
-        src_stage: GraphicsPipeline.Stages,
-        dst_stage: GraphicsPipeline.Stages,
-        src_access: Access,
-        dst_access: Access,
-    },
-    buffer: struct {
-        region: Buffer.Region,
-        src_stage: GraphicsPipeline.Stages,
-        dst_stage: GraphicsPipeline.Stages,
-        src_access: Access,
-        dst_access: Access,
-    },
+pub const ImageBarrier = struct {
+    image: Image,
+    subresource_range: Image.Subresource.Range,
+    old_layout: Image.Layout,
+    new_layout: Image.Layout,
+    src_stage: GraphicsPipeline.Stages,
+    dst_stage: GraphicsPipeline.Stages,
+    src_access: Access,
+    dst_access: Access,
+};
+
+pub const BufferBarrier = struct {
+    region: Buffer.Region,
+    src_stage: GraphicsPipeline.Stages,
+    dst_stage: GraphicsPipeline.Stages,
+    src_access: Access,
+    dst_access: Access,
 };
 
 pub const CommandEncoder = union(Api) {
@@ -980,9 +979,14 @@ pub const CommandEncoder = union(Api) {
         return call(cmd_encoder, @src(), "CommandEncoder", .{ cmd_encoder, info });
     }
 
-    // TODO: remove allocator
-    pub fn cmdMemoryBarrier(this: CommandEncoder, memory_barriers: []const MemoryBarrier, alloc: std.mem.Allocator) anyerror!void {
-        return call(this, @src(), "CommandEncoder", .{ this, memory_barriers, alloc });
+    pub const MemoryBarrierInfo = struct {
+        alloc: std.mem.Allocator,
+        image_barriers: []const ImageBarrier = &.{},
+        buffer_barrier: []const BufferBarrier = &.{},
+    };
+
+    pub fn cmdMemoryBarrier(this: CommandEncoder, info: MemoryBarrierInfo) anyerror!void {
+        return call(this, @src(), "CommandEncoder", .{ this, info });
     }
 
     pub const cmdBeginRenderPass = RenderPassEncoder.cmdBegin;
