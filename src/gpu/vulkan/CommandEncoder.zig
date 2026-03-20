@@ -169,57 +169,64 @@ pub fn accessToNative(access: gpu.Access) vk.AccessFlags2KHR {
     };
 }
 
-pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, info: gpu.CommandEncoder.MemoryBarrierInfo) !void {
-    const image_barriers = try info.alloc.alloc(vk.ImageMemoryBarrier2, info.image_barriers.len);
-    defer info.alloc.free(image_barriers);
+pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, info: gpu.CommandEncoder.MemoryBarrierInfo) void {
+    var remaining_image = info.image_barriers;
+    var remaining_buffer = info.buffer_barriers;
+    var image_buffer: [16]vk.ImageMemoryBarrier2 = undefined;
+    var buffer_buffer: [16]vk.BufferMemoryBarrier2 = undefined;
 
-    for (info.image_barriers, image_barriers) |barrier, *native| {
-        native.* = .{
-            .image = barrier.image.vk.image,
-            .old_layout = Image.layoutToNative(barrier.old_layout),
-            .new_layout = Image.layoutToNative(barrier.new_layout),
-            .src_stage_mask = stageToNative2(barrier.src_stage),
-            .dst_stage_mask = stageToNative2(barrier.dst_stage),
-            .src_access_mask = accessToNative(barrier.src_access),
-            .dst_access_mask = accessToNative(barrier.dst_access),
-            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .subresource_range = .{
-                .aspect_mask = Image.aspectToNative(barrier.subresource_range.aspect),
-                .base_mip_level = barrier.subresource_range.mip_offset,
-                .level_count = if (barrier.subresource_range.mip_count) |x| x else vk.REMAINING_MIP_LEVELS,
-                .base_array_layer = barrier.subresource_range.layer_offset,
-                .layer_count = if (barrier.subresource_range.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
-            },
-        };
+    while (remaining_image.len > 0 or remaining_buffer.len > 0) {
+        const image = if (remaining_image.len > image_buffer.len) remaining_image[0..image_buffer.len] else remaining_image;
+        remaining_image = if (remaining_image.len > image_buffer.len) remaining_image[image_buffer.len..] else &.{};
+
+        for (image, 0..) |barrier, i| {
+            image_buffer[i] = .{
+                .image = barrier.image.vk.image,
+                .old_layout = Image.layoutToNative(barrier.old_layout),
+                .new_layout = Image.layoutToNative(barrier.new_layout),
+                .src_stage_mask = stageToNative2(barrier.src_stage),
+                .dst_stage_mask = stageToNative2(barrier.dst_stage),
+                .src_access_mask = accessToNative(barrier.src_access),
+                .dst_access_mask = accessToNative(barrier.dst_access),
+                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .subresource_range = .{
+                    .aspect_mask = Image.aspectToNative(barrier.subresource_range.aspect),
+                    .base_mip_level = barrier.subresource_range.mip_offset,
+                    .level_count = if (barrier.subresource_range.mip_count) |x| x else vk.REMAINING_MIP_LEVELS,
+                    .base_array_layer = barrier.subresource_range.layer_offset,
+                    .layer_count = if (barrier.subresource_range.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
+                },
+            };
+        }
+
+        const buffer = if (remaining_buffer.len > buffer_buffer.len) remaining_buffer[0..buffer_buffer.len] else remaining_buffer;
+        remaining_buffer = if (remaining_buffer.len > buffer_buffer.len) remaining_buffer[buffer_buffer.len..] else &.{};
+
+        for (buffer, 0..) |barrier, i| {
+            buffer_buffer[i] = .{
+                .buffer = barrier.region.buffer.vk.buffer,
+                .size = switch (barrier.region.size_or_whole) {
+                    .size => |x| x,
+                    .whole => vk.WHOLE_SIZE,
+                },
+                .offset = barrier.region.offset,
+                .src_stage_mask = stageToNative2(barrier.src_stage),
+                .dst_stage_mask = stageToNative2(barrier.dst_stage),
+                .src_access_mask = accessToNative(barrier.src_access),
+                .dst_access_mask = accessToNative(barrier.dst_access),
+                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            };
+        }
+
+        this.vk.dispatch.cmdPipelineBarrier2KHR(this.vk.command_buffer, &.{
+            .image_memory_barrier_count = @intCast(image.len),
+            .p_image_memory_barriers = &image_buffer,
+            .buffer_memory_barrier_count = @intCast(buffer.len),
+            .p_buffer_memory_barriers = &buffer_buffer,
+        });
     }
-
-    const buffer_barriers = try info.alloc.alloc(vk.BufferMemoryBarrier2, info.buffer_barrier.len);
-    defer info.alloc.free(buffer_barriers);
-
-    for (info.buffer_barrier, buffer_barriers) |barrier, *native| {
-        native.* = .{
-            .buffer = barrier.region.buffer.vk.buffer,
-            .size = switch (barrier.region.size_or_whole) {
-                .size => |x| x,
-                .whole => vk.WHOLE_SIZE,
-            },
-            .offset = barrier.region.offset,
-            .src_stage_mask = stageToNative2(barrier.src_stage),
-            .dst_stage_mask = stageToNative2(barrier.dst_stage),
-            .src_access_mask = accessToNative(barrier.src_access),
-            .dst_access_mask = accessToNative(barrier.dst_access),
-            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-        };
-    }
-
-    this.vk.dispatch.cmdPipelineBarrier2KHR(this.vk.command_buffer, &.{
-        .image_memory_barrier_count = @intCast(image_barriers.len),
-        .p_image_memory_barriers = image_barriers.ptr,
-        .buffer_memory_barrier_count = @intCast(buffer_barriers.len),
-        .p_buffer_memory_barriers = buffer_barriers.ptr,
-    });
 }
 
 pub const cmdBeginRenderPass = RenderPassEncoder.cmdBegin;

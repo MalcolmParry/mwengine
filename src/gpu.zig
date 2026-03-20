@@ -980,12 +980,11 @@ pub const CommandEncoder = union(Api) {
     }
 
     pub const MemoryBarrierInfo = struct {
-        alloc: std.mem.Allocator,
         image_barriers: []const ImageBarrier = &.{},
-        buffer_barrier: []const BufferBarrier = &.{},
+        buffer_barriers: []const BufferBarrier = &.{},
     };
 
-    pub fn cmdMemoryBarrier(this: CommandEncoder, info: MemoryBarrierInfo) anyerror!void {
+    pub fn cmdMemoryBarrier(this: CommandEncoder, info: MemoryBarrierInfo) void {
         return call(this, @src(), "CommandEncoder", .{ this, info });
     }
 

@@ -210,9 +210,8 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
     @memcpy(staging.slice[line_bytes .. line_bytes + images_bytes], std.mem.sliceAsBytes(renderer.image_draws.items));
 
     cmd_encoder.cmdCopyBuffer(staging.region, region);
-    try cmd_encoder.cmdMemoryBarrier(.{
-        .alloc = renderer.alloc,
-        .buffer_barrier = &.{.{
+    cmd_encoder.cmdMemoryBarrier(.{
+        .buffer_barriers = &.{.{
             .region = region,
             .src_stage = .{ .transfer = true },
             .src_access = .{ .transfer_write = true },
