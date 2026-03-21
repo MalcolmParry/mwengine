@@ -1007,8 +1007,8 @@ pub const RenderPassEncoder = union(Api) {
         return call(this, @src(), "RenderPassEncoder", .{this});
     }
 
-    pub fn cmdBindPipeline(this: RenderPassEncoder, graphics_pipeline: GraphicsPipeline, image_size: Image.Size2D) void {
-        return call(this, @src(), "RenderPassEncoder", .{ this, graphics_pipeline, image_size });
+    pub fn cmdBindPipeline(this: RenderPassEncoder, graphics_pipeline: GraphicsPipeline) void {
+        return call(this, @src(), "RenderPassEncoder", .{ this, graphics_pipeline });
     }
 
     pub fn cmdBindVertexBuffer(this: RenderPassEncoder, binding: u32, buffer_region: Buffer.Region) void {

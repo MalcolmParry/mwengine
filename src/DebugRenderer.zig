@@ -225,16 +225,16 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
         .image_size = image_size,
     });
 
-    try renderer.renderLines(render_pass, image_size, matrix, line_region);
-    try renderer.renderImages(render_pass, image_size, matrix, images_region);
+    try renderer.renderLines(render_pass, matrix, line_region);
+    try renderer.renderImages(render_pass, matrix, images_region);
 
     render_pass.cmdEnd();
 }
 
-fn renderLines(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, image_size: gpu.Image.Size2D, matrix: math.Mat4, vertex_input: gpu.Buffer.Region) !void {
+fn renderLines(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, matrix: math.Mat4, vertex_input: gpu.Buffer.Region) !void {
     if (vertex_input.size_or_whole.size == 0) return;
 
-    render_pass.cmdBindPipeline(renderer.line_pipeline, image_size);
+    render_pass.cmdBindPipeline(renderer.line_pipeline);
     render_pass.cmdPushConstants(
         renderer.line_pipeline,
         .{
@@ -252,7 +252,7 @@ fn renderLines(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, ima
     });
 }
 
-fn renderImages(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, image_size: gpu.Image.Size2D, matrix: math.Mat4, vertex_input: gpu.Buffer.Region) !void {
+fn renderImages(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, matrix: math.Mat4, vertex_input: gpu.Buffer.Region) !void {
     if (vertex_input.size_or_whole.size == 0) return;
 
     const resource_set = renderer.pf[renderer.frame_index].image_resource_set;
@@ -261,7 +261,7 @@ fn renderImages(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, im
         .data = .{ .image = renderer.images.keys() },
     }}, renderer.alloc);
 
-    render_pass.cmdBindPipeline(renderer.image_pipeline, image_size);
+    render_pass.cmdBindPipeline(renderer.image_pipeline);
     render_pass.cmdPushConstants(
         renderer.image_pipeline,
         .{

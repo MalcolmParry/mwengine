@@ -234,6 +234,7 @@ pub const RenderPassEncoder = struct {
     pub const Handle = RenderPassEncoder;
 
     cmd_encoder: CommandEncoder,
+    image_size: [2]u32,
 
     fn clearValueToVk(val: gpu.RenderAttachment.ClearValue) vk.ClearValue {
         return switch (val) {
@@ -294,21 +295,24 @@ pub const RenderPassEncoder = struct {
             .flags = .{},
         });
 
-        return .{ .vk = .{ .cmd_encoder = command_encoder.vk } };
+        return .{ .vk = .{
+            .cmd_encoder = command_encoder.vk,
+            .image_size = info.image_size,
+        } };
     }
 
     pub fn cmdEnd(this: gpu.RenderPassEncoder) void {
         this.vk.cmd_encoder.dispatch.cmdEndRenderingKHR(this.vk.cmd_encoder.command_buffer);
     }
 
-    pub fn cmdBindPipeline(this: gpu.RenderPassEncoder, graphics_pipeline: gpu.GraphicsPipeline, image_size: @Vector(2, u32)) void {
+    pub fn cmdBindPipeline(this: gpu.RenderPassEncoder, graphics_pipeline: gpu.GraphicsPipeline) void {
         this.vk.cmd_encoder.dispatch.cmdBindPipeline(this.vk.cmd_encoder.command_buffer, .graphics, graphics_pipeline.vk.pipeline);
 
         const viewport: vk.Viewport = .{
             .x = 0,
             .y = 0,
-            .width = @floatFromInt(image_size[0]),
-            .height = @floatFromInt(image_size[1]),
+            .width = @floatFromInt(this.vk.image_size[0]),
+            .height = @floatFromInt(this.vk.image_size[1]),
             .min_depth = 0,
             .max_depth = 1,
         };
@@ -316,7 +320,7 @@ pub const RenderPassEncoder = struct {
         this.vk.cmd_encoder.dispatch.cmdSetViewport(this.vk.cmd_encoder.command_buffer, 0, 1, @ptrCast(&viewport));
 
         const scissor: vk.Rect2D = .{
-            .extent = .{ .width = image_size[0], .height = image_size[1] },
+            .extent = .{ .width = this.vk.image_size[0], .height = this.vk.image_size[1] },
             .offset = .{ .x = 0, .y = 0 },
         };
 
