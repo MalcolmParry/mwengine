@@ -11,7 +11,7 @@ pub const Handle = *GraphicsPipeline;
 pipeline: vk.Pipeline,
 pipeline_layout: vk.PipelineLayout,
 
-pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.GraphicsPipeline {
+pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) gpu.GraphicsPipeline.InitError!gpu.GraphicsPipeline {
     const this = try info.alloc.create(GraphicsPipeline);
     errdefer info.alloc.destroy(this);
 
@@ -34,12 +34,16 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
     }
 
     // TODO: could be separated into different objects
-    this.pipeline_layout = try native_device.createPipelineLayout(&.{
+    this.pipeline_layout = native_device.createPipelineLayout(&.{
         .set_layout_count = @intCast(native_descriptor_set_layouts.len),
         .p_set_layouts = native_descriptor_set_layouts.ptr,
         .push_constant_range_count = @intCast(native_push_constant_ranges.len),
         .p_push_constant_ranges = native_push_constant_ranges.ptr,
-    }, vk_alloc);
+    }, vk_alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.Unknown => error.Unknown,
+    };
     errdefer native_device.destroyPipelineLayout(this.pipeline_layout, vk_alloc);
 
     const shader_stages = try info.alloc.alloc(vk.PipelineShaderStageCreateInfo, info.shaders.len);
@@ -279,7 +283,19 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) !gpu.Grap
     // the only way for pipeline creation to return a non zig error is
     // if we requested lazy compilation in flags
     this.pipeline = .null_handle;
-    if (try native_device.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_create_info), vk_alloc, @ptrCast(&this.pipeline)) != .success) return error.Unknown;
+    const result = native_device.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_create_info), vk_alloc, @ptrCast(&this.pipeline)) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.InvalidShaderNV => error.InvalidShader,
+        error.Unknown => error.Unknown,
+    };
+
+    switch (result) {
+        .success => {},
+        // only happens with VK_PIPELINE_CREATE_FAIL_ON_PIPELINE_COMPILE_REQUIRED_BIT
+        .pipeline_compile_required => unreachable,
+        else => return error.Unknown,
+    }
 
     return .{ .vk = this };
 }

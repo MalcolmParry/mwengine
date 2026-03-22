@@ -10,12 +10,12 @@ memory_region: Device.MemoryRegion,
 image: vk.Image,
 format_: gpu.Image.Format,
 
-pub fn init(device: gpu.Device, info: gpu.Image.InitInfo) !gpu.Image {
+pub fn init(device: gpu.Device, info: gpu.Image.InitInfo) gpu.Image.InitError!gpu.Image {
     const this = try info.alloc.create(Image);
     errdefer info.alloc.destroy(this);
 
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    this.image = try device.vk.device.createImage(&.{
+    this.image = device.vk.device.createImage(&.{
         .image_type = .@"2d",
         .extent = .{
             .width = info.size[0],
@@ -36,7 +36,14 @@ pub fn init(device: gpu.Device, info: gpu.Image.InitInfo) !gpu.Image {
         },
         .samples = .{ .@"1_bit" = true },
         .sharing_mode = .exclusive,
-    }, vk_alloc);
+    }, vk_alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        // only happens with buffer device address
+        error.InvalidOpaqueCaptureAddressKHR => unreachable,
+        error.CompressionExhaustedEXT => error.CompressionExhaused,
+        error.Unknown => error.Unknown,
+    };
     errdefer device.vk.device.destroyImage(this.image, vk_alloc);
 
     const properties: vk.MemoryPropertyFlags = switch (info.loc) {
@@ -46,7 +53,11 @@ pub fn init(device: gpu.Device, info: gpu.Image.InitInfo) !gpu.Image {
 
     this.memory_region = try device.vk.allocateMemory(device.vk.device.getImageMemoryRequirements(this.image), properties);
     errdefer device.vk.freeMemory(this.memory_region);
-    try device.vk.device.bindImageMemory(this.image, this.memory_region.memory, this.memory_region.offset);
+    device.vk.device.bindImageMemory(this.image, this.memory_region.memory, this.memory_region.offset) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.Unknown => error.Unknown,
+    };
 
     this.format_ = info.format;
     return .{ .vk = this };
@@ -69,11 +80,11 @@ pub const View = struct {
 
     image_view: vk.ImageView,
 
-    pub fn init(device: gpu.Device, info: gpu.Image.View.InitInfo) !gpu.Image.View {
+    pub fn init(device: gpu.Device, info: gpu.Image.View.InitInfo) gpu.Image.View.InitError!gpu.Image.View {
         var this: View = undefined;
 
         const vk_alloc: ?*vk.AllocationCallbacks = null;
-        this.image_view = try device.vk.device.createImageView(&.{
+        this.image_view = device.vk.device.createImageView(&.{
             .image = info.image.vk.image,
             .view_type = switch (info.kind) {
                 .@"2d" => .@"2d",
@@ -93,7 +104,13 @@ pub const View = struct {
                 .base_array_layer = info.subresource_range.layer_offset,
                 .layer_count = if (info.subresource_range.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
             },
-        }, vk_alloc);
+        }, vk_alloc) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            // only happens with buffer device address
+            error.InvalidOpaqueCaptureAddressKHR => unreachable,
+            error.Unknown => error.Unknown,
+        };
 
         return .{ .vk = this };
     }

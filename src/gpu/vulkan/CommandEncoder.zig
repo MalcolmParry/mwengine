@@ -12,13 +12,17 @@ pub const Handle = CommandEncoder;
 command_buffer: vk.CommandBuffer,
 dispatch: *const vk.DeviceWrapper,
 
-pub fn init(device: gpu.Device) !gpu.CommandEncoder {
+pub fn init(device: gpu.Device) gpu.CommandEncoder.InitError!gpu.CommandEncoder {
     var command_buffer: vk.CommandBuffer = .null_handle;
-    try device.vk.device.allocateCommandBuffers(&.{
+    device.vk.device.allocateCommandBuffers(&.{
         .command_pool = device.vk.command_pool,
         .level = .primary,
         .command_buffer_count = 1,
-    }, @ptrCast(&command_buffer));
+    }, @ptrCast(&command_buffer)) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.Unknown => error.Unknown,
+    };
 
     return .{ .vk = .{
         .command_buffer = command_buffer,
@@ -30,15 +34,24 @@ pub fn deinit(this: gpu.CommandEncoder, device: gpu.Device) void {
     device.vk.device.freeCommandBuffers(device.vk.command_pool, 1, @ptrCast(&this.vk.command_buffer));
 }
 
-pub fn begin(this: gpu.CommandEncoder) !void {
+pub fn begin(this: gpu.CommandEncoder) gpu.CommandEncoder.BeginError!void {
     try this.vk.dispatch.resetCommandBuffer(this.vk.command_buffer, .{});
-    try this.vk.dispatch.beginCommandBuffer(this.vk.command_buffer, &.{
+    this.vk.dispatch.beginCommandBuffer(this.vk.command_buffer, &.{
         .flags = .{},
-    });
+    }) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.Unknown => error.Unknown,
+    };
 }
 
-pub fn end(this: gpu.CommandEncoder) !void {
-    try this.vk.dispatch.endCommandBuffer(this.vk.command_buffer);
+pub fn end(this: gpu.CommandEncoder) gpu.CommandEncoder.EndError!void {
+    this.vk.dispatch.endCommandBuffer(this.vk.command_buffer) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.InvalidVideoStdParametersKHR => unreachable,
+        error.Unknown => error.Unknown,
+    };
 }
 
 pub fn cmdCopyBuffer(cmd_encoder: gpu.CommandEncoder, src: gpu.Buffer.Region, dst: gpu.Buffer.Region) void {

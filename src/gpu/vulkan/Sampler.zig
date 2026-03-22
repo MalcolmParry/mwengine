@@ -5,11 +5,11 @@ pub const Handle = @This();
 
 sampler: vk.Sampler,
 
-pub fn init(device: gpu.Device, info: gpu.Sampler.InitInfo) !gpu.Sampler {
+pub fn init(device: gpu.Device, info: gpu.Sampler.InitInfo) gpu.Sampler.InitError!gpu.Sampler {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     var sampler: gpu.Sampler = undefined;
 
-    sampler.vk.sampler = try device.vk.device.createSampler(&.{
+    sampler.vk.sampler = device.vk.device.createSampler(&.{
         .min_filter = filterToNative(info.min_filter),
         .mag_filter = filterToNative(info.mag_filter),
         .address_mode_u = addrModeToNative(info.address_mode_u),
@@ -25,7 +25,13 @@ pub fn init(device: gpu.Device, info: gpu.Sampler.InitInfo) !gpu.Sampler {
         .mip_lod_bias = info.lod_bias,
         .min_lod = info.min_lod,
         .max_lod = if (info.max_lod) |x| x else vk.LOD_CLAMP_NONE,
-    }, vk_alloc);
+    }, vk_alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        // only happens with buffer device address
+        error.InvalidOpaqueCaptureAddressKHR => unreachable,
+        error.Unknown => error.Unknown,
+    };
 
     return sampler;
 }

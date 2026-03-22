@@ -185,10 +185,18 @@ pub fn allocateMemory(this: *Device, requirements: vk.MemoryRequirements, proper
         return error.NoSuitableMemoryType;
     };
 
-    const memory = try this.device.allocateMemory(&.{
+    const memory = this.device.allocateMemory(&.{
         .allocation_size = requirements.size,
         .memory_type_index = mem_index,
-    }, vk_alloc);
+    }, vk_alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        // only happens with buffer device address
+        error.InvalidOpaqueCaptureAddressKHR => unreachable,
+        // only happens with extensions in pnext
+        error.InvalidExternalHandle => unreachable,
+        error.Unknown => error.Unknown,
+    };
 
     return .{
         .memory = memory,

@@ -35,6 +35,7 @@ pub const Error = error{
     NotSupported,
     NoSuitableDevice,
     NoSuitableQueue,
+    NoSuitableMemoryType,
     DeviceLost,
     SurfaceLost,
     SurfaceInUse,
@@ -518,7 +519,14 @@ pub const GraphicsPipeline = union {
         depth_mode: DepthMode,
     };
 
-    pub fn init(device: Device, info: CreateInfo) anyerror!GraphicsPipeline {
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        InvalidShader,
+        Unknown,
+    };
+
+    pub fn init(device: Device, info: CreateInfo) InitError!GraphicsPipeline {
         return call(device, @src(), "GraphicsPipeline", .{ device, info });
     }
 
@@ -755,7 +763,15 @@ pub const Image = union {
         mip_count: u32 = 1,
     };
 
-    pub fn init(device: Device, info: InitInfo) anyerror!Image {
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        NoSuitableMemoryType,
+        CompressionExhaused,
+        Unknown,
+    };
+
+    pub fn init(device: Device, info: InitInfo) InitError!Image {
         return call(device, @src(), "Image", .{ device, info });
     }
 
@@ -807,7 +823,13 @@ pub const Image = union {
             subresource_range: Subresource.Range,
         };
 
-        pub fn init(device: Device, info: View.InitInfo) anyerror!View {
+        pub const InitError = error{
+            OutOfMemory,
+            OutOfDeviceMemory,
+            Unknown,
+        };
+
+        pub fn init(device: Device, info: View.InitInfo) View.InitError!View {
             return call(device, @src(), .{ "Image", "View" }, .{ device, info });
         }
 
@@ -888,7 +910,13 @@ pub const Sampler = union {
         max_lod: ?f32 = null,
     };
 
-    pub fn init(device: Device, info: InitInfo) anyerror!Sampler {
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        Unknown,
+    };
+
+    pub fn init(device: Device, info: InitInfo) InitError!Sampler {
         return call(device, @src(), "Sampler", .{ device, info });
     }
 
@@ -930,7 +958,15 @@ pub const BufferBarrier = struct {
 pub const CommandEncoder = union(Api) {
     vk: vk.CommandEncoder.Handle,
 
-    pub fn init(device: Device) anyerror!CommandEncoder {
+    pub const BeginError = InitError;
+    pub const EndError = InitError;
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        Unknown,
+    };
+
+    pub fn init(device: Device) InitError!CommandEncoder {
         return call(device, @src(), "CommandEncoder", .{device});
     }
 
@@ -938,11 +974,11 @@ pub const CommandEncoder = union(Api) {
         return call(device, @src(), "CommandEncoder", .{ this, device });
     }
 
-    pub fn begin(this: CommandEncoder) anyerror!void {
+    pub fn begin(this: CommandEncoder) BeginError!void {
         return call(this, @src(), "CommandEncoder", .{this});
     }
 
-    pub fn end(this: CommandEncoder) anyerror!void {
+    pub fn end(this: CommandEncoder) EndError!void {
         return call(this, @src(), "CommandEncoder", .{this});
     }
 
