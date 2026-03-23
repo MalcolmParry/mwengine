@@ -10,7 +10,7 @@ buffer: vk.Buffer,
 memory_region: MemoryRegion,
 size_: gpu.Size,
 
-pub fn init(device: gpu.Device, info: gpu.Buffer.CreateInfo) !gpu.Buffer {
+pub fn init(device: gpu.Device, info: gpu.Buffer.CreateInfo) gpu.Buffer.InitError!gpu.Buffer {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const this = try info.alloc.create(Buffer);
     errdefer info.alloc.destroy(this);
@@ -24,11 +24,17 @@ pub fn init(device: gpu.Device, info: gpu.Buffer.CreateInfo) !gpu.Buffer {
     };
 
     this.size_ = info.size;
-    this.buffer = try device.vk.device.createBuffer(&.{
+    this.buffer = device.vk.device.createBuffer(&.{
         .size = info.size,
         .usage = vk_usage,
         .sharing_mode = .exclusive,
-    }, vk_alloc);
+    }, vk_alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.InvalidOpaqueCaptureAddressKHR,
+        error.Unknown,
+        => error.Unknown,
+    };
     errdefer device.vk.device.destroyBuffer(this.buffer, vk_alloc);
 
     const properties: vk.MemoryPropertyFlags = switch (info.loc) {
@@ -38,7 +44,13 @@ pub fn init(device: gpu.Device, info: gpu.Buffer.CreateInfo) !gpu.Buffer {
 
     this.memory_region = try device.vk.allocateMemory(device.vk.device.getBufferMemoryRequirements(this.buffer), properties);
     errdefer device.vk.freeMemory(this.memory_region);
-    try device.vk.device.bindBufferMemory(this.buffer, this.memory_region.memory, this.memory_region.offset);
+    device.vk.device.bindBufferMemory(this.buffer, this.memory_region.memory, this.memory_region.offset) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.InvalidOpaqueCaptureAddressKHR,
+        error.Unknown,
+        => error.Unknown,
+    };
 
     return .{ .vk = this };
 }
@@ -55,7 +67,7 @@ pub fn size(this: gpu.Buffer) gpu.Size {
 }
 
 pub const Region = struct {
-    pub fn map(this: gpu.Buffer.Region, device: gpu.Device) ![]u8 {
+    pub fn map(this: gpu.Buffer.Region, device: gpu.Device) gpu.Buffer.MapError![]u8 {
         const vk_size = switch (this.size_or_whole) {
             .size => |x| x,
             .whole => vk.WHOLE_SIZE,
@@ -66,7 +78,14 @@ pub const Region = struct {
             .whole => this.buffer.vk.size_,
         };
 
-        const data = (try device.vk.device.mapMemory(this.buffer.vk.memory_region.memory, this.offset, vk_size, .{})).?;
+        const result = device.vk.device.mapMemory(this.buffer.vk.memory_region.memory, this.offset, vk_size, .{}) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            error.MemoryMapFailed => error.MemoryMapFailed,
+            error.Unknown => error.Unknown,
+        };
+
+        const data = result.?;
         const many_ptr: [*]u8 = @ptrCast(data);
         return many_ptr[0..size_];
     }

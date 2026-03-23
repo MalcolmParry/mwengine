@@ -7,11 +7,15 @@ pub const Semaphore = struct {
 
     pub const Handle = Semaphore;
 
-    pub fn init(device: gpu.Device) !gpu.Semaphore {
+    pub fn init(device: gpu.Device) gpu.Semaphore.InitError!gpu.Semaphore {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
-        const semaphore = try device.vk.device.createSemaphore(&.{
+        const semaphore = device.vk.device.createSemaphore(&.{
             .flags = .{},
-        }, vk_alloc);
+        }, vk_alloc) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            error.Unknown => error.Unknown,
+        };
 
         return .{ .vk = .{ .semaphore = semaphore } };
     }
@@ -32,13 +36,17 @@ pub const Fence = struct {
 
     pub const Handle = Fence;
 
-    pub fn init(device: gpu.Device, signaled: bool) !gpu.Fence {
+    pub fn init(device: gpu.Device, signaled: bool) gpu.Fence.InitError!gpu.Fence {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
-        const fence = try device.vk.device.createFence(&.{
+        const fence = device.vk.device.createFence(&.{
             .flags = .{
                 .signaled_bit = signaled,
             },
-        }, vk_alloc);
+        }, vk_alloc) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            error.Unknown => error.Unknown,
+        };
 
         return .{ .vk = .{ .fence = fence } };
     }
@@ -48,24 +56,39 @@ pub const Fence = struct {
         device.vk.device.destroyFence(this.vk.fence, vk_alloc);
     }
 
-    pub fn reset(this: gpu.Fence, device: gpu.Device) !void {
+    pub fn reset(this: gpu.Fence, device: gpu.Device) gpu.Fence.ResetError!void {
         try device.vk.device.resetFences(1, @ptrCast(&this.vk.fence));
     }
 
-    pub fn waitMany(these: []const gpu.Fence, device: gpu.Device, how_many: gpu.Fence.WaitForEnum, timeout_ns: ?u64) !void {
+    pub fn waitMany(these: []const gpu.Fence, device: gpu.Device, how_many: gpu.Fence.WaitForEnum, timeout_ns: ?u64) gpu.Fence.WaitForError!void {
         const wait_all: vk.Bool32 = switch (how_many) {
             .single => .false,
             .all => .true,
         };
-        return switch (try device.vk.device.waitForFences(@intCast(these.len), nativesFromSlice(these).?, wait_all, timeout_ns orelse std.math.maxInt(u64))) {
+
+        const result = device.vk.device.waitForFences(@intCast(these.len), nativesFromSlice(these).?, wait_all, timeout_ns orelse std.math.maxInt(u64)) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            error.DeviceLost => error.DeviceLost,
+            error.Unknown => error.Unknown,
+        };
+
+        return switch (result) {
             .success => {},
             .timeout => error.Timeout,
             else => unreachable,
         };
     }
 
-    pub fn checkSignaled(this: gpu.Fence, device: gpu.Device) !bool {
-        return switch (try device.vk.device.getFenceStatus(this.vk.fence)) {
+    pub fn checkSignaled(this: gpu.Fence, device: gpu.Device) gpu.Fence.CheckSignaledError!bool {
+        const status = device.vk.device.getFenceStatus(this.vk.fence) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            error.DeviceLost => error.DeviceLost,
+            error.Unknown => error.Unknown,
+        };
+
+        return switch (status) {
             .success => true,
             .not_ready => false,
             else => unreachable,

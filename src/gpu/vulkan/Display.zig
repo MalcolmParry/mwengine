@@ -29,25 +29,8 @@ pub fn init(device: gpu.Device, window: *Window, alloc: std.mem.Allocator) gpu.D
     this.swapchain = .null_handle;
     errdefer this.instance.destroySurfaceKHR(this.surface, vk_alloc);
 
-    this.surface_format = chooseSurfaceFormat(this.instance.wrapper, device.vk.phys, this.surface, alloc) catch |err| return switch (err) {
-        error.OutOfHostMemory, error.OutOfMemory => error.OutOfMemory,
-        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
-        error.SurfaceLostKHR => error.SurfaceLost,
-        error.Unknown => error.Unknown,
-    };
-
-    this.initSwapchain(window.getFramebufferSize(), alloc) catch |err| return switch (err) {
-        error.OutOfHostMemory, error.OutOfMemory => error.OutOfMemory,
-        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
-        error.SurfaceLostKHR => error.SurfaceLost,
-        error.DeviceLost => error.DeviceLost,
-        error.InitializationFailed => error.InitFailed,
-        error.NativeWindowInUseKHR => error.SurfaceInUse,
-        error.CompressionExhaustedEXT,
-        error.InvalidOpaqueCaptureAddressKHR,
-        error.Unknown,
-        => error.Unknown,
-    };
+    this.surface_format = try chooseSurfaceFormat(this.instance.wrapper, device.vk.phys, this.surface, alloc);
+    try this.initSwapchain(window.getFramebufferSize(), alloc);
 
     return .{ .vk = this };
 }
@@ -122,7 +105,7 @@ pub fn presentImage(this: gpu.Display, index: u32, wait_semaphores: []const gpu.
     };
 }
 
-pub fn rebuild(this: gpu.Display, image_size: @Vector(2, u32), alloc: std.mem.Allocator) !void {
+pub fn rebuild(this: gpu.Display, image_size: @Vector(2, u32), alloc: std.mem.Allocator) gpu.Display.RebuildError!void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const old_swapchain = this.vk.swapchain;
     this.vk.deinitSwapchain(alloc);
@@ -155,7 +138,12 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     const old_swapchain: vk.SwapchainKHR = this.swapchain;
     this.image_size = image_size;
 
-    const capabilities = try this.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this.device.phys, this.surface);
+    const capabilities = this.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this.device.phys, this.surface) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.SurfaceLostKHR => error.SurfaceLost,
+        error.Unknown => error.Unknown,
+    };
 
     var min_image_count = capabilities.min_image_count + 1;
     if (capabilities.max_image_count > 0 and min_image_count > capabilities.max_image_count) {
@@ -163,7 +151,7 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     }
 
     const extent = try this.chooseSwapExtent(image_size);
-    this.swapchain = try this.device.device.createSwapchainKHR(&.{
+    this.swapchain = this.device.device.createSwapchainKHR(&.{
         .surface = this.surface,
         .min_image_count = min_image_count,
         .image_format = this.surface_format.format,
@@ -185,9 +173,23 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
         .present_mode = .immediate_khr,
         .clipped = .true,
         .old_swapchain = old_swapchain,
-    }, vk_alloc);
+    }, vk_alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.SurfaceLostKHR => error.SurfaceLost,
+        error.DeviceLost => error.DeviceLost,
+        error.InitializationFailed => error.InitFailed,
+        error.NativeWindowInUseKHR => error.SurfaceInUse,
+        error.CompressionExhaustedEXT,
+        error.Unknown,
+        => error.Unknown,
+    };
 
-    const images = try this.device.device.getSwapchainImagesAllocKHR(this.swapchain, alloc);
+    const images = this.device.device.getSwapchainImagesAllocKHR(this.swapchain, alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory, error.OutOfMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.Unknown => error.Unknown,
+    };
     defer alloc.free(images);
 
     this.images = try alloc.alloc(gpu.Image, images.len);
@@ -205,7 +207,7 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     errdefer alloc.free(this.image_views);
     this.image_views = @ptrCast(image_views);
     for (images, image_views) |img, *img_view| {
-        img_view.* = try this.device.device.createImageView(&.{
+        img_view.* = this.device.device.createImageView(&.{
             .image = img,
             .view_type = .@"2d", // TODO: allow for different types
             .format = this.surface_format.format,
@@ -224,7 +226,13 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
                 .base_array_layer = 0,
                 .layer_count = 1,
             },
-        }, vk_alloc);
+        }, vk_alloc) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            error.InvalidOpaqueCaptureAddressKHR,
+            error.Unknown,
+            => error.Unknown,
+        };
     }
 }
 
@@ -243,7 +251,12 @@ fn deinitSwapchain(this: *Display, alloc: std.mem.Allocator) void {
 }
 
 fn chooseSurfaceFormat(dispatch: *const vk.InstanceWrapper, phys: vk.PhysicalDevice, surface: vk.SurfaceKHR, alloc: std.mem.Allocator) !vk.SurfaceFormatKHR {
-    const formats = try dispatch.getPhysicalDeviceSurfaceFormatsAllocKHR(phys, surface, alloc);
+    const formats = dispatch.getPhysicalDeviceSurfaceFormatsAllocKHR(phys, surface, alloc) catch |err| return switch (err) {
+        error.OutOfMemory, error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.SurfaceLostKHR => error.SurfaceLost,
+        error.Unknown => error.Unknown,
+    };
     defer alloc.free(formats);
 
     for (formats) |format| {
@@ -256,7 +269,12 @@ fn chooseSurfaceFormat(dispatch: *const vk.InstanceWrapper, phys: vk.PhysicalDev
 }
 
 fn chooseSwapExtent(this: *Display, image_size: @Vector(2, u32)) !vk.Extent2D {
-    const capabilities = try this.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this.device.phys, this.surface);
+    const capabilities = this.instance.getPhysicalDeviceSurfaceCapabilitiesKHR(this.device.phys, this.surface) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.SurfaceLostKHR => error.SurfaceLost,
+        error.Unknown => error.Unknown,
+    };
 
     if (capabilities.current_extent.width != std.math.maxInt(u32))
         return capabilities.current_extent;

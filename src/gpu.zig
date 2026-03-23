@@ -36,11 +36,15 @@ pub const Error = error{
     NoSuitableDevice,
     NoSuitableQueue,
     NoSuitableMemoryType,
+    OutOfPoolMemory,
+    FragmentedPool,
+    Fragmentation,
     DeviceLost,
     SurfaceLost,
     SurfaceInUse,
     Timeout,
     OutOfDate,
+    MemoryMapFailed,
     Unknown,
 };
 
@@ -251,7 +255,8 @@ pub const Display = union(Api) {
         return call(this, @src(), "Display", .{ this, index, wait_semaphores, maybe_signal_fence });
     }
 
-    pub fn rebuild(this: Display, image_size: Image.Size2D, alloc: std.mem.Allocator) anyerror!void {
+    pub const RebuildError = InitError;
+    pub fn rebuild(this: Display, image_size: Image.Size2D, alloc: std.mem.Allocator) RebuildError!void {
         return call(this, @src(), "Display", .{ this, image_size, alloc });
     }
 
@@ -571,7 +576,13 @@ pub const RenderTarget = struct {
 pub const Semaphore = union {
     vk: vk.Semaphore.Handle,
 
-    pub fn init(device: Device) anyerror!Semaphore {
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        Unknown,
+    };
+
+    pub fn init(device: Device) InitError!Semaphore {
         return call(device, @src(), "Semaphore", .{device});
     }
 
@@ -583,7 +594,13 @@ pub const Semaphore = union {
 pub const Fence = union {
     vk: vk.Fence.Handle,
 
-    pub fn init(device: Device, signaled: bool) anyerror!Fence {
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        Unknown,
+    };
+
+    pub fn init(device: Device, signaled: bool) InitError!Fence {
         return call(device, @src(), "Fence", .{ device, signaled });
     }
 
@@ -591,21 +608,34 @@ pub const Fence = union {
         return call(device, @src(), "Fence", .{ this, device });
     }
 
-    pub fn reset(this: Fence, device: Device) anyerror!void {
+    pub const ResetError = error{
+        OutOfDeviceMemory,
+        Unknown,
+    };
+
+    pub fn reset(this: Fence, device: Device) ResetError!void {
         return call(device, @src(), "Fence", .{ this, device });
     }
 
     pub const WaitForEnum = enum { single, all };
+    pub const WaitForError = CheckSignaledError || error{Timeout};
 
-    pub fn waitMany(these: []const Fence, device: Device, how_many: WaitForEnum, timeout_ns: ?u64) anyerror!void {
+    pub fn waitMany(these: []const Fence, device: Device, how_many: WaitForEnum, timeout_ns: ?u64) WaitForError!void {
         return call(device, @src(), "Fence", .{ these, device, how_many, timeout_ns });
     }
 
-    pub fn wait(this: Fence, device: Device, timeout_ns: ?u64) anyerror!void {
+    pub fn wait(this: Fence, device: Device, timeout_ns: ?u64) WaitForError!void {
         try waitMany(&.{this}, device, .all, timeout_ns);
     }
 
-    pub fn checkSignaled(this: Fence, device: Device) anyerror!bool {
+    pub const CheckSignaledError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        DeviceLost,
+        Unknown,
+    };
+
+    pub fn checkSignaled(this: Fence, device: Device) CheckSignaledError!bool {
         return call(device, @src(), "Fence", .{ this, device });
     }
 };
@@ -613,7 +643,16 @@ pub const Fence = union {
 pub const ResourceSet = union {
     vk: vk.ResourceSet.Handle,
 
-    pub fn init(device: Device, layout: Layout, alloc: std.mem.Allocator) anyerror!ResourceSet {
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        OutOfPoolMemory,
+        FragmentedPool,
+        Fragmentation,
+        Unknown,
+    };
+
+    pub fn init(device: Device, layout: Layout, alloc: std.mem.Allocator) InitError!ResourceSet {
         return call(device, @src(), "ResourceSet", .{ device, layout, alloc });
     }
 
@@ -635,7 +674,8 @@ pub const ResourceSet = union {
         },
     };
 
-    pub fn update(this: ResourceSet, device: Device, writes: []const Write, alloc: std.mem.Allocator) anyerror!void {
+    // TODO: remove allocations
+    pub fn update(this: ResourceSet, device: Device, writes: []const Write, alloc: std.mem.Allocator) std.mem.Allocator.Error!void {
         return call(device, @src(), "ResourceSet", .{ this, device, writes, alloc });
     }
 
@@ -664,7 +704,13 @@ pub const ResourceSet = union {
             descriptors: []const Descriptor,
         };
 
-        pub fn init(device: Device, info: CreateInfo) anyerror!Layout {
+        pub const InitError = error{
+            OutOfMemory,
+            OutOfDeviceMemory,
+            Unknown,
+        };
+
+        pub fn init(device: Device, info: CreateInfo) Layout.InitError!Layout {
             return call(device, @src(), .{ "ResourceSet", "Layout" }, .{ device, info });
         }
 
@@ -700,7 +746,14 @@ pub const Buffer = union {
         size: Size,
     };
 
-    pub fn init(device: Device, info: CreateInfo) anyerror!Buffer {
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        NoSuitableMemoryType,
+        Unknown,
+    };
+
+    pub fn init(device: Device, info: CreateInfo) InitError!Buffer {
         return call(device, @src(), "Buffer", .{ device, info });
     }
 
@@ -708,7 +761,14 @@ pub const Buffer = union {
         return call(device, @src(), "Buffer", .{ this, device, alloc });
     }
 
-    pub fn map(this: Buffer, device: Device) ![]u8 {
+    pub const MapError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        MemoryMapFailed,
+        Unknown,
+    };
+
+    pub fn map(this: Buffer, device: Device) MapError![]u8 {
         return this.region().map(device);
     }
 
@@ -733,7 +793,7 @@ pub const Buffer = union {
         offset: Size,
         size_or_whole: SizeOrWhole,
 
-        pub fn map(this: Region, device: Device) anyerror![]u8 {
+        pub fn map(this: Region, device: Device) MapError![]u8 {
             return call(device, @src(), .{ "Buffer", "Region" }, .{ this, device });
         }
 

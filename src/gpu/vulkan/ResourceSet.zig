@@ -11,23 +11,34 @@ pub const Handle = *ResourceSet;
 descriptor_pool: vk.DescriptorPool,
 descriptor_set: vk.DescriptorSet,
 
-pub fn init(device: gpu.Device, layout: gpu.ResourceSet.Layout, alloc: std.mem.Allocator) !gpu.ResourceSet {
+pub fn init(device: gpu.Device, layout: gpu.ResourceSet.Layout, alloc: std.mem.Allocator) gpu.ResourceSet.InitError!gpu.ResourceSet {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const this = try alloc.create(ResourceSet);
     errdefer alloc.destroy(this);
 
-    this.descriptor_pool = try device.vk.device.createDescriptorPool(&.{
+    this.descriptor_pool = device.vk.device.createDescriptorPool(&.{
         .pool_size_count = @intCast(layout.vk.sizes.len),
         .p_pool_sizes = layout.vk.sizes.ptr,
         .max_sets = 1,
-    }, vk_alloc);
+    }, vk_alloc) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.FragmentationEXT => error.Fragmentation,
+        error.Unknown => error.Unknown,
+    };
     errdefer device.vk.device.destroyDescriptorPool(this.descriptor_pool, vk_alloc);
 
-    try device.vk.device.allocateDescriptorSets(&.{
+    device.vk.device.allocateDescriptorSets(&.{
         .descriptor_pool = this.descriptor_pool,
         .descriptor_set_count = 1,
         .p_set_layouts = @ptrCast(&layout.vk.layout),
-    }, @ptrCast(&this.descriptor_set));
+    }, @ptrCast(&this.descriptor_set)) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.OutOfPoolMemory => error.OutOfPoolMemory,
+        error.FragmentedPool => error.FragmentedPool,
+        error.Unknown => error.Unknown,
+    };
 
     return .{ .vk = this };
 }
@@ -127,7 +138,7 @@ pub const Layout = struct {
 
     pub const Handle = *Layout;
 
-    pub fn init(device: gpu.Device, info: gpu.ResourceSet.Layout.CreateInfo) !gpu.ResourceSet.Layout {
+    pub fn init(device: gpu.Device, info: gpu.ResourceSet.Layout.CreateInfo) gpu.ResourceSet.Layout.InitError!gpu.ResourceSet.Layout {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
         const this = try info.alloc.create(Layout);
         errdefer info.alloc.destroy(this);
@@ -172,11 +183,15 @@ pub const Layout = struct {
             .p_binding_flags = @ptrCast(binding_flags.ptr),
         };
 
-        this.layout = try device.vk.device.createDescriptorSetLayout(&.{
+        this.layout = device.vk.device.createDescriptorSetLayout(&.{
             .binding_count = @intCast(bindings.len),
             .p_bindings = @ptrCast(bindings.ptr),
             .p_next = @ptrCast(&flags_info),
-        }, vk_alloc);
+        }, vk_alloc) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            error.Unknown => error.Unknown,
+        };
         errdefer device.vk.device.destroyDescriptorSetLayout(this.layout, vk_alloc);
 
         return .{ .vk = this };
