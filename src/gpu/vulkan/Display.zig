@@ -3,7 +3,6 @@ const gpu = @import("../../gpu.zig");
 const Window = @import("../../Window.zig");
 const vk = @import("vulkan");
 const Device = @import("Device.zig");
-const Semaphore = @import("wait_objects.zig").Semaphore;
 const Image = @import("Image.zig");
 
 const Display = @This();
@@ -17,6 +16,12 @@ surface: vk.SurfaceKHR,
 surface_format: vk.SurfaceFormatKHR,
 instance: vk.InstanceProxy,
 device: *Device,
+
+image_available_semaphores: []vk.Semaphore,
+image_presentable_semaphores: []vk.Semaphore,
+
+pool_index: usize,
+image_available_semaphores_pool: []vk.Semaphore,
 
 pub fn init(device: gpu.Device, window: *Window, alloc: std.mem.Allocator) gpu.Display.InitError!gpu.Display {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
@@ -43,11 +48,11 @@ pub fn deinit(this: gpu.Display, alloc: std.mem.Allocator) void {
     alloc.destroy(this.vk);
 }
 
-pub fn acquireImageIndex(this: gpu.Display, maybe_signal_semaphore: ?gpu.Semaphore, maybe_signal_fence: ?gpu.Fence, timeout_ns: u64) gpu.Display.AcquireImageIndexError!gpu.Display.AcquireImageIndexResult {
-    const native_semaphore = if (maybe_signal_semaphore) |x| x.vk.semaphore else .null_handle;
-    const native_fence = if (maybe_signal_fence) |x| x.vk.fence else .null_handle;
+pub fn acquireImageIndex(this: gpu.Display, timeout_ns: u64) gpu.Display.AcquireImageIndexError!gpu.Display.AcquireImageIndexResult {
+    const native_semaphore = this.vk.image_available_semaphores_pool[this.vk.pool_index];
+    this.vk.pool_index = (this.vk.pool_index + 1) % this.vk.images.len;
 
-    const result = this.vk.device.device.acquireNextImageKHR(this.vk.swapchain, timeout_ns, native_semaphore, native_fence) catch |err| return switch (err) {
+    const result = this.vk.device.device.acquireNextImageKHR(this.vk.swapchain, timeout_ns, native_semaphore, .null_handle) catch |err| return switch (err) {
         error.OutOfDateKHR => error.OutOfDate,
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,
@@ -59,28 +64,28 @@ pub fn acquireImageIndex(this: gpu.Display, maybe_signal_semaphore: ?gpu.Semapho
         => error.Unknown,
     };
 
+    const optimal = switch (result.result) {
+        .success => true,
+        .suboptimal_khr => false,
+        .timeout => return error.Timeout,
+        // only happens when timeout is 0
+        .not_ready => unreachable,
+        else => unreachable,
+    };
+
+    this.vk.image_available_semaphores[result.image_index] = native_semaphore;
     return .{
         .image_index = result.image_index,
-        .optimal = switch (result.result) {
-            .success => true,
-            .suboptimal_khr => false,
-            .timeout => return error.Timeout,
-            // only happens when timeout is 0
-            .not_ready => unreachable,
-            else => unreachable,
-        },
+        .optimal = optimal,
     };
 }
 
-pub fn presentImage(this: gpu.Display, index: u32, wait_semaphores: []const gpu.Semaphore, maybe_signal_fence: ?gpu.Fence) gpu.Display.PresentImageError!void {
-    const maybe_fence_info: ?vk.SwapchainPresentFenceInfoEXT = if (maybe_signal_fence) |fence| .{
-        .swapchain_count = 1,
-        .p_fences = @ptrCast(&fence.vk.fence),
-    } else null;
+pub fn presentImage(this: gpu.Display, index: u32) gpu.Display.PresentImageError!void {
+    const maybe_fence_info: ?vk.SwapchainPresentFenceInfoEXT = null;
 
     const result = this.vk.device.device.queuePresentKHR(this.vk.device.queue, &.{
-        .wait_semaphore_count = @intCast(wait_semaphores.len),
-        .p_wait_semaphores = Semaphore.nativesFromSlice(wait_semaphores),
+        .wait_semaphore_count = 1,
+        .p_wait_semaphores = @ptrCast(&this.vk.image_presentable_semaphores[index]),
         .swapchain_count = 1,
         .p_swapchains = @ptrCast(&this.vk.swapchain),
         .p_image_indices = @ptrCast(&index),
@@ -193,6 +198,7 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     defer alloc.free(images);
 
     this.images = try alloc.alloc(gpu.Image, images.len);
+    errdefer alloc.free(this.images);
     const format = Image.formatFromNative(this.surface_format.format);
     for (this.images, images) |*x, native| {
         x.vk = try alloc.create(Image);
@@ -234,20 +240,47 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
             => error.Unknown,
         };
     }
+
+    this.image_available_semaphores = try alloc.alloc(vk.Semaphore, images.len);
+    errdefer alloc.free(this.image_available_semaphores);
+
+    this.pool_index = 0;
+    this.image_available_semaphores_pool = try alloc.alloc(vk.Semaphore, images.len);
+    errdefer alloc.free(this.image_available_semaphores_pool);
+    for (this.image_available_semaphores_pool) |*x| {
+        x.* = this.device.device.createSemaphore(&.{}, vk_alloc) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            error.Unknown => error.Unknown,
+        };
+    }
+
+    this.image_presentable_semaphores = try alloc.alloc(vk.Semaphore, images.len);
+    errdefer alloc.free(this.image_presentable_semaphores);
+    for (this.image_presentable_semaphores) |*x| {
+        x.* = this.device.device.createSemaphore(&.{}, vk_alloc) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            error.Unknown => error.Unknown,
+        };
+    }
 }
 
 fn deinitSwapchain(this: *Display, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
 
-    for (this.image_views) |image_view| {
-        this.device.device.destroyImageView(image_view.vk.image_view, vk_alloc);
-    }
-    alloc.free(this.image_views);
-
-    for (this.images) |img| {
+    for (this.images, this.image_views, this.image_available_semaphores_pool, this.image_presentable_semaphores) |img, view, available_semaphore, presentable_semaphore| {
+        this.device.device.destroySemaphore(presentable_semaphore, vk_alloc);
+        this.device.device.destroySemaphore(available_semaphore, vk_alloc);
+        this.device.device.destroyImageView(view.vk.image_view, vk_alloc);
         alloc.destroy(img.vk);
     }
+
     alloc.free(this.images);
+    alloc.free(this.image_views);
+    alloc.free(this.image_available_semaphores);
+    alloc.free(this.image_presentable_semaphores);
+    alloc.free(this.image_available_semaphores_pool);
 }
 
 fn chooseSurfaceFormat(dispatch: *const vk.InstanceWrapper, phys: vk.PhysicalDevice, surface: vk.SurfaceKHR, alloc: std.mem.Allocator) !vk.SurfaceFormatKHR {

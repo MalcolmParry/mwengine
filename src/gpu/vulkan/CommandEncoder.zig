@@ -1,7 +1,6 @@
 const std = @import("std");
 const gpu = @import("../../gpu.zig");
 const vk = @import("vulkan");
-const Semaphore = @import("wait_objects.zig").Semaphore;
 const ResourceSet = @import("ResourceSet.zig");
 const Image = @import("Image.zig");
 const Sampler = @import("Sampler.zig");
@@ -143,21 +142,9 @@ pub fn cmdCopyImageWithScaling(cmd_encoder: gpu.CommandEncoder, info: gpu.Comman
     );
 }
 
-pub fn stageToNative(stage: gpu.GraphicsPipeline.Stages) vk.PipelineStageFlags {
+pub fn stageToNative(stage: gpu.GraphicsPipeline.Stages) vk.PipelineStageFlags2KHR {
     return .{
-        .top_of_pipe_bit = stage.pipeline_start,
-        .bottom_of_pipe_bit = stage.pipeline_end,
-        .color_attachment_output_bit = stage.color_attachment_output,
-        .early_fragment_tests_bit = stage.early_depth_tests,
-        .transfer_bit = stage.transfer,
-        .vertex_input_bit = stage.vertex_input,
-        .vertex_shader_bit = stage.vertex_shader,
-        .fragment_shader_bit = stage.pixel_shader,
-    };
-}
-
-pub fn stageToNative2(stage: gpu.GraphicsPipeline.Stages) vk.PipelineStageFlags2KHR {
-    return .{
+        .all_commands_bit = stage.all_commands,
         .top_of_pipe_bit = stage.pipeline_start,
         .bottom_of_pipe_bit = stage.pipeline_end,
         .color_attachment_output_bit = stage.color_attachment_output,
@@ -197,8 +184,8 @@ pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, info: gpu.CommandEncoder.Memor
                 .image = barrier.image.vk.image,
                 .old_layout = Image.layoutToNative(barrier.old_layout),
                 .new_layout = Image.layoutToNative(barrier.new_layout),
-                .src_stage_mask = stageToNative2(barrier.src_stage),
-                .dst_stage_mask = stageToNative2(barrier.dst_stage),
+                .src_stage_mask = stageToNative(barrier.src_stage),
+                .dst_stage_mask = stageToNative(barrier.dst_stage),
                 .src_access_mask = accessToNative(barrier.src_access),
                 .dst_access_mask = accessToNative(barrier.dst_access),
                 .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
@@ -224,8 +211,8 @@ pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, info: gpu.CommandEncoder.Memor
                     .whole => vk.WHOLE_SIZE,
                 },
                 .offset = barrier.region.offset,
-                .src_stage_mask = stageToNative2(barrier.src_stage),
-                .dst_stage_mask = stageToNative2(barrier.dst_stage),
+                .src_stage_mask = stageToNative(barrier.src_stage),
+                .dst_stage_mask = stageToNative(barrier.dst_stage),
                 .src_access_mask = accessToNative(barrier.src_access),
                 .dst_access_mask = accessToNative(barrier.dst_access),
                 .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,

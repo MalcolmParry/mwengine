@@ -107,17 +107,24 @@ pub const Device = union(Api) {
         return call(this, @src(), "Device", .{ this, alloc });
     }
 
-    pub fn waitUntilIdle(this: Device) void {
+    pub const WaitIdleError = SubmitError;
+    pub fn waitUntilIdle(this: Device) SubmitError!void {
         return call(this, @src(), "Device", .{this});
     }
 
     pub const CommandSubmitInfo = struct {
+        pub const DisplaySyncPoint = struct {
+            display: Display,
+            index: Display.ImageIndex,
+            stages: GraphicsPipeline.Stages = .{ .all_commands = true },
+        };
+
         encoder: CommandEncoder,
-        wait_semaphores: []const Semaphore,
-        /// which stages in this command encoder will wait for the semaphore
-        wait_dst_stages: []const GraphicsPipeline.Stages,
-        signal_semaphores: []const Semaphore,
-        signal_fence: ?Fence,
+        waits: []const Timeline.Point = &.{},
+        signals: []const Timeline.Point = &.{},
+
+        display_image_available_waits: []const DisplaySyncPoint = &.{},
+        display_present_signals: []const DisplaySyncPoint = &.{},
     };
 
     pub const SubmitError = error{
@@ -194,9 +201,8 @@ pub const Device = union(Api) {
     pub const initResourceLayout = ResourceSet.Layout.init;
     pub const initResourceSet = ResourceSet.init;
     pub const initCommandEncoder = CommandEncoder.init;
-    pub const initSemaphore = Semaphore.init;
-    pub const initFence = Fence.init;
     pub const initGraphicsPipeline = GraphicsPipeline.init;
+    pub const initTimeline = Timeline.init;
 };
 
 pub const Display = union(Api) {
@@ -237,8 +243,8 @@ pub const Display = union(Api) {
         Unknown,
     };
 
-    pub fn acquireImageIndex(this: Display, maybe_signal_semaphore: ?Semaphore, maybe_signal_fence: ?Fence, timeout_ns: u64) AcquireImageIndexError!AcquireImageIndexResult {
-        return call(this, @src(), "Display", .{ this, maybe_signal_semaphore, maybe_signal_fence, timeout_ns });
+    pub fn acquireImageIndex(this: Display, timeout_ns: u64) AcquireImageIndexError!AcquireImageIndexResult {
+        return call(this, @src(), "Display", .{ this, timeout_ns });
     }
 
     pub const PresentImageError = error{
@@ -251,8 +257,8 @@ pub const Display = union(Api) {
         Unknown,
     };
 
-    pub fn presentImage(this: Display, index: ImageIndex, wait_semaphores: []const Semaphore, maybe_signal_fence: ?Fence) PresentImageError!void {
-        return call(this, @src(), "Display", .{ this, index, wait_semaphores, maybe_signal_fence });
+    pub fn presentImage(this: Display, index: ImageIndex) PresentImageError!void {
+        return call(this, @src(), "Display", .{ this, index });
     }
 
     pub const RebuildError = InitError;
@@ -479,6 +485,7 @@ pub const GraphicsPipeline = union {
     vk: vk.GraphicsPipeline.Handle,
 
     pub const Stages = packed struct {
+        all_commands: bool = false,
         pipeline_start: bool = false,
         pipeline_end: bool = false,
         color_attachment_output: bool = false,
@@ -571,73 +578,6 @@ pub const RenderTarget = struct {
         color_format: Image.Format,
         depth_format: ?Image.Format,
     };
-};
-
-pub const Semaphore = union {
-    vk: vk.Semaphore.Handle,
-
-    pub const InitError = error{
-        OutOfMemory,
-        OutOfDeviceMemory,
-        Unknown,
-    };
-
-    pub fn init(device: Device) InitError!Semaphore {
-        return call(device, @src(), "Semaphore", .{device});
-    }
-
-    pub fn deinit(this: Semaphore, device: Device) void {
-        return call(device, @src(), "Semaphore", .{ this, device });
-    }
-};
-
-pub const Fence = union {
-    vk: vk.Fence.Handle,
-
-    pub const InitError = error{
-        OutOfMemory,
-        OutOfDeviceMemory,
-        Unknown,
-    };
-
-    pub fn init(device: Device, signaled: bool) InitError!Fence {
-        return call(device, @src(), "Fence", .{ device, signaled });
-    }
-
-    pub fn deinit(this: Fence, device: Device) void {
-        return call(device, @src(), "Fence", .{ this, device });
-    }
-
-    pub const ResetError = error{
-        OutOfDeviceMemory,
-        Unknown,
-    };
-
-    pub fn reset(this: Fence, device: Device) ResetError!void {
-        return call(device, @src(), "Fence", .{ this, device });
-    }
-
-    pub const WaitForEnum = enum { single, all };
-    pub const WaitForError = CheckSignaledError || error{Timeout};
-
-    pub fn waitMany(these: []const Fence, device: Device, how_many: WaitForEnum, timeout_ns: ?u64) WaitForError!void {
-        return call(device, @src(), "Fence", .{ these, device, how_many, timeout_ns });
-    }
-
-    pub fn wait(this: Fence, device: Device, timeout_ns: ?u64) WaitForError!void {
-        try waitMany(&.{this}, device, .all, timeout_ns);
-    }
-
-    pub const CheckSignaledError = error{
-        OutOfMemory,
-        OutOfDeviceMemory,
-        DeviceLost,
-        Unknown,
-    };
-
-    pub fn checkSignaled(this: Fence, device: Device) CheckSignaledError!bool {
-        return call(device, @src(), "Fence", .{ this, device });
-    }
 };
 
 pub const ResourceSet = union {
@@ -1150,6 +1090,66 @@ pub const CompareOp = enum {
     not_equal,
     greater_or_equal,
     always,
+};
+
+pub const Timeline = union {
+    vk: vk.Timeline.Handle,
+
+    pub const Value = u64;
+    pub const InitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        Unknown,
+    };
+
+    pub fn init(device: Device, initial_value: Value) InitError!Timeline {
+        return call(device, @src(), "Timeline", .{ device, initial_value });
+    }
+
+    pub fn deinit(this: Timeline, device: Device) void {
+        return call(device, @src(), "Timeline", .{ this, device });
+    }
+
+    pub const WaitManyInfo = struct {
+        pub const HowMany = enum {
+            one,
+            all,
+        };
+
+        device: Device,
+        timeout_ns: u64,
+        how_many: HowMany,
+        timelines: []const Timeline,
+        values: []const Value,
+    };
+
+    pub const WaitError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        DeviceLost,
+        Timeout,
+        Unknown,
+    };
+
+    pub fn waitMany(info: WaitManyInfo) WaitError!void {
+        return call(info.device, @src(), "Timeline", .{info});
+    }
+
+    pub fn wait(timeline: Timeline, value: Value, timeout_ns: u64, device: Device) WaitError!void {
+        return waitMany(.{
+            .device = device,
+            .timeout_ns = timeout_ns,
+            .how_many = .all,
+            .timelines = &.{timeline},
+            .values = &.{value},
+        });
+    }
+
+    pub const Point = struct {
+        timeline: Timeline,
+        value: Timeline.Value,
+        stages: GraphicsPipeline.Stages = .{ .all_commands = true },
+    };
 };
 
 fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: anytype, args: anytype) CallRetType(src, type_name) {

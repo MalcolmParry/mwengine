@@ -4,12 +4,11 @@ const vk = @import("vulkan");
 const Instance = @import("Instance.zig");
 const Buffer = @import("Buffer.zig");
 const CommandEncoder = @import("CommandEncoder.zig");
-const Semaphore = @import("wait_objects.zig").Semaphore;
 
 const Device = @This();
 pub const Handle = *Device;
 
-pub const required_extensions: [8][*:0]const u8 = .{
+pub const required_extensions: [9][*:0]const u8 = .{
     vk.extensions.khr_synchronization_2.name,
     vk.extensions.khr_swapchain.name,
     vk.extensions.ext_swapchain_maintenance_1.name,
@@ -18,6 +17,7 @@ pub const required_extensions: [8][*:0]const u8 = .{
     vk.extensions.khr_create_renderpass_2.name,
     vk.extensions.khr_depth_stencil_resolve.name,
     vk.extensions.khr_dynamic_rendering.name,
+    vk.extensions.khr_timeline_semaphore.name,
 };
 
 pub const Physical = struct {
@@ -61,8 +61,13 @@ pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc:
         .p_queue_priorities = @ptrCast(&queue_priority),
     };
 
+    var timeline_semaphore: vk.PhysicalDeviceTimelineSemaphoreFeatures = .{
+        .timeline_semaphore = .true,
+    };
+
     var indexing: vk.PhysicalDeviceDescriptorIndexingFeatures = .{
         .descriptor_binding_partially_bound = .true,
+        .p_next = @ptrCast(&timeline_semaphore),
     };
 
     var swapchain_maintenance: vk.PhysicalDeviceSwapchainMaintenance1FeaturesEXT = .{
@@ -133,31 +138,72 @@ pub fn deinit(this: gpu.Device, alloc: std.mem.Allocator) void {
     alloc.destroy(this.vk);
 }
 
-pub fn waitUntilIdle(this: gpu.Device) void {
-    this.vk.device.deviceWaitIdle() catch @panic("failed to wait for device");
+pub fn waitUntilIdle(this: gpu.Device) gpu.Device.WaitIdleError!void {
+    this.vk.device.deviceWaitIdle() catch |err| return switch (err) {
+        error.DeviceLost => error.DeviceLost,
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.Unknown => error.Unknown,
+    };
+}
+
+fn getNativeSemaphoreSubmitInfos(
+    buffer: []vk.SemaphoreSubmitInfo,
+    timeline_points: []const gpu.Timeline.Point,
+    display_sync_points: []const gpu.Device.CommandSubmitInfo.DisplaySyncPoint,
+    kind: enum { wait, signal },
+) void {
+    std.debug.assert(timeline_points.len + display_sync_points.len <= buffer.len);
+
+    for (timeline_points, 0..) |point, i| {
+        buffer[i] = .{
+            .semaphore = point.timeline.vk.semaphore,
+            .value = point.value,
+            .stage_mask = CommandEncoder.stageToNative(point.stages),
+            .device_index = 0,
+        };
+    }
+
+    for (display_sync_points, timeline_points.len..) |point, i| {
+        buffer[i] = .{
+            .semaphore = switch (kind) {
+                .wait => point.display.vk.image_available_semaphores[point.index],
+                .signal => point.display.vk.image_presentable_semaphores[point.index],
+            },
+            .value = 0,
+            .stage_mask = CommandEncoder.stageToNative(point.stages),
+            .device_index = 0,
+        };
+    }
 }
 
 // TODO: update to new submit format
 pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) gpu.Device.SubmitError!void {
-    std.debug.assert(info.wait_semaphores.len == info.wait_dst_stages.len);
-    var wait_dst_stage_mask_buffer: [8]vk.PipelineStageFlags = undefined;
-    var wait_dst_stage_masks: std.ArrayList(vk.PipelineStageFlags) = .initBuffer(&wait_dst_stage_mask_buffer);
-    for (info.wait_dst_stages) |stage| {
-        wait_dst_stage_masks.appendAssumeCapacity(CommandEncoder.stageToNative(stage));
-    }
+    const max_semaphores = 16;
 
-    const native_fence: vk.Fence = if (info.signal_fence) |fence| fence.vk.fence else .null_handle;
-    const submit_info: vk.SubmitInfo = .{
-        .command_buffer_count = 1,
-        .p_command_buffers = @ptrCast(&info.encoder.vk.command_buffer),
-        .wait_semaphore_count = @intCast(info.wait_semaphores.len),
-        .p_wait_semaphores = Semaphore.nativesFromSlice(info.wait_semaphores),
-        .p_wait_dst_stage_mask = @ptrCast(wait_dst_stage_masks.items),
-        .signal_semaphore_count = @intCast(info.signal_semaphores.len),
-        .p_signal_semaphores = Semaphore.nativesFromSlice(info.signal_semaphores),
+    const wait_count = info.waits.len + info.display_image_available_waits.len;
+    var native_waits: [max_semaphores]vk.SemaphoreSubmitInfo = undefined;
+    getNativeSemaphoreSubmitInfos(&native_waits, info.waits, info.display_image_available_waits, .wait);
+
+    const signal_count = info.signals.len + info.display_present_signals.len;
+    var native_signals: [max_semaphores]vk.SemaphoreSubmitInfo = undefined;
+    getNativeSemaphoreSubmitInfos(&native_signals, info.signals, info.display_present_signals, .signal);
+
+    const command_buffer_info: vk.CommandBufferSubmitInfo = .{
+        .command_buffer = info.encoder.vk.command_buffer,
+        .device_mask = 1,
     };
 
-    this.vk.device.queueSubmit(this.vk.queue, 1, @ptrCast(&submit_info), native_fence) catch |err| return switch (err) {
+    const submit_info: vk.SubmitInfo2 = .{
+        .command_buffer_info_count = 1,
+        .p_command_buffer_infos = @ptrCast(&command_buffer_info),
+        .wait_semaphore_info_count = @intCast(wait_count),
+        .p_wait_semaphore_infos = @ptrCast(&native_waits),
+        .signal_semaphore_info_count = @intCast(signal_count),
+        .p_signal_semaphore_infos = @ptrCast(&native_signals),
+    };
+
+    this.vk.device.queueSubmit2KHR(this.vk.queue, 1, @ptrCast(&submit_info), .null_handle) catch |err| return switch (err) {
         error.DeviceLost => error.DeviceLost,
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,
