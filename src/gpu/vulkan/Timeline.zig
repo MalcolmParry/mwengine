@@ -51,3 +51,23 @@ pub fn waitMany(info: gpu.Timeline.WaitManyInfo) gpu.Timeline.WaitError!void {
         else => unreachable,
     };
 }
+
+pub fn getValue(timeline: gpu.Timeline, device: gpu.Device) gpu.Timeline.GetValueError!gpu.Timeline.Value {
+    return device.vk.device.getSemaphoreCounterValueKHR(timeline.vk.semaphore) catch |err| return switch (err) {
+        error.DeviceLost => error.DeviceLost,
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.Unknown => error.Unknown,
+    };
+}
+
+pub fn setValue(timeline: gpu.Timeline, device: gpu.Device, value: gpu.Timeline.Value) gpu.Timeline.SetValueError!void {
+    device.vk.device.signalSemaphoreKHR(&.{
+        .semaphore = timeline.vk.semaphore,
+        .value = value,
+    }) catch |err| return switch (err) {
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.Unknown => error.Unknown,
+    };
+}

@@ -1148,7 +1148,7 @@ pub const Timeline = union {
         return call(info.device, @src(), "Timeline", .{info});
     }
 
-    pub fn wait(timeline: Timeline, value: Value, timeout_ns: u64, device: Device) WaitError!void {
+    pub fn wait(timeline: Timeline, device: Device, value: Value, timeout_ns: u64) WaitError!void {
         return waitMany(.{
             .device = device,
             .timeout_ns = timeout_ns,
@@ -1156,6 +1156,27 @@ pub const Timeline = union {
             .timelines = &.{timeline},
             .values = &.{value},
         });
+    }
+
+    pub const GetValueError = error{
+        DeviceLost,
+        OutOfMemory,
+        OutOfDeviceMemory,
+        Unknown,
+    };
+
+    pub fn getValue(timeline: Timeline, device: Device) GetValueError!Value {
+        return call(device, @src(), "Timeline", .{ timeline, device });
+    }
+
+    pub const SetValueError = error{
+        OutOfMemory,
+        OutOfDeviceMemory,
+        Unknown,
+    };
+
+    pub fn setValue(timeline: Timeline, device: Device, value: Value) SetValueError!void {
+        return call(device, @src(), "Timeline", .{ timeline, device, value });
     }
 
     pub const Point = struct {
