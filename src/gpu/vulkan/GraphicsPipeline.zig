@@ -11,7 +11,7 @@ pub const Handle = *GraphicsPipeline;
 pipeline: vk.Pipeline,
 pipeline_layout: vk.PipelineLayout,
 
-pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.CreateInfo) gpu.GraphicsPipeline.InitError!gpu.GraphicsPipeline {
+pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.InitInfo) gpu.GraphicsPipeline.InitError!gpu.GraphicsPipeline {
     const this = try info.alloc.create(GraphicsPipeline);
     errdefer info.alloc.destroy(this);
 

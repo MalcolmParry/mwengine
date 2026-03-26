@@ -138,7 +138,7 @@ pub const Layout = struct {
 
     pub const Handle = *Layout;
 
-    pub fn init(device: gpu.Device, info: gpu.ResourceSet.Layout.CreateInfo) gpu.ResourceSet.Layout.InitError!gpu.ResourceSet.Layout {
+    pub fn init(device: gpu.Device, info: gpu.ResourceSet.Layout.InitInfo) gpu.ResourceSet.Layout.InitError!gpu.ResourceSet.Layout {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
         const this = try info.alloc.create(Layout);
         errdefer info.alloc.destroy(this);

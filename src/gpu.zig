@@ -532,7 +532,7 @@ pub const GraphicsPipeline = union {
         compare_op: CompareOp,
     };
 
-    pub const CreateInfo = struct {
+    pub const InitInfo = struct {
         alloc: std.mem.Allocator,
         render_target_desc: RenderTarget.Desc,
         resource_layouts: []const ResourceSet.Layout = &.{},
@@ -551,7 +551,7 @@ pub const GraphicsPipeline = union {
         Unknown,
     };
 
-    pub fn init(device: Device, info: CreateInfo) InitError!GraphicsPipeline {
+    pub fn init(device: Device, info: InitInfo) InitError!GraphicsPipeline {
         return call(device, @src(), "GraphicsPipeline", .{ device, info });
     }
 
@@ -652,7 +652,7 @@ pub const ResourceSet = union {
             count: u32,
         };
 
-        pub const CreateInfo = struct {
+        pub const InitInfo = struct {
             alloc: std.mem.Allocator,
             descriptors: []const Descriptor,
         };
@@ -663,7 +663,7 @@ pub const ResourceSet = union {
             Unknown,
         };
 
-        pub fn init(device: Device, info: CreateInfo) Layout.InitError!Layout {
+        pub fn init(device: Device, info: InitInfo) Layout.InitError!Layout {
             return call(device, @src(), .{ "ResourceSet", "Layout" }, .{ device, info });
         }
 
@@ -692,7 +692,7 @@ pub const Buffer = union {
         uniform: bool = false,
     };
 
-    pub const CreateInfo = struct {
+    pub const InitInfo = struct {
         alloc: std.mem.Allocator,
         loc: MemLocation,
         usage: Usage,
@@ -706,7 +706,7 @@ pub const Buffer = union {
         Unknown,
     };
 
-    pub fn init(device: Device, info: CreateInfo) InitError!Buffer {
+    pub fn init(device: Device, info: InitInfo) InitError!Buffer {
         return call(device, @src(), "Buffer", .{ device, info });
     }
 

@@ -10,7 +10,7 @@ buffer: vk.Buffer,
 memory_region: MemoryRegion,
 size_: gpu.Size,
 
-pub fn init(device: gpu.Device, info: gpu.Buffer.CreateInfo) gpu.Buffer.InitError!gpu.Buffer {
+pub fn init(device: gpu.Device, info: gpu.Buffer.InitInfo) gpu.Buffer.InitError!gpu.Buffer {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const this = try info.alloc.create(Buffer);
     errdefer info.alloc.destroy(this);
