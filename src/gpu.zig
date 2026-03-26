@@ -108,14 +108,14 @@ pub const Device = union(Api) {
     }
 
     pub const WaitIdleError = SubmitError;
-    pub fn waitUntilIdle(this: Device) SubmitError!void {
+    pub fn waitUntilIdle(this: Device) WaitIdleError!void {
         return call(this, @src(), "Device", .{this});
     }
 
     pub const CommandSubmitInfo = struct {
-        pub const DisplaySyncPoint = struct {
+        pub const DisplayImageSync = struct {
             display: Display,
-            index: Display.ImageIndex,
+            image: Display.AcquiredImage,
             stages: GraphicsPipeline.Stages = .{ .all_commands = true },
         };
 
@@ -123,8 +123,8 @@ pub const Device = union(Api) {
         waits: []const Timeline.Point = &.{},
         signals: []const Timeline.Point = &.{},
 
-        display_image_available_waits: []const DisplaySyncPoint = &.{},
-        display_present_signals: []const DisplaySyncPoint = &.{},
+        display_acquire_waits: []const DisplayImageSync = &.{},
+        display_present_signals: []const DisplayImageSync = &.{},
     };
 
     pub const SubmitError = error{
@@ -228,12 +228,12 @@ pub const Display = union(Api) {
     }
 
     pub const ImageIndex = u32;
-    pub const AcquireImageIndexResult = struct {
-        image_index: ImageIndex,
+    pub const AcquireImageResult = struct {
+        image: AcquiredImage,
         optimal: bool,
     };
 
-    pub const AcquireImageIndexError = error{
+    pub const AcquireImageError = error{
         DeviceLost,
         SurfaceLost,
         OutOfMemory,
@@ -243,23 +243,44 @@ pub const Display = union(Api) {
         Unknown,
     };
 
-    pub fn acquireImageIndex(this: Display, timeout_ns: u64) AcquireImageIndexError!AcquireImageIndexResult {
+    pub fn acquireImage(this: Display, timeout_ns: u64) AcquireImageError!AcquireImageResult {
         return call(this, @src(), "Display", .{ this, timeout_ns });
     }
 
-    pub const PresentImageError = error{
-        DeviceLost,
-        SurfaceLost,
-        OutOfMemory,
-        OutOfDeviceMemory,
-        OutOfDate,
-        Suboptimal,
-        Unknown,
-    };
+    /// exactly 1 queue submission can wait on this
+    /// also exactly 1 submission can signal presentation
+    pub const AcquiredImage = union {
+        vk: vk.Display.AcquiredImage.Handle,
 
-    pub fn presentImage(this: Display, index: ImageIndex) PresentImageError!void {
-        return call(this, @src(), "Display", .{ this, index });
-    }
+        pub const PresentError = error{
+            DeviceLost,
+            SurfaceLost,
+            OutOfMemory,
+            OutOfDeviceMemory,
+            OutOfDate,
+            Unknown,
+        };
+
+        pub const PresentResult = enum { success, suboptimal };
+
+        /// invalidates the AcquiredImage object
+        /// image layout must be .present_src
+        pub fn present(acquired_image: AcquiredImage, display: Display) PresentError!PresentResult {
+            return call(display, @src(), .{ "Display", "AcquiredImage" }, .{ acquired_image, display });
+        }
+
+        pub fn image(acquired_image: AcquiredImage, display: Display) Image {
+            return call(display, @src(), .{ "Display", "AcquiredImage" }, .{ acquired_image, display });
+        }
+
+        pub fn imageView(acquired_image: AcquiredImage, display: Display) Image.View {
+            return call(display, @src(), .{ "Display", "AcquiredImage" }, .{ acquired_image, display });
+        }
+
+        pub fn initialLayout(acquired_image: AcquiredImage, display: Display) Image.Layout {
+            return call(display, @src(), .{ "Display", "AcquiredImage" }, .{ acquired_image, display });
+        }
+    };
 
     pub const RebuildError = InitError;
     pub fn rebuild(this: Display, image_size: Image.Size2D, alloc: std.mem.Allocator) RebuildError!void {
@@ -276,14 +297,6 @@ pub const Display = union(Api) {
 
     pub fn imageSize(this: Display) Image.Size2D {
         return call(this, @src(), "Display", .{this});
-    }
-
-    pub fn image(this: Display, index: Display.ImageIndex) Image {
-        return call(this, @src(), "Display", .{ this, index });
-    }
-
-    pub fn imageView(this: Display, index: Display.ImageIndex) Image.View {
-        return call(this, @src(), "Display", .{ this, index });
     }
 };
 

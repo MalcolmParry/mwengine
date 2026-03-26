@@ -8,10 +8,9 @@ const CommandEncoder = @import("CommandEncoder.zig");
 const Device = @This();
 pub const Handle = *Device;
 
-pub const required_extensions: [9][*:0]const u8 = .{
+pub const required_extensions: [8][*:0]const u8 = .{
     vk.extensions.khr_synchronization_2.name,
     vk.extensions.khr_swapchain.name,
-    vk.extensions.ext_swapchain_maintenance_1.name,
     vk.extensions.khr_maintenance_2.name,
     vk.extensions.khr_multiview.name,
     vk.extensions.khr_create_renderpass_2.name,
@@ -70,14 +69,9 @@ pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc:
         .p_next = @ptrCast(&timeline_semaphore),
     };
 
-    var swapchain_maintenance: vk.PhysicalDeviceSwapchainMaintenance1FeaturesEXT = .{
-        .swapchain_maintenance_1 = .true,
-        .p_next = @ptrCast(&indexing),
-    };
-
     var dynamic_rendering: vk.PhysicalDeviceDynamicRenderingFeatures = .{
         .dynamic_rendering = .true,
-        .p_next = @ptrCast(&swapchain_maintenance),
+        .p_next = @ptrCast(&indexing),
     };
 
     var sync2: vk.PhysicalDeviceSynchronization2Features = .{
@@ -150,10 +144,10 @@ pub fn waitUntilIdle(this: gpu.Device) gpu.Device.WaitIdleError!void {
 fn getNativeSemaphoreSubmitInfos(
     buffer: []vk.SemaphoreSubmitInfo,
     timeline_points: []const gpu.Timeline.Point,
-    display_sync_points: []const gpu.Device.CommandSubmitInfo.DisplaySyncPoint,
+    display_image_syncs: []const gpu.Device.CommandSubmitInfo.DisplayImageSync,
     kind: enum { wait, signal },
 ) void {
-    std.debug.assert(timeline_points.len + display_sync_points.len <= buffer.len);
+    std.debug.assert(timeline_points.len + display_image_syncs.len <= buffer.len);
 
     for (timeline_points, 0..) |point, i| {
         buffer[i] = .{
@@ -164,14 +158,14 @@ fn getNativeSemaphoreSubmitInfos(
         };
     }
 
-    for (display_sync_points, timeline_points.len..) |point, i| {
+    for (display_image_syncs, timeline_points.len..) |sync, i| {
         buffer[i] = .{
             .semaphore = switch (kind) {
-                .wait => point.display.vk.image_available_semaphores[point.index],
-                .signal => point.display.vk.image_presentable_semaphores[point.index],
+                .wait => sync.image.vk.available_semaphore,
+                .signal => sync.display.vk.presentable_semaphores[sync.image.vk.index],
             },
             .value = 0,
-            .stage_mask = CommandEncoder.stageToNative(point.stages),
+            .stage_mask = CommandEncoder.stageToNative(sync.stages),
             .device_index = 0,
         };
     }
@@ -181,9 +175,9 @@ fn getNativeSemaphoreSubmitInfos(
 pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) gpu.Device.SubmitError!void {
     const max_semaphores = 16;
 
-    const wait_count = info.waits.len + info.display_image_available_waits.len;
+    const wait_count = info.waits.len + info.display_acquire_waits.len;
     var native_waits: [max_semaphores]vk.SemaphoreSubmitInfo = undefined;
-    getNativeSemaphoreSubmitInfos(&native_waits, info.waits, info.display_image_available_waits, .wait);
+    getNativeSemaphoreSubmitInfos(&native_waits, info.waits, info.display_acquire_waits, .wait);
 
     const signal_count = info.signals.len + info.display_present_signals.len;
     var native_signals: [max_semaphores]vk.SemaphoreSubmitInfo = undefined;

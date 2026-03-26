@@ -17,11 +17,10 @@ surface_format: vk.SurfaceFormatKHR,
 instance: vk.InstanceProxy,
 device: *Device,
 
-image_available_semaphores: []vk.Semaphore,
-image_presentable_semaphores: []vk.Semaphore,
-
-pool_index: usize,
-image_available_semaphores_pool: []vk.Semaphore,
+free_available_semaphores: std.ArrayList(vk.Semaphore),
+available_semaphores: []vk.Semaphore,
+presentable_semaphores: []vk.Semaphore,
+image_first_use: std.bit_set.StaticBitSet(64),
 
 pub fn init(device: gpu.Device, window: *Window, alloc: std.mem.Allocator) gpu.Display.InitError!gpu.Display {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
@@ -48,68 +47,6 @@ pub fn deinit(this: gpu.Display, alloc: std.mem.Allocator) void {
     alloc.destroy(this.vk);
 }
 
-pub fn acquireImageIndex(this: gpu.Display, timeout_ns: u64) gpu.Display.AcquireImageIndexError!gpu.Display.AcquireImageIndexResult {
-    const native_semaphore = this.vk.image_available_semaphores_pool[this.vk.pool_index];
-    this.vk.pool_index = (this.vk.pool_index + 1) % this.vk.images.len;
-
-    const result = this.vk.device.device.acquireNextImageKHR(this.vk.swapchain, timeout_ns, native_semaphore, .null_handle) catch |err| return switch (err) {
-        error.OutOfDateKHR => error.OutOfDate,
-        error.OutOfHostMemory => error.OutOfMemory,
-        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
-        error.DeviceLost => error.DeviceLost,
-        error.SurfaceLostKHR => error.SurfaceLost,
-        // full screen not supported yet
-        error.FullScreenExclusiveModeLostEXT,
-        error.Unknown,
-        => error.Unknown,
-    };
-
-    const optimal = switch (result.result) {
-        .success => true,
-        .suboptimal_khr => false,
-        .timeout => return error.Timeout,
-        // only happens when timeout is 0
-        .not_ready => unreachable,
-        else => unreachable,
-    };
-
-    this.vk.image_available_semaphores[result.image_index] = native_semaphore;
-    return .{
-        .image_index = result.image_index,
-        .optimal = optimal,
-    };
-}
-
-pub fn presentImage(this: gpu.Display, index: u32) gpu.Display.PresentImageError!void {
-    const maybe_fence_info: ?vk.SwapchainPresentFenceInfoEXT = null;
-
-    const result = this.vk.device.device.queuePresentKHR(this.vk.device.queue, &.{
-        .wait_semaphore_count = 1,
-        .p_wait_semaphores = @ptrCast(&this.vk.image_presentable_semaphores[index]),
-        .swapchain_count = 1,
-        .p_swapchains = @ptrCast(&this.vk.swapchain),
-        .p_image_indices = @ptrCast(&index),
-        .p_results = null,
-        .p_next = if (maybe_fence_info) |x| @ptrCast(&x) else null,
-    }) catch |err| return switch (err) {
-        error.OutOfDateKHR => error.OutOfDate,
-        error.OutOfHostMemory => error.OutOfMemory,
-        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
-        error.DeviceLost => error.DeviceLost,
-        error.SurfaceLostKHR => error.SurfaceLost,
-        // full screen not supported yet
-        error.FullScreenExclusiveModeLostEXT,
-        error.Unknown,
-        => error.Unknown,
-    };
-
-    return switch (result) {
-        .success => {},
-        .suboptimal_khr => error.Suboptimal,
-        else => unreachable,
-    };
-}
-
 pub fn rebuild(this: gpu.Display, image_size: @Vector(2, u32), alloc: std.mem.Allocator) gpu.Display.RebuildError!void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const old_swapchain = this.vk.swapchain;
@@ -130,14 +67,6 @@ pub fn imageSize(this: gpu.Display) @Vector(2, u32) {
     return this.vk.image_size;
 }
 
-pub fn image(this: gpu.Display, index: gpu.Display.ImageIndex) gpu.Image {
-    return this.vk.images[index];
-}
-
-pub fn imageView(this: gpu.Display, index: gpu.Display.ImageIndex) gpu.Image.View {
-    return this.vk.image_views[index];
-}
-
 fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.Allocator) !void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const old_swapchain: vk.SwapchainKHR = this.swapchain;
@@ -151,9 +80,8 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     };
 
     var min_image_count = capabilities.min_image_count + 1;
-    if (capabilities.max_image_count > 0 and min_image_count > capabilities.max_image_count) {
-        min_image_count = capabilities.max_image_count;
-    }
+    if (capabilities.max_image_count > 0)
+        min_image_count = @min(min_image_count, capabilities.max_image_count);
 
     const extent = try this.chooseSwapExtent(image_size);
     this.swapchain = this.device.device.createSwapchainKHR(&.{
@@ -210,7 +138,7 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     }
 
     const image_views = try alloc.alloc(vk.ImageView, images.len);
-    errdefer alloc.free(this.image_views);
+    errdefer alloc.free(image_views);
     this.image_views = @ptrCast(image_views);
     for (images, image_views) |img, *img_view| {
         img_view.* = this.device.device.createImageView(&.{
@@ -241,13 +169,9 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
         };
     }
 
-    this.image_available_semaphores = try alloc.alloc(vk.Semaphore, images.len);
-    errdefer alloc.free(this.image_available_semaphores);
-
-    this.pool_index = 0;
-    this.image_available_semaphores_pool = try alloc.alloc(vk.Semaphore, images.len);
-    errdefer alloc.free(this.image_available_semaphores_pool);
-    for (this.image_available_semaphores_pool) |*x| {
+    this.presentable_semaphores = try alloc.alloc(vk.Semaphore, images.len);
+    errdefer alloc.free(this.presentable_semaphores);
+    for (this.presentable_semaphores) |*x| {
         x.* = this.device.device.createSemaphore(&.{}, vk_alloc) catch |err| return switch (err) {
             error.OutOfHostMemory => error.OutOfMemory,
             error.OutOfDeviceMemory => error.OutOfDeviceMemory,
@@ -255,9 +179,16 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
         };
     }
 
-    this.image_presentable_semaphores = try alloc.alloc(vk.Semaphore, images.len);
-    errdefer alloc.free(this.image_presentable_semaphores);
-    for (this.image_presentable_semaphores) |*x| {
+    std.debug.assert(this.images.len <= 64);
+    this.image_first_use = .initFull();
+    this.available_semaphores = try alloc.alloc(vk.Semaphore, images.len);
+    errdefer alloc.free(this.available_semaphores);
+    @memset(this.available_semaphores, .null_handle);
+
+    // +1 is in case all images are acquired
+    this.free_available_semaphores = try .initCapacity(alloc, images.len + 1);
+    this.free_available_semaphores.items.len = images.len + 1;
+    for (this.free_available_semaphores.items) |*x| {
         x.* = this.device.device.createSemaphore(&.{}, vk_alloc) catch |err| return switch (err) {
             error.OutOfHostMemory => error.OutOfMemory,
             error.OutOfDeviceMemory => error.OutOfDeviceMemory,
@@ -269,18 +200,20 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
 fn deinitSwapchain(this: *Display, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
 
-    for (this.images, this.image_views, this.image_available_semaphores_pool, this.image_presentable_semaphores) |img, view, available_semaphore, presentable_semaphore| {
+    for (this.free_available_semaphores.items) |x| this.device.device.destroySemaphore(x, vk_alloc);
+    for (this.images, this.image_views, this.presentable_semaphores, this.available_semaphores) |img, view, presentable_semaphore, available_semaphore| {
+        if (available_semaphore != .null_handle)
+            this.device.device.destroySemaphore(available_semaphore, vk_alloc);
         this.device.device.destroySemaphore(presentable_semaphore, vk_alloc);
-        this.device.device.destroySemaphore(available_semaphore, vk_alloc);
         this.device.device.destroyImageView(view.vk.image_view, vk_alloc);
         alloc.destroy(img.vk);
     }
 
     alloc.free(this.images);
     alloc.free(this.image_views);
-    alloc.free(this.image_available_semaphores);
-    alloc.free(this.image_presentable_semaphores);
-    alloc.free(this.image_available_semaphores_pool);
+    alloc.free(this.presentable_semaphores);
+    alloc.free(this.available_semaphores);
+    this.free_available_semaphores.deinit(alloc);
 }
 
 fn chooseSurfaceFormat(dispatch: *const vk.InstanceWrapper, phys: vk.PhysicalDevice, surface: vk.SurfaceKHR, alloc: std.mem.Allocator) !vk.SurfaceFormatKHR {
@@ -317,3 +250,89 @@ fn chooseSwapExtent(this: *Display, image_size: @Vector(2, u32)) !vk.Extent2D {
         .height = std.math.clamp(image_size[1], capabilities.min_image_extent.height, capabilities.max_image_extent.height),
     };
 }
+
+pub fn acquireImage(this: gpu.Display, timeout_ns: u64) gpu.Display.AcquireImageError!gpu.Display.AcquireImageResult {
+    const available_semaphore = this.vk.free_available_semaphores.pop().?;
+
+    const result = this.vk.device.device.acquireNextImageKHR(this.vk.swapchain, timeout_ns, available_semaphore, .null_handle) catch |err| return switch (err) {
+        error.OutOfDateKHR => error.OutOfDate,
+        error.OutOfHostMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.DeviceLost => error.DeviceLost,
+        error.SurfaceLostKHR => error.SurfaceLost,
+        // full screen not supported yet
+        error.FullScreenExclusiveModeLostEXT,
+        error.Unknown,
+        => error.Unknown,
+    };
+
+    const optimal = switch (result.result) {
+        .success => true,
+        .suboptimal_khr => false,
+        .timeout => return error.Timeout,
+        // only happens when timeout is 0
+        .not_ready => unreachable,
+        else => unreachable,
+    };
+
+    if (this.vk.available_semaphores[result.image_index] != .null_handle)
+        this.vk.free_available_semaphores.appendAssumeCapacity(this.vk.available_semaphores[result.image_index]);
+    this.vk.available_semaphores[result.image_index] = available_semaphore;
+
+    return .{
+        .image = .{ .vk = .{
+            .index = result.image_index,
+            .available_semaphore = available_semaphore,
+        } },
+        .optimal = optimal,
+    };
+}
+
+pub const AcquiredImage = struct {
+    pub const Handle = AcquiredImage;
+
+    index: u32,
+    available_semaphore: vk.Semaphore,
+
+    pub fn present(acquired_image: gpu.Display.AcquiredImage, display: gpu.Display) gpu.Display.AcquiredImage.PresentError!gpu.Display.AcquiredImage.PresentResult {
+        display.vk.image_first_use.unset(@intCast(acquired_image.vk.index));
+        const presentable_semaphore = display.vk.presentable_semaphores[acquired_image.vk.index];
+
+        const result = display.vk.device.device.queuePresentKHR(display.vk.device.queue, &.{
+            .wait_semaphore_count = 1,
+            .p_wait_semaphores = @ptrCast(&presentable_semaphore),
+            .swapchain_count = 1,
+            .p_swapchains = @ptrCast(&display.vk.swapchain),
+            .p_image_indices = @ptrCast(&acquired_image.vk.index),
+            .p_results = null,
+        }) catch |err| return switch (err) {
+            error.OutOfDateKHR => error.OutOfDate,
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            error.DeviceLost => error.DeviceLost,
+            error.SurfaceLostKHR => error.SurfaceLost,
+            // full screen not supported yet
+            error.FullScreenExclusiveModeLostEXT,
+            error.Unknown,
+            => error.Unknown,
+        };
+
+        return switch (result) {
+            .success => .success,
+            .suboptimal_khr => .suboptimal,
+            else => unreachable,
+        };
+    }
+
+    pub fn image(acquired_image: gpu.Display.AcquiredImage, display: gpu.Display) gpu.Image {
+        return display.vk.images[acquired_image.vk.index];
+    }
+
+    pub fn imageView(acquired_image: gpu.Display.AcquiredImage, display: gpu.Display) gpu.Image.View {
+        return display.vk.image_views[acquired_image.vk.index];
+    }
+
+    pub fn initialLayout(acquired_image: gpu.Display.AcquiredImage, display: gpu.Display) gpu.Image.Layout {
+        return if (display.vk.image_first_use.isSet(@intCast(acquired_image.vk.index))) .undefined else .present_src;
+    }
+};
