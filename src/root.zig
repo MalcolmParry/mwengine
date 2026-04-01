@@ -6,7 +6,7 @@ pub const EventQueue = @import("events.zig").Queue;
 pub const math = @import("math.zig");
 pub const gpu = @import("gpu.zig");
 pub const DebugRenderer = @import("DebugRenderer.zig");
-pub const TTF = @import("TTF.zig");
+pub const text = @import("text.zig");
 
 test {
     _ = math;

@@ -454,24 +454,25 @@ pub fn toArray(x: anytype) ToArrayReturnType(@TypeOf(x)) {
     }
 }
 
-pub const SNorm16 = enum(i16) { _ };
+pub const UNorm16 = u16;
+pub const SNorm16 = i16;
 
 /// x must be between -1 and 1
-pub fn f32ToSNorm16(x: f32) SNorm16 {
-    const as_int: i16 = if (x == -1)
-        std.math.minInt(i16)
+pub fn normFromFloat(T: type, x: anytype) T {
+    return if (x == -1)
+        std.math.minInt(T)
     else
-        @intFromFloat(x * @as(comptime_float, std.math.maxInt(i16) - 1));
-
-    return @enumFromInt(as_int);
+        @intFromFloat(x * @as(comptime_float, std.math.maxInt(T)));
 }
 
-pub fn snorm16ToF32(x: SNorm16) f32 {
-    const as_int = @intFromEnum(x);
-    if (as_int == -32768) return -1;
+pub fn normToFloat(Float: type, x: anytype) Float {
+    const Norm = @TypeOf(x);
+    const signed = @typeInfo(Norm).int.signedness == .signed;
+    if (signed and x == std.math.minInt(Norm)) return -1;
+    if (x == std.math.maxInt(Norm)) return 1;
 
-    const big: f32 = @floatFromInt(as_int);
-    return big / 32767.0;
+    const big: Float = @floatFromInt(x);
+    return big / @as(comptime_float, std.math.maxInt(Norm));
 }
 
 test "dot" {

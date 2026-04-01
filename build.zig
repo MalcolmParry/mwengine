@@ -30,6 +30,10 @@ pub fn build(b: *Build) !void {
     module.addImport("glfw", glfw_mod);
     module.linkLibrary(glfw.artifact("glfw"));
 
+    const freetype = b.dependency("freetype", .{});
+    module.linkLibrary(freetype.artifact("freetype"));
+    module.addIncludePath(freetype.path(""));
+
     // test
     const unit_tests = b.addTest(.{
         .root_module = b.createModule(.{

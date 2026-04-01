@@ -21,5 +21,9 @@
             .url = "git+https://github.com/zig-gamedev/zglfw.git#15bf6ec59a4e1399d0c753455f69b28f09e41791",
             .hash = "zglfw-0.10.0-dev-zgVDNHO2IQDy_fSdwY5U4z42rHUuKgt7T9f-qmQ3FnuL",
         },
+        .freetype = .{
+            .url = "git+https://github.com/allyourcodebase/freetype.git#1082522e99fcc2554ca849cf5042878a371b5bd2",
+            .hash = "freetype-2.14.1-C3-WdWqKAADJcxSH2bo9uMDiBAoDcIhOSl1-DADGIIM2",
+        },
     },
 }

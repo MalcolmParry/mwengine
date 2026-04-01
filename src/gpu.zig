@@ -197,6 +197,7 @@ pub const Device = union(Api) {
     pub const initDisplay = Display.init;
     pub const initBuffer = Buffer.init;
     pub const initImage = Image.init;
+    pub const initImageView = Image.View.init;
     pub const initSampler = Sampler.init;
     pub const initResourceLayout = ResourceSet.Layout.init;
     pub const initResourceSet = ResourceSet.init;
@@ -797,6 +798,8 @@ pub const Image = union {
     }
 
     pub const Format = enum {
+        r8_unorm,
+        r8_srgb,
         rgba8_srgb,
         bgra8_srgb,
         d32_sfloat,

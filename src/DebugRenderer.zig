@@ -199,6 +199,7 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
     };
 
     const all_bytes = line_bytes + images_bytes;
+    if (all_bytes == 0) return;
     const staging = try renderer.stage_man.allocateBytesAligned(all_bytes, .@"16");
     const region: gpu.Buffer.Region = .{
         .buffer = renderer.vbuffer,
@@ -297,8 +298,8 @@ pub fn drawLine(renderer: *DebugRenderer, start: math.Vec2, end: math.Vec2, thic
     try renderer.line_draws.append(renderer.alloc, .{
         .pos = start,
         .dir = .{
-            math.f32ToSNorm16(norm[0]),
-            math.f32ToSNorm16(norm[1]),
+            math.normFromFloat(i16, norm[0]),
+            math.normFromFloat(i16, norm[1]),
         },
         .length = @floatCast(len),
         .width = thickness,

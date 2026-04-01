@@ -124,6 +124,8 @@ pub const View = struct {
 
 pub fn formatToNative(format_: gpu.Image.Format) vk.Format {
     return switch (format_) {
+        .r8_unorm => .r8_unorm,
+        .r8_srgb => .r8_srgb,
         .rgba8_srgb => .r8g8b8a8_srgb,
         .bgra8_srgb => .b8g8r8a8_srgb,
         .d32_sfloat => .d32_sfloat,
@@ -133,6 +135,8 @@ pub fn formatToNative(format_: gpu.Image.Format) vk.Format {
 
 pub fn formatFromNative(format_: vk.Format) gpu.Image.Format {
     return switch (format_) {
+        .r8_unorm => .r8_unorm,
+        .r8_srgb => .r8_srgb,
         .r8g8b8a8_srgb => .rgba8_srgb,
         .b8g8r8a8_srgb => .bgra8_srgb,
         .d32_sfloat => .d32_sfloat,
