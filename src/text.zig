@@ -6,7 +6,7 @@ const c = @cImport({
     @cInclude("freetype/freetype.h");
 });
 
-pub const UnicodeCodepoint = u32;
+pub const UnicodeCodepoint = u21;
 pub const Face = struct {
     _ft_lib: c.FT_Library,
     _ft_face: c.FT_Face,
@@ -40,6 +40,7 @@ pub const Face = struct {
         atlases: std.ArrayList(Atlas) = .empty,
         glyphs: std.AutoHashMapUnmanaged(UnicodeCodepoint, Glyph) = .empty,
         next_glyph_start: gpu.Image.Offset2D = @splat(0),
+        row_highest: u32 = 0,
 
         pub const RenderMode = enum {
             grayscale,
@@ -53,8 +54,28 @@ pub const Face = struct {
         };
 
         pub const Glyph = struct {
-            atlas: u32,
-            bounds: gpu.Image.Rect,
+            pub const Loc = struct {
+                atlas: u32,
+                bounds: gpu.Image.Rect,
+            };
+
+            loc: Loc,
+            size: [2]u16,
+            advance: [2]i16,
+            bearing: [2]i16,
+
+            pub const empty: Glyph = .{
+                .loc = .{
+                    .atlas = 0,
+                    .bounds = .{
+                        .offset = @splat(0),
+                        .size = @splat(0),
+                    },
+                },
+                .size = @splat(0),
+                .advance = @splat(0),
+                .bearing = @splat(0),
+            };
         };
 
         pub fn deinit(loaded: *Loaded, alloc: std.mem.Allocator, device: gpu.Device) void {
@@ -94,18 +115,12 @@ pub const Face = struct {
             const size: gpu.Image.Size2D = .{ @intCast(width), @intCast(height) };
 
             if (width == 0 or height == 0) {
-                try loaded.glyphs.put(info.alloc, info.codepoint, .{
-                    .atlas = 0,
-                    .bounds = .{
-                        .offset = @splat(0),
-                        .size = @splat(0),
-                    },
-                });
+                try loaded.glyphs.put(info.alloc, info.codepoint, .empty);
                 return;
             }
 
-            const glyph = try loaded.allocateAtlasSpace(info.alloc, info.device, size);
-            const atlas = &loaded.atlases.items[glyph.atlas];
+            const loc = try loaded.allocateAtlasSpace(info.alloc, info.device, size);
+            const atlas = &loaded.atlases.items[loc.atlas];
             const staging = try info.stage_man.allocateBytesAligned(width * height, .@"4");
 
             for (0..height) |uy| {
@@ -136,13 +151,13 @@ pub const Face = struct {
                 .dst = atlas.image,
                 .region = .{
                     .offset = .{
-                        glyph.bounds.offset[0],
-                        glyph.bounds.offset[1],
+                        loc.bounds.offset[0],
+                        loc.bounds.offset[1],
                         0,
                     },
                     .size = .{
-                        glyph.bounds.size[0],
-                        glyph.bounds.size[1],
+                        loc.bounds.size[0],
+                        loc.bounds.size[1],
                         1,
                     },
                 },
@@ -171,16 +186,28 @@ pub const Face = struct {
             try loaded.glyphs.put(
                 info.alloc,
                 info.codepoint,
-                glyph,
+                .{
+                    .loc = loc,
+                    .size = @as(@Vector(2, u16), @intCast(size)),
+                    .advance = .{
+                        @intCast(@divTrunc(ft_glyph.*.advance.x, 64)),
+                        @intCast(@divTrunc(ft_glyph.*.advance.y, 64)),
+                    },
+                    .bearing = .{
+                        @intCast(ft_glyph.*.bitmap_left),
+                        @intCast(ft_glyph.*.bitmap_top),
+                    },
+                },
             );
         }
 
-        fn allocateAtlasSpace(loaded: *Loaded, alloc: std.mem.Allocator, device: gpu.Device, size: gpu.Image.Size2D) !Glyph {
+        fn allocateAtlasSpace(loaded: *Loaded, alloc: std.mem.Allocator, device: gpu.Device, size: gpu.Image.Size2D) !Glyph.Loc {
             std.debug.assert(@reduce(.And, loaded.atlas_size >= size));
 
             if (loaded.next_glyph_start[0] + size[0] > loaded.atlas_size[0]) {
                 loaded.next_glyph_start[0] = 0;
-                loaded.next_glyph_start[1] += loaded.char_height_px;
+                loaded.next_glyph_start[1] += loaded.row_highest;
+                loaded.row_highest = 0;
             }
 
             if (loaded.atlases.items.len == 0 or loaded.next_glyph_start[1] + size[1] > loaded.atlas_size[1]) {
@@ -220,10 +247,12 @@ pub const Face = struct {
                 });
 
                 loaded.next_glyph_start = @splat(0);
+                loaded.row_highest = 0;
             }
 
             const pos = loaded.next_glyph_start;
             loaded.next_glyph_start[0] += size[0];
+            loaded.row_highest = @max(loaded.row_highest, size[1]);
 
             return .{
                 .atlas = @intCast(loaded.atlases.items.len - 1),
@@ -232,6 +261,56 @@ pub const Face = struct {
                     .size = size,
                 },
             };
+        }
+
+        pub const BakedChar = extern struct {
+            /// unorm16 first 2 are top left, last 2 are bottom right
+            uv_bounds: [4]u16,
+            /// first 2 are top left, last 2 are bottom right
+            bounds: [4]i16,
+        };
+
+        pub fn bakeUtf8(loaded: *Loaded, alloc: std.mem.Allocator, text: []const u8) ![]std.ArrayList(BakedChar) {
+            const result = try alloc.alloc(std.ArrayList(BakedChar), loaded.atlases.items.len);
+            errdefer {
+                for (result) |*arr| arr.deinit(alloc);
+                alloc.free(result);
+            }
+            @memset(result, .empty);
+
+            var pen: @Vector(2, i16) = .{ 0, 100 };
+
+            var i: usize = 0;
+            var iter = (try std.unicode.Utf8View.init(text)).iterator();
+            while (iter.nextCodepoint()) |codepoint| : (i += 1) {
+                const glyph = loaded.glyphs.get(codepoint) orelse Glyph.empty;
+                const float_uv_tl: @Vector(2, f32) = @floatFromInt(glyph.loc.bounds.offset);
+                const float_uv_size: @Vector(2, f32) = @floatFromInt(glyph.loc.bounds.size);
+                const norm_uv_tl = float_uv_tl / @as(math.Vec2, @floatFromInt(loaded.atlas_size));
+                const norm_uv_size = float_uv_size / @as(math.Vec2, @floatFromInt(loaded.atlas_size));
+                const norm_uv_br = norm_uv_tl + norm_uv_size;
+                const pos_tl = pen + glyph.bearing;
+                const pos_br = pos_tl + @as(@Vector(2, i16), @intCast(@as(@Vector(2, u16), glyph.size)));
+
+                try result[glyph.loc.atlas].append(alloc, .{
+                    .uv_bounds = .{
+                        math.normFromFloat(u16, norm_uv_tl[0]),
+                        math.normFromFloat(u16, norm_uv_tl[1]),
+                        math.normFromFloat(u16, norm_uv_br[0]),
+                        math.normFromFloat(u16, norm_uv_br[1]),
+                    },
+                    .bounds = .{
+                        pos_tl[0],
+                        pos_tl[1],
+                        pos_br[0],
+                        pos_br[1],
+                    },
+                });
+                pen[0] += glyph.advance[0];
+                std.log.info("{}, {}", .{ pos_tl, pos_br });
+            }
+
+            return result;
         }
     };
 };

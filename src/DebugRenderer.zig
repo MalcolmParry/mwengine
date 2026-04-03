@@ -1,6 +1,7 @@
 const std = @import("std");
 const gpu = @import("gpu.zig");
 const math = @import("math.zig");
+const text = @import("text.zig");
 
 const DebugRenderer = @This();
 
@@ -19,6 +20,11 @@ image_pipeline: gpu.GraphicsPipeline,
 image_draws: std.ArrayList(GpuImage),
 images: std.ArrayHashMapUnmanaged(gpu.ResourceSet.CombinedImageSampler, void, ImageHashContext, false),
 
+font_face_loaded: *text.Face.Loaded,
+text_draws: std.ArrayList(TextDraw),
+text_resource_layout: gpu.ResourceSet.Layout,
+text_pipeline: gpu.GraphicsPipeline,
+
 const ImageHashContext = struct {
     api: gpu.Api,
 
@@ -32,6 +38,12 @@ const ImageHashContext = struct {
     }
 };
 
+const TextDraw = struct {
+    atlas: u32,
+    mat: math.Mat3,
+    baked: []text.Face.Loaded.BakedChar,
+};
+
 const max_images = 64;
 
 pub const InitInfo = struct {
@@ -42,7 +54,9 @@ pub const InitInfo = struct {
     vbuffer_size: usize = 1024 * 8,
     line_shaders: []const gpu.Shader,
     image_shaders: []const gpu.Shader,
+    text_shaders: []const gpu.Shader,
     render_target_desc: gpu.RenderTarget.Desc,
+    font_face_loaded: *text.Face.Loaded,
 };
 
 pub fn init(info: InitInfo) !DebugRenderer {
@@ -125,21 +139,69 @@ pub fn init(info: InitInfo) !DebugRenderer {
         }},
         .polygon_mode = .fill,
         .cull_mode = .none,
-        .depth_mode = .{
-            .testing = false,
-            .writing = false,
-            .compare_op = .always,
-        },
+        .depth_mode = .disabled,
     });
     errdefer image_pipeline.deinit(info.device, info.alloc);
+
+    const text_resource_layout = try info.device.initResourceLayout(.{
+        .alloc = info.alloc,
+        .descriptors = &.{.{
+            .t = .image,
+            .stages = .{ .pixel = true },
+            .flags = .{},
+            .binding = 0,
+            .count = 1,
+        }},
+    });
+    errdefer text_resource_layout.deinit(info.device, info.alloc);
+
+    const text_pipeline = try info.device.initGraphicsPipeline(.{
+        .alloc = info.alloc,
+        .render_target_desc = info.render_target_desc,
+        .shaders = info.text_shaders,
+        .vertex_input_bindings = &.{.{
+            .binding = 0,
+            .rate = .per_instance,
+            .fields = &.{
+                .{ .type = .unorm16x4 },
+                .{ .type = .sint16x4 },
+            },
+        }},
+        .resource_layouts = &.{text_resource_layout},
+        .push_constant_ranges = &.{.{
+            .size = @sizeOf(f32) * 4 * 4,
+            .offset = 0,
+            .stages = .{ .vertex = true },
+        }},
+        .polygon_mode = .fill,
+        .cull_mode = .none,
+        .depth_mode = .disabled,
+    });
+    errdefer text_pipeline.deinit(info.device, info.alloc);
 
     const pf = try info.alloc.alloc(PerFrame, info.frames_in_flight);
     errdefer info.alloc.free(pf);
 
     var init_count: usize = 0;
-    errdefer for (pf[0..init_count]) |*x| x.image_resource_set.deinit(info.device, info.alloc);
+    errdefer for (pf[0..init_count]) |*x| {
+        x.image_resource_set.deinit(info.device, info.alloc);
+        x.text_resource_set.deinit(info.device, info.alloc);
+    };
     for (pf) |*x| {
         x.image_resource_set = try info.device.initResourceSet(image_resource_layout, info.alloc);
+        x.text_resource_set = try info.device.initResourceSet(text_resource_layout, info.alloc);
+
+        const atlas = info.font_face_loaded.atlases.items[0];
+        try x.text_resource_set.update(info.device, &.{.{
+            .binding = 0,
+            .data = .{
+                .image = &.{.{
+                    .view = atlas.view,
+                    .sampler = atlas.sampler,
+                    .layout = atlas.layout,
+                }},
+            },
+        }}, info.alloc);
         init_count += 1;
     }
 
@@ -159,12 +221,25 @@ pub fn init(info: InitInfo) !DebugRenderer {
         .image_pipeline = image_pipeline,
         .image_draws = .empty,
         .images = .empty,
+
+        .font_face_loaded = info.font_face_loaded,
+        .text_draws = .empty,
+        .text_resource_layout = text_resource_layout,
+        .text_pipeline = text_pipeline,
     };
 }
 
 pub fn deinit(renderer: *DebugRenderer) void {
-    for (renderer.pf) |*x| x.image_resource_set.deinit(renderer.device, renderer.alloc);
+    for (renderer.pf) |*x| {
+        x.image_resource_set.deinit(renderer.device, renderer.alloc);
+        x.text_resource_set.deinit(renderer.device, renderer.alloc);
+    }
     renderer.alloc.free(renderer.pf);
+
+    for (renderer.text_draws.items) |draw| renderer.alloc.free(draw.baked);
+    renderer.text_draws.deinit(renderer.alloc);
+    renderer.text_resource_layout.deinit(renderer.device, renderer.alloc);
+    renderer.text_pipeline.deinit(renderer.device, renderer.alloc);
 
     renderer.line_pipeline.deinit(renderer.device, renderer.alloc);
     renderer.vbuffer.deinit(renderer.device, renderer.alloc);
@@ -208,7 +283,7 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
     };
 
     @memcpy(staging.slice[0..line_bytes], std.mem.sliceAsBytes(renderer.line_draws.items));
-    @memcpy(staging.slice[line_bytes .. line_bytes + images_bytes], std.mem.sliceAsBytes(renderer.image_draws.items));
+    @memcpy(staging.slice[images_offset .. images_offset + images_bytes], std.mem.sliceAsBytes(renderer.image_draws.items));
 
     cmd_encoder.cmdCopyBuffer(staging.region, region);
     cmd_encoder.cmdMemoryBarrier(.{
@@ -221,6 +296,34 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
         }},
     });
 
+    var offset = all_bytes;
+    for (renderer.text_draws.items) |draw| {
+        const text_bytes = @sizeOf(text.Face.Loaded.BakedChar) * draw.baked.len;
+        if (offset + text_bytes > vbuffer_size_pf) return error.BufferFull;
+
+        const text_staging = try renderer.stage_man.allocate(text.Face.Loaded.BakedChar, draw.baked.len);
+        const text_region: gpu.Buffer.Region = .{
+            .buffer = renderer.vbuffer,
+            .offset = vbuffer_base_offset + offset,
+            .size_or_whole = .{ .size = text_bytes },
+        };
+
+        @memcpy(text_staging.slice, draw.baked);
+        cmd_encoder.cmdCopyBuffer(text_staging.region, text_region);
+
+        cmd_encoder.cmdMemoryBarrier(.{
+            .buffer_barriers = &.{.{
+                .region = text_region,
+                .src_stage = .{ .transfer = true },
+                .src_access = .{ .transfer_write = true },
+                .dst_stage = .{ .vertex_input = true },
+                .dst_access = .{ .vertex_read = true },
+            }},
+        });
+
+        offset += text_bytes;
+    }
+
     const render_pass = cmd_encoder.cmdBeginRenderPass(.{
         .target = target,
         .image_size = image_size,
@@ -228,6 +331,39 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
 
     try renderer.renderLines(render_pass, matrix, line_region);
     try renderer.renderImages(render_pass, matrix, images_region);
+
+    const text_resource_set = renderer.pf[renderer.frame_index].text_resource_set;
+
+    render_pass.cmdBindPipeline(renderer.text_pipeline);
+    render_pass.cmdBindResourceSets(renderer.text_pipeline, &.{text_resource_set}, 0);
+    render_pass.cmdPushConstants(
+        renderer.text_pipeline,
+        .{
+            .size = @sizeOf(f32) * 4 * 4,
+            .offset = 0,
+            .stages = .{ .vertex = true },
+        },
+        @ptrCast(&math.toArray(matrix)),
+    );
+
+    offset = all_bytes;
+    for (renderer.text_draws.items) |draw| {
+        const text_bytes = @sizeOf(text.Face.Loaded.BakedChar) * draw.baked.len;
+        const text_region: gpu.Buffer.Region = .{
+            .buffer = renderer.vbuffer,
+            .offset = vbuffer_base_offset + offset,
+            .size_or_whole = .{ .size = text_bytes },
+        };
+
+        render_pass.cmdBindVertexBuffer(0, text_region);
+        render_pass.cmdDraw(.{
+            .indexed = false,
+            .vertex_count = 6,
+            .instance_count = @intCast(draw.baked.len),
+        });
+
+        offset += text_bytes;
+    }
 
     render_pass.cmdEnd();
 }
@@ -286,6 +422,9 @@ pub fn nextFrame(renderer: *DebugRenderer) void {
     renderer.line_draws.clearRetainingCapacity();
     renderer.image_draws.clearRetainingCapacity();
     renderer.images.clearRetainingCapacity();
+
+    for (renderer.text_draws.items) |draw| renderer.alloc.free(draw.baked);
+    renderer.text_draws.clearRetainingCapacity();
 }
 
 pub fn drawLine(renderer: *DebugRenderer, start: math.Vec2, end: math.Vec2, thickness: f16) !void {
@@ -346,6 +485,25 @@ pub fn drawImage(renderer: *@This(), view: gpu.Image.View, mat: math.Mat3) !void
     });
 }
 
+pub fn drawText(renderer: *@This(), text_utf8: []const u8, mat: math.Mat3) !void {
+    const baked = try renderer.font_face_loaded.bakeUtf8(renderer.alloc, text_utf8);
+    defer renderer.alloc.free(baked);
+    errdefer for (baked) |*arr| arr.deinit(renderer.alloc);
+
+    for (baked, 0..) |*per_atlas, atlas| {
+        if (per_atlas.items.len == 0) {
+            per_atlas.deinit(renderer.alloc);
+            continue;
+        }
+
+        try renderer.text_draws.append(renderer.alloc, .{
+            .atlas = @intCast(atlas),
+            .mat = mat,
+            .baked = try per_atlas.toOwnedSlice(renderer.alloc),
+        });
+    }
+}
+
 fn vbufferSizePerFrame(renderer: *const DebugRenderer) gpu.Size {
     return renderer.vbuffer.size(renderer.device) / renderer.pf.len;
 }
@@ -368,4 +526,6 @@ const GpuImage = extern struct {
 
 const PerFrame = struct {
     image_resource_set: gpu.ResourceSet,
+    // only first atlas for now
+    text_resource_set: gpu.ResourceSet,
 };
