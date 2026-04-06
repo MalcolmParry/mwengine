@@ -115,7 +115,28 @@ pub const Face = struct {
             const size: gpu.Image.Size2D = .{ @intCast(width), @intCast(height) };
 
             if (width == 0 or height == 0) {
-                try loaded.glyphs.put(info.alloc, info.codepoint, .empty);
+                try loaded.glyphs.put(
+                    info.alloc,
+                    info.codepoint,
+                    .{
+                        .loc = .{
+                            .atlas = 0,
+                            .bounds = .{
+                                .offset = @splat(0),
+                                .size = @splat(0),
+                            },
+                        },
+                        .size = @splat(0),
+                        .advance = .{
+                            @intCast(ft_glyph.*.advance.x >> 6),
+                            @intCast(ft_glyph.*.advance.y >> 6),
+                        },
+                        .bearing = .{
+                            @intCast(ft_glyph.*.bitmap_left),
+                            @intCast(ft_glyph.*.bitmap_top),
+                        },
+                    },
+                );
                 return;
             }
 
@@ -190,8 +211,8 @@ pub const Face = struct {
                     .loc = loc,
                     .size = @as(@Vector(2, u16), @intCast(size)),
                     .advance = .{
-                        @intCast(@divTrunc(ft_glyph.*.advance.x, 64)),
-                        @intCast(@divTrunc(ft_glyph.*.advance.y, 64)),
+                        @intCast(ft_glyph.*.advance.x >> 6),
+                        @intCast(ft_glyph.*.advance.y >> 6),
                     },
                     .bearing = .{
                         @intCast(ft_glyph.*.bitmap_left),
@@ -264,10 +285,10 @@ pub const Face = struct {
         }
 
         pub const BakedChar = extern struct {
-            /// unorm16 first 2 are top left, last 2 are bottom right
-            uv_bounds: [4]u16,
-            /// first 2 are top left, last 2 are bottom right
-            bounds: [4]i16,
+            tl: [2]i16,
+            size: [2]u16,
+            uv_tl: [2]f32,
+            uv_br: [2]f32,
         };
 
         pub fn bakeUtf8(loaded: *Loaded, alloc: std.mem.Allocator, text: []const u8) ![]std.ArrayList(BakedChar) {
@@ -278,36 +299,35 @@ pub const Face = struct {
             }
             @memset(result, .empty);
 
-            var pen: @Vector(2, i16) = .{ 0, 100 };
+            var pen: @Vector(2, i16) = .{ 0, 0 };
 
             var i: usize = 0;
             var iter = (try std.unicode.Utf8View.init(text)).iterator();
             while (iter.nextCodepoint()) |codepoint| : (i += 1) {
                 const glyph = loaded.glyphs.get(codepoint) orelse Glyph.empty;
+                defer pen[0] += glyph.advance[0];
+                if (glyph.size[0] == 0 or glyph.size[1] == 0) continue;
+
+                const pos_tl = pen + glyph.bearing;
+
                 const float_uv_tl: @Vector(2, f32) = @floatFromInt(glyph.loc.bounds.offset);
                 const float_uv_size: @Vector(2, f32) = @floatFromInt(glyph.loc.bounds.size);
                 const norm_uv_tl = float_uv_tl / @as(math.Vec2, @floatFromInt(loaded.atlas_size));
                 const norm_uv_size = float_uv_size / @as(math.Vec2, @floatFromInt(loaded.atlas_size));
                 const norm_uv_br = norm_uv_tl + norm_uv_size;
-                const pos_tl = pen + glyph.bearing;
-                const pos_br = pos_tl + @as(@Vector(2, i16), @intCast(@as(@Vector(2, u16), glyph.size)));
 
                 try result[glyph.loc.atlas].append(alloc, .{
-                    .uv_bounds = .{
-                        math.normFromFloat(u16, norm_uv_tl[0]),
-                        math.normFromFloat(u16, norm_uv_tl[1]),
-                        math.normFromFloat(u16, norm_uv_br[0]),
-                        math.normFromFloat(u16, norm_uv_br[1]),
+                    .tl = pos_tl,
+                    .size = glyph.size,
+                    .uv_tl = .{
+                        norm_uv_tl[0],
+                        1 - norm_uv_tl[1],
                     },
-                    .bounds = .{
-                        pos_tl[0],
-                        pos_tl[1],
-                        pos_br[0],
-                        pos_br[1],
+                    .uv_br = .{
+                        norm_uv_br[0],
+                        1 - norm_uv_br[1],
                     },
                 });
-                pen[0] += glyph.advance[0];
-                std.log.info("{}, {}", .{ pos_tl, pos_br });
             }
 
             return result;

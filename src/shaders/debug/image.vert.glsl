@@ -1,7 +1,8 @@
 #version 450
 
 layout(location = 0) in mat3 i_mat;
-layout(location = 3) in uint i_id;
+layout(location = 3) in vec4 i_uvs;
+layout(location = 4) in uint i_id;
 
 layout(location = 0) out vec2 p_uvs;
 layout(location = 1) out flat uint p_id;
@@ -23,7 +24,10 @@ void main() {
 	vec2 base_pos = pos_table[gl_VertexIndex];
 
 	p_id = i_id;
-	p_uvs = base_pos;
 	vec3 pos = i_mat * vec3(base_pos, 1);
 	gl_Position = pc.mat * vec4(pos.xy, 0, pos.z);
+
+	vec2 uv_tl = i_uvs.xy;
+	vec2 uv_br = i_uvs.zw;
+	p_uvs = mix(uv_tl, uv_br, base_pos);
 }

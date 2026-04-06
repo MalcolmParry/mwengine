@@ -220,6 +220,10 @@ pub const MatrixDesc = struct {
     pub fn Row(desc: MatrixDesc) type {
         return @Vector(desc.cols, desc.Child);
     }
+
+    pub fn Cow(desc: MatrixDesc) type {
+        return @Vector(desc.rows, desc.Child);
+    }
 };
 
 pub fn identity(T: type) T {
@@ -235,13 +239,15 @@ pub fn identity(T: type) T {
     return result;
 }
 
-pub fn column(mat: Mat4, index: u2) Vec4 {
-    return .{
-        mat[0][index],
-        mat[1][index],
-        mat[2][index],
-        mat[3][index],
-    };
+pub fn column(mat: anytype, index: u8) MatrixDesc.get(@TypeOf(mat)).Row() {
+    const info = MatrixDesc.get(@TypeOf(mat));
+    var result: info.Row() = undefined;
+
+    for (0..info.rows) |row| {
+        result[row] = mat[row][index];
+    }
+
+    return result;
 }
 
 pub fn matMul(T: type, left: anytype, right: anytype) T {

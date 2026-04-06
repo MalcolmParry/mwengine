@@ -250,6 +250,7 @@ pub const Display = union(Api) {
 
     /// exactly 1 queue submission can wait on this
     /// also exactly 1 submission can signal presentation
+    /// cant be less or more, has to be exactly 1
     pub const AcquiredImage = union {
         vk: vk.Display.AcquiredImage.Handle,
 
