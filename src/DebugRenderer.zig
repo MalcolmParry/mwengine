@@ -8,9 +8,9 @@ const DebugRenderer = @This();
 alloc: std.mem.Allocator,
 device: gpu.Device,
 stage_man: *gpu.StagingManager,
+push_alloc: gpu.PushAllocator,
 frame_index: usize,
 pf: []PerFrame,
-vbuffer: gpu.Buffer,
 line_pipeline: gpu.GraphicsPipeline,
 line_draws: std.ArrayList(GpuLine),
 
@@ -159,7 +159,11 @@ pub fn init(info: InitInfo) !DebugRenderer {
         .stage_man = info.stage_man,
         .frame_index = 0,
         .pf = pf,
-        .vbuffer = vbuffer,
+        .push_alloc = .{
+            .buffer = vbuffer,
+            .frames_in_flight = @intCast(info.frames_in_flight),
+            .size_pf = info.vbuffer_size,
+        },
 
         .line_pipeline = line_pipeline,
         .line_draws = .empty,
@@ -181,7 +185,7 @@ pub fn deinit(renderer: *DebugRenderer) void {
     renderer.alloc.free(renderer.pf);
 
     renderer.line_pipeline.deinit(renderer.device, renderer.alloc);
-    renderer.vbuffer.deinit(renderer.device, renderer.alloc);
+    renderer.push_alloc.buffer.deinit(renderer.device, renderer.alloc);
     renderer.line_draws.deinit(renderer.alloc);
 
     renderer.image_sampler.deinit(renderer.device, renderer.alloc);
@@ -192,42 +196,25 @@ pub fn deinit(renderer: *DebugRenderer) void {
 }
 
 pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target: gpu.RenderTarget, image_size: gpu.Image.Size2D, matrix: math.Mat4) !void {
-    const vbuffer_base_offset = renderer.vbufferOffsetBase();
-    const vbuffer_size_pf = renderer.vbufferSizePerFrame();
+    renderer.push_alloc.nextFrame();
 
-    const line_bytes = renderer.line_draws.items.len * @sizeOf(GpuLine);
-    if (line_bytes > vbuffer_size_pf) return error.BufferFull;
-    const line_region: gpu.Buffer.Region = .{
-        .buffer = renderer.vbuffer,
-        .offset = vbuffer_base_offset,
-        .size_or_whole = .{ .size = line_bytes },
-    };
+    const line_region = try renderer.push_alloc.allocTAligned(GpuLine, renderer.line_draws.items.len, .@"4");
 
-    const images_offset = line_bytes;
-    const images_bytes = renderer.image_draws.items.len * @sizeOf(GpuImage);
-    if (images_offset + images_bytes > vbuffer_size_pf) return error.BufferFull;
-    const images_region: gpu.Buffer.Region = .{
-        .buffer = renderer.vbuffer,
-        .offset = vbuffer_base_offset + line_bytes,
-        .size_or_whole = .{ .size = images_bytes },
-    };
+    const image_offset = renderer.push_alloc.offset;
+    const image_region = try renderer.push_alloc.allocTAligned(GpuImage, renderer.image_draws.items.len, .@"4");
 
-    const all_bytes = line_bytes + images_bytes;
+    const all_bytes = renderer.push_alloc.offset;
     if (all_bytes == 0) return;
-    const staging = try renderer.stage_man.allocateBytesAligned(all_bytes, .@"16");
-    const region: gpu.Buffer.Region = .{
-        .buffer = renderer.vbuffer,
-        .offset = vbuffer_base_offset,
-        .size_or_whole = .{ .size = all_bytes },
-    };
+    const staging = try renderer.stage_man.allocateBytesAligned(all_bytes, .@"4");
+    const full_region = renderer.push_alloc.usedRegion();
 
-    @memcpy(staging.slice[0..line_bytes], std.mem.sliceAsBytes(renderer.line_draws.items));
-    @memcpy(staging.slice[images_offset .. images_offset + images_bytes], std.mem.sliceAsBytes(renderer.image_draws.items));
+    @memcpy(staging.slice[0..line_region.size_or_whole.size], std.mem.sliceAsBytes(renderer.line_draws.items));
+    @memcpy(staging.slice[image_offset..][0..image_region.size_or_whole.size], std.mem.sliceAsBytes(renderer.image_draws.items));
 
-    cmd_encoder.cmdCopyBuffer(staging.region, region);
+    cmd_encoder.cmdCopyBuffer(staging.region, full_region);
     cmd_encoder.cmdMemoryBarrier(.{
         .buffer_barriers = &.{.{
-            .region = region,
+            .region = full_region,
             .src_stage = .{ .transfer = true },
             .src_access = .{ .transfer_write = true },
             .dst_stage = .{ .vertex_input = true },
@@ -241,7 +228,7 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
     });
 
     try renderer.renderLines(render_pass, matrix, line_region);
-    try renderer.renderImages(render_pass, matrix, images_region);
+    try renderer.renderImages(render_pass, matrix, image_region);
 
     render_pass.cmdEnd();
 }

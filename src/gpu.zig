@@ -4,6 +4,7 @@ const vk = @import("gpu/vulkan.zig");
 
 pub const StagingManager = @import("gpu/StagingManager.zig");
 pub const UploadManager = @import("gpu/UploadManager.zig");
+pub const PushAllocator = @import("gpu/PushAllocator.zig");
 pub const AnyObject = @import("gpu/any_object.zig").AnyObject;
 pub const Size = u64;
 // remove
