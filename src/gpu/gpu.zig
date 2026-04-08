@@ -1,11 +1,11 @@
 const std = @import("std");
-const Window = @import("Window.zig");
-const vk = @import("gpu/vulkan.zig");
+const Window = @import("../Window.zig");
+const vk = @import("vulkan/vulkan.zig");
 
-pub const StagingManager = @import("gpu/StagingManager.zig");
-pub const UploadManager = @import("gpu/UploadManager.zig");
-pub const PushAllocator = @import("gpu/PushAllocator.zig");
-pub const AnyObject = @import("gpu/any_object.zig").AnyObject;
+pub const StagingManager = @import("StagingManager.zig");
+pub const UploadManager = @import("UploadManager.zig");
+pub const PushAllocator = @import("PushAllocator.zig");
+pub const AnyObject = @import("any_object.zig").AnyObject;
 pub const Size = u64;
 
 pub const Api = enum {

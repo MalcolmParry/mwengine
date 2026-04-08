@@ -1,5 +1,5 @@
 const std = @import("std");
-const gpu = @import("../gpu.zig");
+const gpu = @import("gpu.zig");
 
 pub const AnyObject = union(enum) {
     instance: gpu.Instance,

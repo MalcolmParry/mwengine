@@ -1,5 +1,5 @@
 const std = @import("std");
-const gpu = @import("../../gpu.zig");
+const gpu = @import("../gpu.zig");
 const vk = @import("vulkan");
 const Buffer = @import("Buffer.zig");
 const Shader = @import("Shader.zig");

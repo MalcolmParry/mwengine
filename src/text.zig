@@ -1,5 +1,5 @@
 const std = @import("std");
-const gpu = @import("gpu.zig");
+const gpu = @import("gpu/gpu.zig");
 const math = @import("math.zig");
 
 const c = @cImport({

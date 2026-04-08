@@ -1,6 +1,6 @@
 const std = @import("std");
 const vk = @import("vulkan");
-const gpu = @import("../../gpu.zig");
+const gpu = @import("../gpu.zig");
 pub const Handle = @This();
 
 sampler: vk.Sampler,

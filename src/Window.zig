@@ -404,7 +404,7 @@ fn mouseButtonFromGlfw(button: glfw.MouseButton) events.MouseButton {
 }
 
 pub const vulkan = struct {
-    const gpu = @import("gpu.zig");
+    const gpu = @import("gpu/gpu.zig");
     const vk = @import("vulkan");
 
     const Error = gpu.Instance.InitError;
