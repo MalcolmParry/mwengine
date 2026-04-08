@@ -68,17 +68,7 @@ pub fn size(this: gpu.Buffer) gpu.Size {
 
 pub const Region = struct {
     pub fn map(this: gpu.Buffer.Region, device: gpu.Device) gpu.Buffer.MapError![]u8 {
-        const vk_size = switch (this.size_or_whole) {
-            .size => |x| x,
-            .whole => vk.WHOLE_SIZE,
-        };
-
-        const size_ = switch (this.size_or_whole) {
-            .size => |x| x,
-            .whole => this.buffer.vk.size_,
-        };
-
-        const result = device.vk.device.mapMemory(this.buffer.vk.memory_region.memory, this.offset, vk_size, .{}) catch |err| return switch (err) {
+        const result = device.vk.device.mapMemory(this.buffer.vk.memory_region.memory, this.offset, this.size, .{}) catch |err| return switch (err) {
             error.OutOfHostMemory => error.OutOfMemory,
             error.OutOfDeviceMemory => error.OutOfDeviceMemory,
             error.MemoryMapFailed => error.MemoryMapFailed,
@@ -87,7 +77,7 @@ pub const Region = struct {
 
         const data = result.?;
         const many_ptr: [*]u8 = @ptrCast(data);
-        return many_ptr[0..size_];
+        return many_ptr[0..this.size];
     }
 
     pub fn unmap(this: gpu.Buffer.Region, device: gpu.Device) void {

@@ -7,11 +7,6 @@ pub const UploadManager = @import("gpu/UploadManager.zig");
 pub const PushAllocator = @import("gpu/PushAllocator.zig");
 pub const AnyObject = @import("gpu/any_object.zig").AnyObject;
 pub const Size = u64;
-// remove
-pub const SizeOrWhole = union(enum) {
-    size: Size,
-    whole,
-};
 
 pub const Api = enum {
     vk,
@@ -139,62 +134,6 @@ pub const Device = union(Api) {
         return call(this, @src(), "Device", .{ this, info });
     }
 
-    // TODO: move into separate file
-    pub fn setBufferRegions(device: Device, regions: []const Buffer.Region, data: []const []const u8) !void {
-        var alloc_buffer: [64]u8 = undefined;
-        var alloc_obj = std.heap.FixedBufferAllocator.init(&alloc_buffer);
-        const alloc = alloc_obj.allocator();
-        std.debug.assert(regions.len == data.len);
-
-        var offset: usize = 0;
-        for (data, regions) |x, r| {
-            std.debug.assert(x.len == r.size(device));
-            offset += x.len;
-        }
-
-        var staging = try device.initBuffer(.{
-            .alloc = alloc,
-            .loc = .host,
-            .usage = .{ .src = true },
-            .size = offset,
-        });
-        defer staging.deinit(device, alloc);
-        const mapping = try staging.map(device);
-        defer staging.unmap(device);
-
-        offset = 0;
-        for (data) |x| {
-            @memcpy(mapping[offset .. offset + x.len], x);
-            offset += x.len;
-        }
-
-        var fence = try device.initFence(false);
-        defer fence.deinit(device);
-        var command_encoder = try device.initCommandEncoder();
-        defer command_encoder.deinit(device);
-
-        try command_encoder.begin(device);
-        offset = 0;
-        for (regions) |r| {
-            const size = r.size(device);
-            command_encoder.cmdCopyBuffer(device, .{
-                .buffer = staging,
-                .size_or_whole = .{ .size = size },
-                .offset = offset,
-            }, r);
-            offset += size;
-        }
-        try command_encoder.end(device);
-        try device.submitCommands(.{
-            .encoder = command_encoder,
-            .wait_semaphores = &.{},
-            .wait_dst_stages = &.{},
-            .signal_semaphores = &.{},
-            .signal_fence = fence,
-        });
-        try fence.wait(device, std.time.ns_per_s);
-    }
-
     pub const initDisplay = Display.init;
     pub const initBuffer = Buffer.init;
     pub const initImage = Image.init;
@@ -290,14 +229,17 @@ pub const Display = union(Api) {
         return call(this, @src(), "Display", .{ this, image_size, alloc });
     }
 
+    /// can change when display is rebuilt
     pub fn imageFormat(this: Display) Image.Format {
         return call(this, @src(), "Display", .{this});
     }
 
+    /// can change when display is rebuilt
     pub fn imageCount(this: Display) usize {
         return call(this, @src(), "Display", .{this});
     }
 
+    /// can change when display is rebuilt
     pub fn imageSize(this: Display) Image.Size2D {
         return call(this, @src(), "Display", .{this});
     }
@@ -693,7 +635,7 @@ pub const MemLocation = enum {
     device,
 };
 
-pub const Buffer = union {
+pub const Buffer = union(Api) {
     vk: vk.Buffer.Handle,
 
     pub const Usage = packed struct {
@@ -744,22 +686,22 @@ pub const Buffer = union {
         this.region().unmap(device);
     }
 
-    pub fn size(this: Buffer, api: Api) Size {
-        return call(api, @src(), "Buffer", .{this});
+    pub fn size(this: Buffer) Size {
+        return call(this, @src(), "Buffer", .{this});
     }
 
     pub fn region(this: Buffer) Region {
         return .{
             .buffer = this,
             .offset = 0,
-            .size_or_whole = .whole,
+            .size = this.size(),
         };
     }
 
     pub const Region = struct {
         buffer: Buffer,
         offset: Size,
-        size_or_whole: SizeOrWhole,
+        size: Size,
 
         pub fn map(this: Region, device: Device) MapError![]u8 {
             return call(device, @src(), .{ "Buffer", "Region" }, .{ this, device });
@@ -767,13 +709,6 @@ pub const Buffer = union {
 
         pub fn unmap(this: Region, device: Device) void {
             return call(device, @src(), .{ "Buffer", "Region" }, .{ this, device });
-        }
-
-        pub fn size(this: Region, api: Api) Size {
-            return switch (this.size_or_whole) {
-                .size => |x| x,
-                .whole => this.buffer.size(api),
-            };
         }
     };
 };

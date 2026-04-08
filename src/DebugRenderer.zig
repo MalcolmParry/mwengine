@@ -208,8 +208,8 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
     const staging = try renderer.stage_man.allocateBytesAligned(all_bytes, .@"4");
     const full_region = renderer.push_alloc.usedRegion();
 
-    @memcpy(staging.slice[0..line_region.size_or_whole.size], std.mem.sliceAsBytes(renderer.line_draws.items));
-    @memcpy(staging.slice[image_offset..][0..image_region.size_or_whole.size], std.mem.sliceAsBytes(renderer.image_draws.items));
+    @memcpy(staging.slice[0..line_region.size], std.mem.sliceAsBytes(renderer.line_draws.items));
+    @memcpy(staging.slice[image_offset..][0..image_region.size], std.mem.sliceAsBytes(renderer.image_draws.items));
 
     cmd_encoder.cmdCopyBuffer(staging.region, full_region);
     cmd_encoder.cmdMemoryBarrier(.{
@@ -234,7 +234,7 @@ pub fn render(renderer: *DebugRenderer, cmd_encoder: gpu.CommandEncoder, target:
 }
 
 fn renderLines(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, matrix: math.Mat4, vertex_input: gpu.Buffer.Region) !void {
-    if (vertex_input.size_or_whole.size == 0) return;
+    if (vertex_input.size == 0) return;
 
     render_pass.cmdBindPipeline(renderer.line_pipeline);
     render_pass.cmdPushConstants(
@@ -250,12 +250,12 @@ fn renderLines(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, mat
     render_pass.cmdDraw(.{
         .indexed = false,
         .vertex_count = 6,
-        .instance_count = @intCast(vertex_input.size_or_whole.size / @sizeOf(GpuLine)),
+        .instance_count = @intCast(vertex_input.size / @sizeOf(GpuLine)),
     });
 }
 
 fn renderImages(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, matrix: math.Mat4, vertex_input: gpu.Buffer.Region) !void {
-    if (vertex_input.size_or_whole.size == 0) return;
+    if (vertex_input.size == 0) return;
 
     const resource_set = renderer.pf[renderer.frame_index].image_resource_set;
     try resource_set.update(renderer.device, &.{.{
@@ -278,7 +278,7 @@ fn renderImages(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, ma
     render_pass.cmdDraw(.{
         .indexed = false,
         .vertex_count = 6,
-        .instance_count = @intCast(vertex_input.size_or_whole.size / @sizeOf(GpuImage)),
+        .instance_count = @intCast(vertex_input.size / @sizeOf(GpuImage)),
     });
 }
 

@@ -27,7 +27,7 @@ pub fn allocTAligned(alloc: *PushAlloc, T: type, count: usize, alignment: std.me
     return .{
         .buffer = alloc.buffer,
         .offset = alloc.frameOffset() + aligned_offset,
-        .size_or_whole = .{ .size = size },
+        .size = size,
     };
 }
 
@@ -39,7 +39,7 @@ pub inline fn perFrameRegion(alloc: PushAlloc) gpu.Buffer.Region {
     return .{
         .buffer = alloc.buffer,
         .offset = alloc.frameOffset(),
-        .size_or_whole = .{ .size = alloc.size_pf },
+        .size = alloc.size_pf,
     };
 }
 
@@ -47,7 +47,7 @@ pub inline fn usedRegion(alloc: PushAlloc) gpu.Buffer.Region {
     return .{
         .buffer = alloc.buffer,
         .offset = alloc.frameOffset(),
-        .size_or_whole = .{ .size = alloc.offset },
+        .size = alloc.offset,
     };
 }
 

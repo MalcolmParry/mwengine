@@ -58,8 +58,7 @@ pub fn SubmitInfo(T: type) type {
 }
 
 pub fn submit(man: *UploadManager, T: type, info: SubmitInfo(T)) !void {
-    if (info.region.size_or_whole == .size)
-        std.debug.assert(info.data.len * @sizeOf(T) == info.region.size_or_whole.size);
+    std.debug.assert(info.data.len * @sizeOf(T) == info.region.size);
 
     const staging = try man.stage_man.allocate(T, info.data.len);
     @memcpy(staging.slice, info.data);

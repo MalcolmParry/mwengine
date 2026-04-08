@@ -97,7 +97,7 @@ pub fn allocateBytesAligned(man: *StagingManager, size: gpu.Size, alignment: std
         .region = .{
             .buffer = per_frame.buffer,
             .offset = offset,
-            .size_or_whole = .{ .size = size },
+            .size = size,
         },
     };
 }

@@ -73,10 +73,7 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
                     try all_buffer_infos.append(alloc, .{
                         .buffer = buffer_region.buffer.vk.buffer,
                         .offset = buffer_region.offset,
-                        .range = switch (buffer_region.size_or_whole) {
-                            .size => |x| x,
-                            .whole => vk.WHOLE_SIZE,
-                        },
+                        .range = buffer_region.size,
                     });
                 }
 

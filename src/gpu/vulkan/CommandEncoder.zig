@@ -54,10 +54,10 @@ pub fn end(this: gpu.CommandEncoder) gpu.CommandEncoder.EndError!void {
 }
 
 pub fn cmdCopyBuffer(cmd_encoder: gpu.CommandEncoder, src: gpu.Buffer.Region, dst: gpu.Buffer.Region) void {
-    std.debug.assert(src.size(cmd_encoder) == dst.size(cmd_encoder));
+    std.debug.assert(src.size == dst.size);
 
     const copy_region: vk.BufferCopy = .{
-        .size = src.size(cmd_encoder),
+        .size = src.size,
         .src_offset = src.offset,
         .dst_offset = dst.offset,
     };
@@ -206,10 +206,7 @@ pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, info: gpu.CommandEncoder.Memor
         for (buffer, 0..) |barrier, i| {
             buffer_buffer[i] = .{
                 .buffer = barrier.region.buffer.vk.buffer,
-                .size = switch (barrier.region.size_or_whole) {
-                    .size => |x| x,
-                    .whole => vk.WHOLE_SIZE,
-                },
+                .size = barrier.region.size,
                 .offset = barrier.region.offset,
                 .src_stage_mask = stageToNative(barrier.src_stage),
                 .dst_stage_mask = stageToNative(barrier.dst_stage),
