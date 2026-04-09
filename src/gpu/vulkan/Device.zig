@@ -33,12 +33,15 @@ device: vk.DeviceProxy,
 queue: vk.Queue,
 queue_family_index: u32,
 command_pool: vk.CommandPool,
+temp_arena: std.heap.ArenaAllocator,
 
 pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc: std.mem.Allocator) gpu.Device.InitError!gpu.Device {
     const this = try alloc.create(Device);
     errdefer alloc.destroy(this);
     this.instance = instance.vk;
     this.phys = physical_device.vk.device;
+    this.temp_arena = .init(std.heap.page_allocator);
+    errdefer this.temp_arena.deinit();
 
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const queue_priority: f32 = 1;
@@ -129,6 +132,7 @@ pub fn deinit(this: gpu.Device, alloc: std.mem.Allocator) void {
     this.vk.device.destroyCommandPool(this.vk.command_pool, vk_alloc);
     this.vk.device.destroyDevice(vk_alloc);
     alloc.destroy(this.vk.device.wrapper);
+    this.vk.temp_arena.deinit();
     alloc.destroy(this.vk);
 }
 
@@ -171,17 +175,19 @@ fn getNativeSemaphoreSubmitInfos(
     }
 }
 
-// TODO: update to new submit format
 pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) gpu.Device.SubmitError!void {
-    const max_semaphores = 16;
+    _ = this.vk.temp_arena.reset(.retain_capacity);
 
     const wait_count = info.waits.len + info.display_acquire_waits.len;
-    var native_waits: [max_semaphores]vk.SemaphoreSubmitInfo = undefined;
-    getNativeSemaphoreSubmitInfos(&native_waits, info.waits, info.display_acquire_waits, .wait);
-
     const signal_count = info.signals.len + info.display_present_signals.len;
-    var native_signals: [max_semaphores]vk.SemaphoreSubmitInfo = undefined;
-    getNativeSemaphoreSubmitInfos(&native_signals, info.signals, info.display_present_signals, .signal);
+    const semaphore_info_count = wait_count + signal_count;
+    const semaphore_infos = try this.vk.temp_arena.allocator().alloc(vk.SemaphoreSubmitInfo, semaphore_info_count);
+
+    const native_waits = semaphore_infos[0..wait_count];
+    getNativeSemaphoreSubmitInfos(native_waits, info.waits, info.display_acquire_waits, .wait);
+
+    const native_signals = semaphore_infos[wait_count..][0..signal_count];
+    getNativeSemaphoreSubmitInfos(native_signals, info.signals, info.display_present_signals, .signal);
 
     const command_buffer_info: vk.CommandBufferSubmitInfo = .{
         .command_buffer = info.encoder.vk.command_buffer,
@@ -192,9 +198,9 @@ pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) gpu.
         .command_buffer_info_count = 1,
         .p_command_buffer_infos = @ptrCast(&command_buffer_info),
         .wait_semaphore_info_count = @intCast(wait_count),
-        .p_wait_semaphore_infos = @ptrCast(&native_waits),
+        .p_wait_semaphore_infos = @ptrCast(native_waits.ptr),
         .signal_semaphore_info_count = @intCast(signal_count),
-        .p_signal_semaphore_infos = @ptrCast(&native_signals),
+        .p_signal_semaphore_infos = @ptrCast(native_signals.ptr),
     };
 
     this.vk.device.queueSubmit2KHR(this.vk.queue, 1, @ptrCast(&submit_info), .null_handle) catch |err| return switch (err) {
