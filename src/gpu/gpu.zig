@@ -229,7 +229,6 @@ pub const Display = union(Api) {
         return call(this, @src(), "Display", .{ this, image_size, alloc });
     }
 
-    /// can change when display is rebuilt
     pub fn imageFormat(this: Display) Image.Format {
         return call(this, @src(), "Display", .{this});
     }
@@ -313,6 +312,10 @@ pub const Shader = union {
         float32x2x2,
         float32x3x3,
         float32x4x4,
+        unorm8,
+        unorm8x2,
+        unorm8x3,
+        unorm8x4,
         unorm16,
         unorm16x2,
         unorm16x3,
@@ -363,6 +366,10 @@ pub const Shader = union {
                 .float32x2x2 => 16,
                 .float32x3x3 => 36,
                 .float32x4x4 => 64,
+                .unorm8 => 1,
+                .unorm8x2 => 2,
+                .unorm8x3 => 3,
+                .unorm8x4 => 4,
                 .unorm16 => 2,
                 .unorm16x2 => 4,
                 .unorm16x3 => 6,
@@ -415,6 +422,10 @@ pub const Shader = union {
                 .float32x2x2 => .@"4",
                 .float32x3x3 => .@"4",
                 .float32x4x4 => .@"4",
+                .unorm8 => .@"1",
+                .unorm8x2 => .@"1",
+                .unorm8x3 => .@"1",
+                .unorm8x4 => .@"1",
                 .unorm16 => .@"2",
                 .unorm16x2 => .@"2",
                 .unorm16x3 => .@"2",
