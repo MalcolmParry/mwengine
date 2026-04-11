@@ -92,10 +92,10 @@ pub const View = struct {
             },
             .format = formatToNative(info.image.vk.format_),
             .components = .{
-                .r = .identity,
-                .b = .identity,
-                .g = .identity,
-                .a = .identity,
+                .r = componentSwizzleToNative(info.component_mapping.r),
+                .g = componentSwizzleToNative(info.component_mapping.g),
+                .b = componentSwizzleToNative(info.component_mapping.b),
+                .a = componentSwizzleToNative(info.component_mapping.a),
             },
             .subresource_range = .{
                 .aspect_mask = aspectToNative(info.subresource_range.aspect),
@@ -119,6 +119,18 @@ pub const View = struct {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
         _ = alloc;
         device.vk.device.destroyImageView(this.vk.image_view, vk_alloc);
+    }
+
+    fn componentSwizzleToNative(x: gpu.Image.View.ComponentMapping.Swizzle) vk.ComponentSwizzle {
+        return switch (x) {
+            .identity => .identity,
+            .zero => .zero,
+            .one => .one,
+            .r => .r,
+            .g => .g,
+            .b => .b,
+            .a => .a,
+        };
     }
 };
 

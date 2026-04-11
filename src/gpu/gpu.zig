@@ -792,11 +792,36 @@ pub const Image = union {
             array_2d,
         };
 
+        pub const ComponentMapping = struct {
+            pub const Swizzle = enum {
+                identity,
+                zero,
+                one,
+                r,
+                g,
+                b,
+                a,
+            };
+
+            r: Swizzle,
+            g: Swizzle,
+            b: Swizzle,
+            a: Swizzle,
+
+            pub const identity: ComponentMapping = .{
+                .r = .identity,
+                .g = .identity,
+                .b = .identity,
+                .a = .identity,
+            };
+        };
+
         pub const InitInfo = struct {
             alloc: std.mem.Allocator,
             image: Image,
             kind: Kind,
             subresource_range: Subresource.Range,
+            component_mapping: ComponentMapping = .identity,
         };
 
         pub const InitError = error{
