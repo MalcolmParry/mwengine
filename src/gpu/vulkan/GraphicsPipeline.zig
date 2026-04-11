@@ -152,21 +152,35 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.InitInfo) gpu.Graphic
         .scissor,
     };
 
-    const color_blend_attachment: vk.PipelineColorBlendAttachmentState = .{
-        .color_write_mask = .{
-            .r_bit = true,
-            .g_bit = true,
-            .b_bit = true,
-            .a_bit = true,
-        },
-        .blend_enable = .false,
-        .src_color_blend_factor = .one,
-        .dst_color_blend_factor = .zero,
-        .color_blend_op = .add,
-        .src_alpha_blend_factor = .one,
-        .dst_alpha_blend_factor = .zero,
-        .alpha_blend_op = .add,
+    const color_write_mask: vk.ColorComponentFlags = .{
+        .r_bit = info.color_write_flags.r,
+        .g_bit = info.color_write_flags.g,
+        .b_bit = info.color_write_flags.b,
+        .a_bit = info.color_write_flags.a,
     };
+
+    const color_blend_attachment: vk.PipelineColorBlendAttachmentState = if (info.blend_info) |blend|
+        .{
+            .color_write_mask = color_write_mask,
+            .blend_enable = .true,
+            .src_color_blend_factor = blendFactorToNative(blend.src_color_factor),
+            .dst_color_blend_factor = blendFactorToNative(blend.dst_color_factor),
+            .color_blend_op = blendOpToNative(blend.color_op),
+            .src_alpha_blend_factor = blendFactorToNative(blend.src_alpha_factor),
+            .dst_alpha_blend_factor = blendFactorToNative(blend.dst_alpha_factor),
+            .alpha_blend_op = blendOpToNative(blend.alpha_op),
+        }
+    else
+        .{
+            .color_write_mask = color_write_mask,
+            .blend_enable = .false,
+            .src_color_blend_factor = .one,
+            .dst_color_blend_factor = .zero,
+            .color_blend_op = .add,
+            .src_alpha_blend_factor = .one,
+            .dst_alpha_blend_factor = .zero,
+            .alpha_blend_op = .add,
+        };
 
     const rendering_create_info: vk.PipelineRenderingCreateInfo = .{
         .color_attachment_count = 1,
@@ -305,4 +319,29 @@ pub fn deinit(this: gpu.GraphicsPipeline, device: gpu.Device, alloc: std.mem.All
     device.vk.device.destroyPipeline(this.vk.pipeline, vk_alloc);
     device.vk.device.destroyPipelineLayout(this.vk.pipeline_layout, vk_alloc);
     alloc.destroy(this.vk);
+}
+
+fn blendFactorToNative(x: gpu.GraphicsPipeline.BlendInfo.Factor) vk.BlendFactor {
+    return switch (x) {
+        .zero => .zero,
+        .one => .one,
+        .src_color => .src_color,
+        .one_minus_src_color => .one_minus_src_color,
+        .dst_color => .dst_color,
+        .one_minus_dst_color => .one_minus_dst_color,
+        .src_alpha => .src_color,
+        .one_minus_src_alpha => .one_minus_src_alpha,
+        .dst_alpha => .dst_alpha,
+        .one_minus_dst_alpha => .one_minus_dst_alpha,
+    };
+}
+
+fn blendOpToNative(x: gpu.GraphicsPipeline.BlendInfo.Op) vk.BlendOp {
+    return switch (x) {
+        .add => .add,
+        .src_minus_dst => .subtract,
+        .dst_minus_src => .reverse_subtract,
+        .min => .min,
+        .max => .max,
+    };
 }

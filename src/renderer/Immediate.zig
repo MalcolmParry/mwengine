@@ -203,12 +203,13 @@ const BoxRenderer = struct {
                 .offset = 0,
                 .stages = .{ .vertex = true },
             }},
-            .polygon_mode = .fill,
-            .cull_mode = .none,
-            .depth_mode = .{
-                .testing = false,
-                .writing = false,
-                .compare_op = .always,
+            .blend_info = .{
+                .src_color_factor = .src_alpha,
+                .dst_color_factor = .one_minus_src_alpha,
+                .color_op = .add,
+                .src_alpha_factor = .one,
+                .dst_alpha_factor = .one,
+                .alpha_op = .max,
             },
         });
         errdefer pipeline.deinit(info.device, info.alloc);

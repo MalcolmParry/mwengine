@@ -121,7 +121,7 @@ pub const View = struct {
         device.vk.device.destroyImageView(this.vk.image_view, vk_alloc);
     }
 
-    fn componentSwizzleToNative(x: gpu.Image.View.ComponentMapping.Swizzle) vk.ComponentSwizzle {
+    fn componentSwizzleToNative(x: gpu.Image.ComponentMapping.Swizzle) vk.ComponentSwizzle {
         return switch (x) {
             .identity => .identity,
             .zero => .zero,

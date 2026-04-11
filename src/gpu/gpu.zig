@@ -112,7 +112,7 @@ pub const Device = union(Api) {
         pub const DisplayImageSync = struct {
             display: Display,
             image: Display.AcquiredImage,
-            stages: GraphicsPipeline.Stages = .{ .all_commands = true },
+            stages: PipelineStageFlags,
         };
 
         encoder: CommandEncoder,
@@ -462,20 +462,20 @@ pub const VertexInputBinding = struct {
     fields: []const Field,
 };
 
+pub const PipelineStageFlags = packed struct {
+    all_commands: bool = false,
+    pipeline_start: bool = false,
+    pipeline_end: bool = false,
+    color_attachment_output: bool = false,
+    early_depth_tests: bool = false,
+    transfer: bool = false,
+    vertex_input: bool = false,
+    vertex_shader: bool = false,
+    pixel_shader: bool = false,
+};
+
 pub const GraphicsPipeline = union {
     vk: vk.GraphicsPipeline.Handle,
-
-    pub const Stages = packed struct {
-        all_commands: bool = false,
-        pipeline_start: bool = false,
-        pipeline_end: bool = false,
-        color_attachment_output: bool = false,
-        early_depth_tests: bool = false,
-        transfer: bool = false,
-        vertex_input: bool = false,
-        vertex_shader: bool = false,
-        pixel_shader: bool = false,
-    };
 
     pub const PolygonMode = enum {
         fill,
@@ -500,16 +500,49 @@ pub const GraphicsPipeline = union {
         compare_op: CompareOp,
     };
 
+    pub const BlendInfo = struct {
+        pub const Factor = enum {
+            zero,
+            one,
+            src_color,
+            one_minus_src_color,
+            dst_color,
+            one_minus_dst_color,
+            src_alpha,
+            one_minus_src_alpha,
+            dst_alpha,
+            one_minus_dst_alpha,
+        };
+
+        pub const Op = enum {
+            add,
+            src_minus_dst,
+            dst_minus_src,
+            min,
+            max,
+        };
+
+        src_color_factor: Factor,
+        dst_color_factor: Factor,
+        color_op: Op,
+
+        src_alpha_factor: Factor,
+        dst_alpha_factor: Factor,
+        alpha_op: Op,
+    };
+
     pub const InitInfo = struct {
         alloc: std.mem.Allocator,
         render_target_desc: RenderTarget.Desc,
         resource_layouts: []const ResourceSet.Layout = &.{},
         push_constant_ranges: []const PushConstantRange = &.{},
         shaders: []const Shader,
-        vertex_input_bindings: []const VertexInputBinding,
-        polygon_mode: PolygonMode,
-        cull_mode: CullMode,
-        depth_mode: DepthMode,
+        vertex_input_bindings: []const VertexInputBinding = &.{},
+        polygon_mode: PolygonMode = .fill,
+        cull_mode: CullMode = .none,
+        depth_mode: DepthMode = .disabled,
+        color_write_flags: Image.ComponentFlags = .all,
+        blend_info: ?BlendInfo = null,
     };
 
     pub const InitError = error{
@@ -784,36 +817,50 @@ pub const Image = union {
         dst: bool = false,
     };
 
+    pub const ComponentFlags = packed struct {
+        r: bool = false,
+        g: bool = false,
+        b: bool = false,
+        a: bool = false,
+
+        pub const all: ComponentFlags = .{
+            .r = true,
+            .g = true,
+            .b = true,
+            .a = true,
+        };
+    };
+
+    pub const ComponentMapping = struct {
+        pub const Swizzle = enum {
+            identity,
+            zero,
+            one,
+            r,
+            g,
+            b,
+            a,
+        };
+
+        r: Swizzle,
+        g: Swizzle,
+        b: Swizzle,
+        a: Swizzle,
+
+        pub const identity: ComponentMapping = .{
+            .r = .identity,
+            .g = .identity,
+            .b = .identity,
+            .a = .identity,
+        };
+    };
+
     pub const View = union {
         vk: vk.Image.View.Handle,
 
         pub const Kind = enum {
             @"2d",
             array_2d,
-        };
-
-        pub const ComponentMapping = struct {
-            pub const Swizzle = enum {
-                identity,
-                zero,
-                one,
-                r,
-                g,
-                b,
-                a,
-            };
-
-            r: Swizzle,
-            g: Swizzle,
-            b: Swizzle,
-            a: Swizzle,
-
-            pub const identity: ComponentMapping = .{
-                .r = .identity,
-                .g = .identity,
-                .b = .identity,
-                .a = .identity,
-            };
         };
 
         pub const InitInfo = struct {
@@ -942,16 +989,16 @@ pub const ImageBarrier = struct {
     subresource_range: Image.Subresource.Range,
     old_layout: Image.Layout,
     new_layout: Image.Layout,
-    src_stage: GraphicsPipeline.Stages,
-    dst_stage: GraphicsPipeline.Stages,
+    src_stage: PipelineStageFlags,
+    dst_stage: PipelineStageFlags,
     src_access: Access,
     dst_access: Access,
 };
 
 pub const BufferBarrier = struct {
     region: Buffer.Region,
-    src_stage: GraphicsPipeline.Stages,
-    dst_stage: GraphicsPipeline.Stages,
+    src_stage: PipelineStageFlags,
+    dst_stage: PipelineStageFlags,
     src_access: Access,
     dst_access: Access,
 };
@@ -1170,7 +1217,7 @@ pub const Timeline = union {
     pub const Point = struct {
         timeline: Timeline,
         value: Timeline.Value,
-        stages: GraphicsPipeline.Stages = .{ .all_commands = true },
+        stages: PipelineStageFlags,
     };
 };
 

@@ -248,6 +248,12 @@ pub const Face = struct {
                     .subresource_range = .{
                         .aspect = .{ .color = true },
                     },
+                    .component_mapping = .{
+                        .r = .zero,
+                        .g = .zero,
+                        .b = .zero,
+                        .a = .r,
+                    },
                 });
                 errdefer view.deinit(device, alloc);
 

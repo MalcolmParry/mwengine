@@ -142,7 +142,7 @@ pub fn cmdCopyImageWithScaling(cmd_encoder: gpu.CommandEncoder, info: gpu.Comman
     );
 }
 
-pub fn stageToNative(stage: gpu.GraphicsPipeline.Stages) vk.PipelineStageFlags2KHR {
+pub fn stageToNative(stage: gpu.PipelineStageFlags) vk.PipelineStageFlags2KHR {
     return .{
         .all_commands_bit = stage.all_commands,
         .top_of_pipe_bit = stage.pipeline_start,
