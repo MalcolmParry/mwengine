@@ -252,7 +252,7 @@ fn renderLines(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, mat
             .offset = 0,
             .stages = .{ .vertex = true },
         },
-        @ptrCast(&math.toArray(matrix)),
+        @ptrCast(&math.matrixToArray(matrix, .column_major)),
     );
     render_pass.cmdBindVertexBuffer(0, vertex_input);
     render_pass.cmdDraw(.{
@@ -279,7 +279,7 @@ fn renderImages(renderer: *DebugRenderer, render_pass: gpu.RenderPassEncoder, ma
             .offset = 0,
             .stages = .{ .vertex = true },
         },
-        @ptrCast(&math.toArray(matrix)),
+        @ptrCast(&math.matrixToArray(matrix, .column_major)),
     );
     render_pass.cmdBindVertexBuffer(0, vertex_input);
     render_pass.cmdBindResourceSets(renderer.image_pipeline, &.{resource_set}, 0);
@@ -360,7 +360,7 @@ pub fn drawImage(renderer: *@This(), info: ImageDrawInfo) !void {
     }
 
     try renderer.image_draws.append(renderer.alloc, .{
-        .mat = math.toArray(info.mat),
+        .mat = math.matrixToArray(info.mat, .column_major),
         .id = @intCast(index),
         .uv_bounds = .{
             math.normFromFloat(u16, info.uv_top_left[0]),

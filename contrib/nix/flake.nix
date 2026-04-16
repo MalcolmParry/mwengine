@@ -27,6 +27,7 @@
             pkgs.vulkan-tools
             pkgs.glslang
             pkgs.git
+            pkgs.shader-slang
           ];
 
           LD_LIBRARY_PATH = "${nixpkgs.lib.makeLibraryPath [

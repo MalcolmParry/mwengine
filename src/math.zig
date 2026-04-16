@@ -300,6 +300,35 @@ pub fn matMulVec(T: type, mat: [@typeInfo(T).vector.len]T, vec: T) T {
     return result;
 }
 
+pub const MatrixLayout = enum {
+    row_major,
+    column_major,
+};
+
+pub fn MatrixAsArrayT(T: type) type {
+    const desc = MatrixDesc.get(T);
+    return [desc.rows * desc.cols]desc.Child;
+}
+
+pub fn matrixToArray(x: anytype, order: MatrixLayout) MatrixAsArrayT(@TypeOf(x)) {
+    const T = @TypeOf(x);
+    const desc = MatrixDesc.get(T);
+    var result: MatrixAsArrayT(T) = undefined;
+
+    for (0..desc.rows) |row| {
+        for (0..desc.cols) |col| {
+            const i = switch (order) {
+                .row_major => row * desc.cols + col,
+                .column_major => col * desc.rows + row,
+            };
+
+            result[i] = x[row][col];
+        }
+    }
+
+    return result;
+}
+
 pub fn translate(vec: Vec3) Mat4 {
     return .{
         .{ 1, 0, 0, vec[0] },
@@ -416,48 +445,6 @@ pub fn Base(T: type) type {
         .array => |arr| Base(arr.child),
         else => @compileError("wrong type"),
     };
-}
-
-fn ToArrayReturnType(t: type) type {
-    switch (@typeInfo(t)) {
-        .vector => |vec| return [vec.len]vec.child,
-        .array => |arr| switch (@typeInfo(arr.child)) {
-            .vector => |vec| return [arr.len * vec.len]vec.child,
-            else => @compileError("invalid type"),
-        },
-        else => @compileError("invalid type"),
-    }
-}
-
-pub fn toArray(x: anytype) ToArrayReturnType(@TypeOf(x)) {
-    const type_info = @typeInfo(@TypeOf(x));
-
-    switch (type_info) {
-        .vector => |vec| {
-            var result: [vec.len]vec.child = undefined;
-
-            inline for (0..vec.len) |i| {
-                result[i] = x[i];
-            }
-
-            return result;
-        },
-        .array => |arr| switch (@typeInfo(arr.child)) {
-            .vector => |vec| {
-                var result: [arr.len * vec.len]vec.child = undefined;
-
-                for (0..arr.len) |row| {
-                    for (0..vec.len) |col| {
-                        result[row + col * vec.len] = x[row][col];
-                    }
-                }
-
-                return result;
-            },
-            else => @compileError("invalid type"),
-        },
-        else => @compileError("invalid type"),
-    }
 }
 
 pub const UNorm16 = u16;

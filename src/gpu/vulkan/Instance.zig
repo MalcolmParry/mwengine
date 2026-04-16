@@ -47,7 +47,7 @@ pub fn init(debug_logging: bool, alloc: std.mem.Allocator) gpu.Instance.InitErro
             .application_version = 0,
             .p_engine_name = "placeholder",
             .engine_version = 0, // TODO: fill in
-            .api_version = @bitCast(vk.API_VERSION_1_0),
+            .api_version = @bitCast(vk.API_VERSION_1_1),
         },
         .enabled_extension_count = @intCast(extensions.items.len),
         .pp_enabled_extension_names = extensions.items.ptr,
