@@ -110,6 +110,15 @@ pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc:
     this.device = vk.DeviceProxy.init(device_handle, device_wrapper);
     errdefer this.device.destroyDevice(vk_alloc);
 
+    const dispatch = &device_wrapper.dispatch;
+    loadCoreFromExtension(dispatch, "vkWaitSemaphores", "KHR");
+    loadCoreFromExtension(dispatch, "vkQueueSubmit2", "KHR");
+    loadCoreFromExtension(dispatch, "vkCmdPipelineBarrier2", "KHR");
+    loadCoreFromExtension(dispatch, "vkSignalSemaphore", "KHR");
+    loadCoreFromExtension(dispatch, "vkGetSemaphoreCounterValue", "KHR");
+    loadCoreFromExtension(dispatch, "vkCmdBeginRendering", "KHR");
+    loadCoreFromExtension(dispatch, "vkCmdEndRendering", "KHR");
+
     this.queue = this.device.getDeviceQueue(this.queue_family_index, 0);
     this.command_pool = this.device.createCommandPool(&.{
         .queue_family_index = this.queue_family_index,
@@ -125,6 +134,16 @@ pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc:
     errdefer this.device.destroyCommandPool(this.command_pool, vk_alloc);
 
     return .{ .vk = this };
+}
+
+inline fn loadCoreFromExtension(dispatch: *vk.DeviceDispatch, comptime core_name: []const u8, comptime ext_suffix: []const u8) void {
+    const core = &@field(dispatch, core_name);
+    const ext = &@field(dispatch, core_name ++ ext_suffix);
+
+    if (core.* == null)
+        core.* = ext.*;
+
+    ext.* = null;
 }
 
 pub fn deinit(this: gpu.Device, alloc: std.mem.Allocator) void {
@@ -203,7 +222,7 @@ pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) gpu.
         .p_signal_semaphore_infos = @ptrCast(native_signals.ptr),
     };
 
-    this.vk.device.queueSubmit2KHR(this.vk.queue, 1, @ptrCast(&submit_info), .null_handle) catch |err| return switch (err) {
+    this.vk.device.queueSubmit2(this.vk.queue, 1, @ptrCast(&submit_info), .null_handle) catch |err| return switch (err) {
         error.DeviceLost => error.DeviceLost,
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,

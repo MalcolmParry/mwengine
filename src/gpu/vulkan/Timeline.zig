@@ -34,7 +34,7 @@ pub fn waitMany(info: gpu.Timeline.WaitManyInfo) gpu.Timeline.WaitError!void {
     std.debug.assert(info.timelines.len == info.values.len);
     if (info.timelines.len == 0) return;
 
-    const result = info.device.vk.device.waitSemaphoresKHR(&.{
+    const result = info.device.vk.device.waitSemaphores(&.{
         .semaphore_count = @intCast(info.timelines.len),
         .p_semaphores = @ptrCast(info.timelines.ptr),
         .p_values = info.values.ptr,
@@ -53,7 +53,7 @@ pub fn waitMany(info: gpu.Timeline.WaitManyInfo) gpu.Timeline.WaitError!void {
 }
 
 pub fn getValue(timeline: gpu.Timeline, device: gpu.Device) gpu.Timeline.GetValueError!gpu.Timeline.Value {
-    return device.vk.device.getSemaphoreCounterValueKHR(timeline.vk.semaphore) catch |err| return switch (err) {
+    return device.vk.device.getSemaphoreCounterValue(timeline.vk.semaphore) catch |err| return switch (err) {
         error.DeviceLost => error.DeviceLost,
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,
@@ -62,7 +62,7 @@ pub fn getValue(timeline: gpu.Timeline, device: gpu.Device) gpu.Timeline.GetValu
 }
 
 pub fn setValue(timeline: gpu.Timeline, device: gpu.Device, value: gpu.Timeline.Value) gpu.Timeline.SetValueError!void {
-    device.vk.device.signalSemaphoreKHR(&.{
+    device.vk.device.signalSemaphore(&.{
         .semaphore = timeline.vk.semaphore,
         .value = value,
     }) catch |err| return switch (err) {

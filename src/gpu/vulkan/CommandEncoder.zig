@@ -217,7 +217,7 @@ pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, info: gpu.CommandEncoder.Memor
             };
         }
 
-        this.vk.dispatch.cmdPipelineBarrier2KHR(this.vk.command_buffer, &.{
+        this.vk.dispatch.cmdPipelineBarrier2(this.vk.command_buffer, &.{
             .image_memory_barrier_count = @intCast(image.len),
             .p_image_memory_barriers = &image_buffer,
             .buffer_memory_barrier_count = @intCast(buffer.len),
@@ -273,7 +273,7 @@ pub const RenderPassEncoder = struct {
         else
             undefined;
 
-        command_encoder.vk.dispatch.cmdBeginRenderingKHR(command_encoder.vk.command_buffer, &.{
+        command_encoder.vk.dispatch.cmdBeginRendering(command_encoder.vk.command_buffer, &.{
             .render_area = .{
                 .offset = .{
                     .x = 0,
@@ -299,7 +299,7 @@ pub const RenderPassEncoder = struct {
     }
 
     pub fn cmdEnd(this: gpu.RenderPassEncoder) void {
-        this.vk.cmd_encoder.dispatch.cmdEndRenderingKHR(this.vk.cmd_encoder.command_buffer);
+        this.vk.cmd_encoder.dispatch.cmdEndRendering(this.vk.cmd_encoder.command_buffer);
     }
 
     pub fn cmdBindPipeline(this: gpu.RenderPassEncoder, graphics_pipeline: gpu.GraphicsPipeline) void {
