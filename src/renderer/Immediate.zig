@@ -5,6 +5,8 @@ const Immediate = @This();
 
 alloc: std.mem.Allocator,
 stream_alloc: gpu.PushAllocator,
+staging: gpu.Buffer,
+stage_mapping: []u8,
 box_renderer: ?BoxRenderer,
 frame_data: ?FrameData,
 
@@ -18,13 +20,23 @@ pub const InitInfo = struct {
 };
 
 pub fn init(info: InitInfo) !Immediate {
+    const buffer_size = info.streaming_buffer_size_pf * info.frames_in_flight;
     const streaming_buffer = try info.device.initBuffer(.{
         .alloc = info.alloc,
         .loc = .device,
         .usage = .{ .dst = true, .vertex = true },
-        .size = info.streaming_buffer_size_pf * info.frames_in_flight,
+        .size = buffer_size,
     });
     errdefer streaming_buffer.deinit(info.device, info.alloc);
+
+    const staging = try info.device.initBuffer(.{
+        .alloc = info.alloc,
+        .loc = .host,
+        .usage = .{ .src = true },
+        .size = buffer_size,
+    });
+    errdefer staging.deinit(info.device, info.alloc);
+    const stage_mapping = try staging.map(info.device);
 
     var immediate: Immediate = .{
         .alloc = info.alloc,
@@ -33,6 +45,8 @@ pub fn init(info: InitInfo) !Immediate {
             .frames_in_flight = info.frames_in_flight,
             .size_pf = info.streaming_buffer_size_pf,
         },
+        .staging = staging,
+        .stage_mapping = stage_mapping,
         .box_renderer = null,
         .frame_data = null,
     };
@@ -50,6 +64,7 @@ pub fn deinit(immediate: *Immediate, device: gpu.Device) void {
         BoxRenderer.deinit(immediate, device);
 
     immediate.stream_alloc.buffer.deinit(device, immediate.alloc);
+    immediate.staging.deinit(device, immediate.alloc);
 }
 
 pub const DrawRectInfo = struct {
@@ -68,19 +83,20 @@ pub fn begin(immediate: *Immediate, image_size: [2]u16) !void {
     };
 }
 
-pub fn render(immediate: *Immediate, cmd_encoder: gpu.CommandEncoder, stage_man: *gpu.StagingManager, image_view: gpu.Image.View) !void {
-    const box_vertex_data = immediate.box_renderer.?.vertex_data.items;
-    const box_alloc = try immediate.stream_alloc.allocTAligned(BoxRenderer.VertexInput, box_vertex_data.len, .@"4");
+pub fn render(immediate: *Immediate, cmd_encoder: gpu.CommandEncoder, image_view: gpu.Image.View) !void {
+    if (immediate.box_renderer) |_| try BoxRenderer.upload(immediate);
 
-    const size = box_alloc.size;
-    const staging = try stage_man.allocateBytesAligned(size, .@"4");
+    const region = immediate.stream_alloc.usedRegion();
+    const staging: gpu.Buffer.Region = .{
+        .buffer = immediate.staging,
+        .offset = region.offset,
+        .size = region.size,
+    };
 
-    const box_staging = staging.slice[0..box_alloc.size];
-    @memcpy(box_staging, std.mem.sliceAsBytes(box_vertex_data));
-
-    cmd_encoder.cmdCopyBuffer(staging.region, immediate.stream_alloc.usedRegion());
+    if (region.size == 0) return;
+    cmd_encoder.cmdCopyBuffer(staging, region);
     cmd_encoder.cmdMemoryBarrier(.{ .buffer_barriers = &.{.{
-        .region = immediate.stream_alloc.usedRegion(),
+        .region = region,
         .src_stage = .{ .transfer = true },
         .src_access = .{ .transfer_write = true },
         .dst_stage = .{ .vertex_input = true },
@@ -102,20 +118,7 @@ pub fn render(immediate: *Immediate, cmd_encoder: gpu.CommandEncoder, stage_man:
         .image_size = @as(math.Vec2, @floatFromInt(@as(@Vector(2, u16), immediate.frame_data.?.image_size))),
     };
 
-    if (immediate.box_renderer) |x| {
-        render_pass.cmdBindPipeline(x.pipeline);
-        render_pass.cmdPushConstants(x.pipeline, .{
-            .offset = 0,
-            .size = @sizeOf(PushConstants),
-            .stages = .{ .vertex = true },
-        }, std.mem.asBytes(&pc));
-        render_pass.cmdBindVertexBuffer(0, box_alloc);
-        render_pass.cmdDraw(.{
-            .vertex_count = 6,
-            .instance_count = @intCast(box_vertex_data.len),
-            .indexed = false,
-        });
-    }
+    if (immediate.box_renderer) |_| try BoxRenderer.render(immediate, render_pass, pc);
 
     render_pass.cmdEnd();
 }
@@ -173,6 +176,7 @@ const FrameData = struct {
 const BoxRenderer = struct {
     pipeline: gpu.GraphicsPipeline,
     vertex_data: std.ArrayList(VertexInput),
+    vertex_buffer_offset: gpu.Size = std.math.maxInt(gpu.Size),
 
     const InitInfo = struct {
         shaders: []const gpu.Shader,
@@ -225,6 +229,42 @@ const BoxRenderer = struct {
 
         this.vertex_data.deinit(immediate.alloc);
         this.pipeline.deinit(device, immediate.alloc);
+    }
+
+    fn upload(immediate: *Immediate) !void {
+        const this = &immediate.box_renderer.?;
+        const data = this.vertex_data.items;
+        if (data.len == 0) return;
+
+        const region = try immediate.stream_alloc.allocTAligned(VertexInput, data.len, .@"4");
+        const staging = immediate.stage_mapping[region.offset..][0..region.size];
+
+        @memcpy(staging, std.mem.sliceAsBytes(data));
+        this.vertex_buffer_offset = region.offset;
+    }
+
+    fn render(immediate: *Immediate, render_pass: gpu.RenderPassEncoder, pc: PushConstants) !void {
+        const this = &immediate.box_renderer.?;
+        const count = this.vertex_data.items.len;
+        if (count == 0) return;
+
+        render_pass.cmdBindPipeline(this.pipeline);
+        render_pass.cmdPushConstants(this.pipeline, .{
+            .offset = 0,
+            .size = @sizeOf(PushConstants),
+            .stages = .{ .vertex = true },
+        }, std.mem.asBytes(&pc));
+        render_pass.cmdBindVertexBuffer(0, .{
+            .buffer = immediate.stream_alloc.buffer,
+            .offset = this.vertex_buffer_offset,
+            .size = count * @sizeOf(VertexInput),
+        });
+
+        render_pass.cmdDraw(.{
+            .vertex_count = 6,
+            .instance_count = @intCast(count),
+            .indexed = false,
+        });
     }
 
     const VertexInput = extern struct {
