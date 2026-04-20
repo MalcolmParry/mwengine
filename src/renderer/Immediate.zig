@@ -67,11 +67,6 @@ pub fn deinit(immediate: *Immediate, device: gpu.Device) void {
     immediate.staging.deinit(device, immediate.alloc);
 }
 
-pub const DrawRectInfo = struct {
-    transform: Transform,
-    color: [4]u8,
-};
-
 pub fn begin(immediate: *Immediate, image_size: [2]u16) !void {
     if (immediate.box_renderer) |*x| {
         x.vertex_data.clearRetainingCapacity();
@@ -123,6 +118,12 @@ pub fn render(immediate: *Immediate, cmd_encoder: gpu.CommandEncoder, image_view
     render_pass.cmdEnd();
 }
 
+const black: [4]u8 = .{ 0, 0, 0, 255 };
+pub const DrawRectInfo = struct {
+    transform: Transform,
+    color: [4]u8 = black,
+};
+
 pub fn drawRect(immediate: *Immediate, info: DrawRectInfo) !void {
     const image_size = immediate.frame_data.?.image_size;
 
@@ -143,11 +144,44 @@ pub fn drawRect(immediate: *Immediate, info: DrawRectInfo) !void {
     });
 }
 
+pub const DrawLineInfo = struct {
+    start: NormWithOffset,
+    end: NormWithOffset,
+    thickness: u16 = 1,
+    color: [4]u8 = black,
+};
+
+pub fn drawLine(immediate: *Immediate, info: DrawLineInfo) !void {
+    const i16x2 = @Vector(2, i16);
+    const start: i16x2 = info.start.pixels(immediate.frame_data.?.image_size);
+    const end: i16x2 = info.end.pixels(immediate.frame_data.?.image_size);
+    const to = end - start;
+
+    const to_f: math.Vec2 = @floatFromInt(to);
+    const length = math.length(to_f);
+    if (length == 0) return;
+
+    const to_unit = to_f / math.splat2(f32, length);
+
+    try immediate.box_renderer.?.vertex_data.append(immediate.alloc, .{
+        .pos = start,
+        .size = .{ @intFromFloat(length), @intCast(info.thickness) },
+        .cos = math.normFromFloat(i16, to_unit[0]),
+        .sin = math.normFromFloat(i16, to_unit[1]),
+        // center left
+        .pivot = .{
+            std.math.minInt(i16),
+            0,
+        },
+        .color = info.color,
+    });
+}
+
 pub const NormWithOffset = struct {
     /// bottom left = (0, 0), top right = (1, 1)
-    norm: [2]f32,
+    norm: [2]f32 = @splat(0),
     /// offset in pixels
-    offset: [2]i16,
+    offset: [2]i16 = @splat(0),
 
     const u16x2 = @Vector(2, u16);
     const i16x2 = @Vector(2, i16);
