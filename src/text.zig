@@ -30,313 +30,272 @@ pub const Face = struct {
         _ = c.FT_Done_Face(face._ft_face);
         _ = c.FT_Done_FreeType(face._ft_lib);
     }
+};
 
-    pub const Loaded = struct {
+pub const GlyphCache = struct {
+    alloc: std.mem.Allocator,
+    stage_man: *gpu.StagingManager,
+    atlas_size: gpu.Image.Size2D,
+    atlases: std.ArrayList(Atlas) = .empty,
+    glyphs: std.AutoHashMapUnmanaged(GlyphDesc, Glyph) = .empty,
+
+    current_atlas_id: u32 = 0,
+    next_glyph_start: gpu.Image.Offset2D = @splat(0),
+    row_highest: u32 = 0,
+
+    copies: std.ArrayList(Copy) = .empty,
+    /// whether it is written to in copies array
+    atlas_dirty: std.AutoHashMapUnmanaged(u32, void) = .empty,
+
+    pub const Copy = struct {
+        loc: Glyph.Loc,
+        staging: gpu.Buffer.Region,
+    };
+
+    pub const Atlas = struct {
+        image: gpu.Image,
+        view: gpu.Image.View,
+        layout: gpu.Image.Layout = .undefined,
+    };
+
+    pub const GlyphDesc = struct {
+        _ft_face_ptr: usize,
+        height: u16,
+        codepoint: UnicodeCodepoint,
+    };
+
+    pub const Glyph = struct {
+        pub const Loc = struct {
+            atlas_id: u32,
+            bounds: gpu.Image.Rect,
+        };
+
+        loc: Loc,
+        size: [2]u16,
+        advance: [2]i16,
+        bearing: [2]i16,
+    };
+
+    pub const LoadGlyphInfo = struct {
+        device: gpu.Device,
         face: *Face,
-        render_mode: RenderMode,
-        atlas_size: gpu.Image.Size2D,
-        char_height_px: u32,
+        height: u16,
+        codepoint: UnicodeCodepoint,
+    };
 
-        atlases: std.ArrayList(Atlas) = .empty,
-        glyphs: std.AutoHashMapUnmanaged(UnicodeCodepoint, Glyph) = .empty,
-        next_glyph_start: gpu.Image.Offset2D = @splat(0),
-        row_highest: u32 = 0,
+    pub fn deinit(cache: *GlyphCache, device: gpu.Device) void {
+        cache.atlas_dirty.deinit(cache.alloc);
+        cache.copies.deinit(cache.alloc);
+        cache.glyphs.deinit(cache.alloc);
 
-        pub const RenderMode = enum {
-            grayscale,
-        };
-
-        pub const Atlas = struct {
-            image: gpu.Image,
-            view: gpu.Image.View,
-            sampler: gpu.Sampler,
-            layout: gpu.Image.Layout = .undefined,
-        };
-
-        pub const Glyph = struct {
-            pub const Loc = struct {
-                atlas: u32,
-                bounds: gpu.Image.Rect,
-            };
-
-            loc: Loc,
-            size: [2]u16,
-            advance: [2]i16,
-            bearing: [2]i16,
-
-            pub const empty: Glyph = .{
-                .loc = .{
-                    .atlas = 0,
-                    .bounds = .{
-                        .offset = @splat(0),
-                        .size = @splat(0),
-                    },
-                },
-                .size = @splat(0),
-                .advance = @splat(0),
-                .bearing = @splat(0),
-            };
-        };
-
-        pub fn deinit(loaded: *Loaded, alloc: std.mem.Allocator, device: gpu.Device) void {
-            for (loaded.atlases.items) |atlas| {
-                atlas.sampler.deinit(device, alloc);
-                atlas.view.deinit(device, alloc);
-                atlas.image.deinit(device, alloc);
-            }
-
-            loaded.atlases.deinit(alloc);
-            loaded.glyphs.deinit(alloc);
+        for (cache.atlases.items) |atlas| {
+            atlas.view.deinit(device, cache.alloc);
+            atlas.image.deinit(device, cache.alloc);
         }
 
-        pub const LoadGlyphInfo = struct {
-            alloc: std.mem.Allocator,
-            device: gpu.Device,
-            stage_man: *gpu.StagingManager,
-            cmd_encoder: gpu.CommandEncoder,
-            codepoint: UnicodeCodepoint,
-        };
+        cache.atlases.deinit(cache.alloc);
+    }
 
-        pub fn loadGlyph(loaded: *Loaded, info: LoadGlyphInfo) !void {
-            if (loaded.glyphs.contains(info.codepoint)) return;
-            const glyph_index = c.FT_Get_Char_Index(loaded.face._ft_face, info.codepoint);
-            if (glyph_index == 0) return;
+    pub fn upload(cache: *GlyphCache, device: gpu.Device, cmd_encoder: gpu.CommandEncoder) !void {
+        if (cache.copies.items.len == 0) return;
 
-            if (c.FT_Set_Pixel_Sizes(loaded.face._ft_face, 0, loaded.char_height_px) != 0) return error.BadSize;
-            if (c.FT_Load_Glyph(loaded.face._ft_face, glyph_index, c.FT_LOAD_DEFAULT) != 0) return error.GlyphLoadFailed;
+        const required_atlas_count = cache.current_atlas_id + 1;
+        const loaded_atlas_count = cache.atlases.items.len;
+        try cache.atlases.resize(cache.alloc, required_atlas_count);
 
-            const ft_glyph = loaded.face._ft_face.*.glyph;
-            if (c.FT_Render_Glyph(ft_glyph, c.FT_RENDER_MODE_NORMAL) != 0) return error.GlyphRenderFailed;
+        // TODO: handle errors correctly
+        for (loaded_atlas_count..required_atlas_count) |atlas_id| {
+            const image = try device.initImage(.{
+                .alloc = cache.alloc,
+                .format = .r8_unorm,
+                .usage = .{ .sampled = true, .dst = true },
+                .loc = .device,
+                .size = cache.atlas_size,
+            });
+            errdefer image.deinit(device, cache.alloc);
 
-            const bmp = ft_glyph.*.bitmap;
-            const width: usize = bmp.width;
-            const height: usize = bmp.rows;
-            const y_flipped = bmp.pitch < 0;
-            const size: gpu.Image.Size2D = .{ @intCast(width), @intCast(height) };
+            const view = try device.initImageView(.{
+                .alloc = cache.alloc,
+                .image = image,
+                .kind = .@"2d",
+                .subresource_range = .{
+                    .aspect = .{ .color = true },
+                },
+            });
+            errdefer view.deinit(device, cache.alloc);
 
-            if (width == 0 or height == 0) {
-                try loaded.glyphs.put(
-                    info.alloc,
-                    info.codepoint,
-                    .{
-                        .loc = .{
-                            .atlas = 0,
-                            .bounds = .{
-                                .offset = @splat(0),
-                                .size = @splat(0),
-                            },
-                        },
-                        .size = @splat(0),
-                        .advance = .{
-                            @intCast(ft_glyph.*.advance.x >> 6),
-                            @intCast(ft_glyph.*.advance.y >> 6),
-                        },
-                        .bearing = .{
-                            @intCast(ft_glyph.*.bitmap_left),
-                            @intCast(ft_glyph.*.bitmap_top),
-                        },
+            cache.atlases.items[atlas_id] = .{
+                .image = image,
+                .view = view,
+                .layout = .undefined,
+            };
+        }
+
+        var image_barriers: std.ArrayList(gpu.ImageBarrier) = try .initCapacity(cache.alloc, required_atlas_count);
+        defer image_barriers.deinit(cache.alloc);
+
+        var dirty_iter = cache.atlas_dirty.iterator();
+        while (dirty_iter.next()) |entry| {
+            const atlas = &cache.atlases.items[entry.key_ptr.*];
+
+            image_barriers.appendAssumeCapacity(.{
+                .image = atlas.image,
+                .subresource_range = .{
+                    .aspect = .{ .color = true },
+                },
+                .old_layout = atlas.layout,
+                .new_layout = .transfer_dst,
+                .src_stage = .{ .pipeline_start = true },
+                .src_access = .{},
+                .dst_stage = .{ .transfer = true },
+                .dst_access = .{ .transfer_write = true },
+            });
+            atlas.layout = .transfer_dst;
+        }
+        cmd_encoder.cmdMemoryBarrier(.{ .image_barriers = image_barriers.items });
+
+        for (cache.copies.items) |copy| {
+            const atlas = &cache.atlases.items[copy.loc.atlas_id];
+
+            cmd_encoder.cmdCopyBufferToImage(.{
+                .src = copy.staging,
+                .dst = atlas.image,
+                .layout = atlas.layout,
+                .subresource = .{
+                    .aspect = .{ .color = true },
+                },
+                .region = .{
+                    .offset = .{
+                        copy.loc.bounds.offset[0],
+                        copy.loc.bounds.offset[1],
+                        0,
                     },
-                );
-                return;
-            }
+                    .size = .{
+                        copy.loc.bounds.size[0],
+                        copy.loc.bounds.size[1],
+                        1,
+                    },
+                },
+            });
+        }
 
-            const loc = try loaded.allocateAtlasSpace(info.alloc, info.device, size);
-            const atlas = &loaded.atlases.items[loc.atlas];
-            const staging = try info.stage_man.allocateBytesAligned(width * height, .@"4");
+        image_barriers.clearRetainingCapacity();
+        dirty_iter = cache.atlas_dirty.iterator();
+        while (dirty_iter.next()) |entry| {
+            const atlas = &cache.atlases.items[entry.key_ptr.*];
+
+            image_barriers.appendAssumeCapacity(.{
+                .image = atlas.image,
+                .subresource_range = .{
+                    .aspect = .{ .color = true },
+                },
+                .old_layout = atlas.layout,
+                .new_layout = .shader_read_only,
+                .src_stage = .{ .transfer = true },
+                .src_access = .{ .transfer_write = true },
+                .dst_stage = .{ .pixel_shader = true },
+                .dst_access = .{ .shader_read = true },
+            });
+            atlas.layout = .shader_read_only;
+        }
+        cmd_encoder.cmdMemoryBarrier(.{ .image_barriers = image_barriers.items });
+
+        cache.copies.clearRetainingCapacity();
+        cache.atlas_dirty.clearRetainingCapacity();
+    }
+
+    pub fn loadGlyph(cache: *GlyphCache, info: LoadGlyphInfo) !void {
+        const ft_face = info.face._ft_face;
+        const glyph_desc: GlyphDesc = .{
+            ._ft_face_ptr = @intFromPtr(ft_face),
+            .height = info.height,
+            .codepoint = info.codepoint,
+        };
+        if (cache.glyphs.contains(glyph_desc)) return;
+
+        const glyph_index = c.FT_Get_Char_Index(ft_face, info.codepoint);
+        if (glyph_index == 0) return;
+
+        if (c.FT_Set_Pixel_Sizes(ft_face, 0, info.height) != 0) return error.BadHeight;
+        if (c.FT_Load_Glyph(ft_face, glyph_index, c.FT_LOAD_DEFAULT) != 0) return error.GlyphLoadFailed;
+
+        const ft_glyph = ft_face.*.glyph;
+        if (c.FT_Render_Glyph(ft_glyph, c.FT_RENDER_MODE_NORMAL) != 0) return error.GlyphRenderFailed;
+
+        const bmp = ft_glyph.*.bitmap;
+        const width: usize = bmp.width;
+        const height: usize = bmp.rows;
+        const y_flipped = bmp.pitch < 0;
+        const size: gpu.Image.Size2D = .{ @intCast(width), @intCast(height) };
+        const pitch: usize = @abs(bmp.pitch);
+        const bytes_per_pixel = 1;
+
+        const loc: Glyph.Loc = if (width != 0 and height != 0) blk: {
+            const loc = try cache.allocateAtlasSpace(size);
+            const staging = try cache.stage_man.allocateBytesAligned(width * height * bytes_per_pixel, .@"4");
 
             for (0..height) |uy| {
                 const y = if (y_flipped) height - uy - 1 else uy;
 
-                const src = bmp.buffer[y * width ..][0..width];
-                const dst = staging.slice[y * width ..][0..width];
+                const src = bmp.buffer[y * pitch ..][0 .. width * bytes_per_pixel];
+                const dst = staging.slice[y * width * bytes_per_pixel ..][0 .. width * bytes_per_pixel];
                 @memcpy(dst, src);
             }
 
-            info.cmd_encoder.cmdMemoryBarrier(.{
-                .image_barriers = &.{.{
-                    .image = atlas.image,
-                    .subresource_range = .{
-                        .aspect = .{ .color = true },
-                    },
-                    .old_layout = atlas.layout,
-                    .new_layout = .transfer_dst,
-                    .src_stage = .{ .pipeline_start = true },
-                    .dst_stage = .{ .transfer = true },
-                    .src_access = .{},
-                    .dst_access = .{ .transfer_write = true },
-                }},
+            try cache.atlas_dirty.put(cache.alloc, loc.atlas_id, {});
+            try cache.copies.append(cache.alloc, .{
+                .loc = loc,
+                .staging = staging.region,
             });
 
-            info.cmd_encoder.cmdCopyBufferToImage(.{
-                .src = staging.region,
-                .dst = atlas.image,
-                .region = .{
-                    .offset = .{
-                        loc.bounds.offset[0],
-                        loc.bounds.offset[1],
-                        0,
-                    },
-                    .size = .{
-                        loc.bounds.size[0],
-                        loc.bounds.size[1],
-                        1,
-                    },
-                },
-                .layout = .transfer_dst,
-                .subresource = .{
-                    .aspect = .{ .color = true },
-                },
-            });
-
-            info.cmd_encoder.cmdMemoryBarrier(.{
-                .image_barriers = &.{.{
-                    .image = atlas.image,
-                    .subresource_range = .{
-                        .aspect = .{ .color = true },
-                    },
-                    .old_layout = .transfer_dst,
-                    .new_layout = .shader_read_only,
-                    .src_stage = .{ .transfer = true },
-                    .dst_stage = .{},
-                    .src_access = .{ .transfer_write = true },
-                    .dst_access = .{},
-                }},
-            });
-            atlas.layout = .shader_read_only;
-
-            try loaded.glyphs.put(
-                info.alloc,
-                info.codepoint,
-                .{
-                    .loc = loc,
-                    .size = @as(@Vector(2, u16), @intCast(size)),
-                    .advance = .{
-                        @intCast(ft_glyph.*.advance.x >> 6),
-                        @intCast(ft_glyph.*.advance.y >> 6),
-                    },
-                    .bearing = .{
-                        @intCast(ft_glyph.*.bitmap_left),
-                        @intCast(ft_glyph.*.bitmap_top),
-                    },
-                },
-            );
-        }
-
-        fn allocateAtlasSpace(loaded: *Loaded, alloc: std.mem.Allocator, device: gpu.Device, size: gpu.Image.Size2D) !Glyph.Loc {
-            std.debug.assert(@reduce(.And, loaded.atlas_size >= size));
-
-            if (loaded.next_glyph_start[0] + size[0] > loaded.atlas_size[0]) {
-                loaded.next_glyph_start[0] = 0;
-                loaded.next_glyph_start[1] += loaded.row_highest;
-                loaded.row_highest = 0;
-            }
-
-            if (loaded.atlases.items.len == 0 or loaded.next_glyph_start[1] + size[1] > loaded.atlas_size[1]) {
-                const image = try device.initImage(.{
-                    .alloc = alloc,
-                    .format = .r8_unorm,
-                    .usage = .{ .sampled = true, .dst = true },
-                    .size = loaded.atlas_size,
-                    .loc = .device,
-                });
-                errdefer image.deinit(device, alloc);
-
-                const view = try device.initImageView(.{
-                    .alloc = alloc,
-                    .image = image,
-                    .kind = .@"2d",
-                    .subresource_range = .{
-                        .aspect = .{ .color = true },
-                    },
-                    .component_mapping = .{
-                        .r = .zero,
-                        .g = .zero,
-                        .b = .zero,
-                        .a = .r,
-                    },
-                });
-                errdefer view.deinit(device, alloc);
-
-                const sampler = try device.initSampler(.{
-                    .alloc = alloc,
-                    .min_filter = .linear,
-                    .mag_filter = .linear,
-                    .address_mode_u = .clamp_to_edge,
-                    .address_mode_v = .clamp_to_edge,
-                    .address_mode_w = .clamp_to_edge,
-                });
-                errdefer sampler.deinit(device, alloc);
-
-                try loaded.atlases.append(alloc, .{
-                    .image = image,
-                    .view = view,
-                    .sampler = sampler,
-                });
-
-                loaded.next_glyph_start = @splat(0);
-                loaded.row_highest = 0;
-            }
-
-            const pos = loaded.next_glyph_start;
-            loaded.next_glyph_start[0] += size[0];
-            loaded.row_highest = @max(loaded.row_highest, size[1]);
-
-            return .{
-                .atlas = @intCast(loaded.atlases.items.len - 1),
-                .bounds = .{
-                    .offset = pos,
-                    .size = size,
-                },
-            };
-        }
-
-        pub const BakedChar = extern struct {
-            tl: [2]i16,
-            size: [2]u16,
-            uv_tl: [2]f32,
-            uv_br: [2]f32,
+            break :blk loc;
+        } else .{
+            .atlas_id = 0,
+            .bounds = .{
+                .offset = @splat(0),
+                .size = @splat(0),
+            },
         };
 
-        pub fn bakeUtf8(loaded: *Loaded, alloc: std.mem.Allocator, text: []const u8) ![]std.ArrayList(BakedChar) {
-            const result = try alloc.alloc(std.ArrayList(BakedChar), loaded.atlases.items.len);
-            errdefer {
-                for (result) |*arr| arr.deinit(alloc);
-                alloc.free(result);
-            }
-            @memset(result, .empty);
+        try cache.glyphs.put(cache.alloc, glyph_desc, .{
+            .loc = loc,
+            .size = @as(@Vector(2, u16), @intCast(size)),
+            .advance = .{
+                @intCast(ft_glyph.*.advance.x >> 6),
+                @intCast(ft_glyph.*.advance.y >> 6),
+            },
+            .bearing = .{
+                @intCast(ft_glyph.*.bitmap_left),
+                @intCast(ft_glyph.*.bitmap_top),
+            },
+        });
+    }
 
-            var pen: @Vector(2, i16) = .{ 0, 0 };
+    fn allocateAtlasSpace(cache: *GlyphCache, size: gpu.Image.Size2D) !Glyph.Loc {
+        if (@reduce(.Or, size > cache.atlas_size)) return error.AtlasAllocationTooBig;
 
-            var i: usize = 0;
-            var iter = (try std.unicode.Utf8View.init(text)).iterator();
-            while (iter.nextCodepoint()) |codepoint| : (i += 1) {
-                const glyph = loaded.glyphs.get(codepoint) orelse Glyph.empty;
-                defer pen[0] += glyph.advance[0];
-                if (glyph.size[0] == 0 or glyph.size[1] == 0) continue;
-
-                const pos_tl = pen + glyph.bearing;
-
-                const float_uv_tl: @Vector(2, f32) = @floatFromInt(glyph.loc.bounds.offset);
-                const float_uv_size: @Vector(2, f32) = @floatFromInt(glyph.loc.bounds.size);
-                const norm_uv_tl = float_uv_tl / @as(math.Vec2, @floatFromInt(loaded.atlas_size));
-                const norm_uv_size = float_uv_size / @as(math.Vec2, @floatFromInt(loaded.atlas_size));
-                const norm_uv_br = norm_uv_tl + norm_uv_size;
-
-                try result[glyph.loc.atlas].append(alloc, .{
-                    .tl = pos_tl,
-                    .size = glyph.size,
-                    .uv_tl = .{
-                        norm_uv_tl[0],
-                        1 - norm_uv_tl[1],
-                    },
-                    .uv_br = .{
-                        norm_uv_br[0],
-                        1 - norm_uv_br[1],
-                    },
-                });
-            }
-
-            return result;
+        if (cache.next_glyph_start[0] + size[0] > cache.atlas_size[0]) {
+            cache.next_glyph_start[0] = 0;
+            cache.next_glyph_start[1] += cache.row_highest;
+            cache.row_highest = 0;
         }
-    };
+
+        if (cache.next_glyph_start[1] + size[1] > cache.atlas_size[1]) {
+            cache.current_atlas_id += 1;
+            cache.next_glyph_start = @splat(0);
+            cache.row_highest = 0;
+        }
+
+        const pos = cache.next_glyph_start;
+        cache.next_glyph_start[0] += size[0];
+        cache.row_highest = @max(cache.row_highest, size[1]);
+
+        return .{
+            .atlas_id = cache.current_atlas_id,
+            .bounds = .{
+                .offset = pos,
+                .size = size,
+            },
+        };
+    }
 };
