@@ -2,6 +2,7 @@ const std = @import("std");
 const Window = @import("../Window.zig");
 const vk = @import("vulkan/vulkan.zig");
 
+pub const FrameRingPool = @import("frame_ring_pool.zig").FrameRingPool;
 pub const StagingManager = @import("StagingManager.zig");
 pub const UploadManager = @import("UploadManager.zig");
 pub const PushAllocator = @import("PushAllocator.zig");
@@ -22,26 +23,6 @@ pub const Api = enum {
             .vk => std.meta.eql(a.vk, b.vk),
         };
     }
-};
-
-pub const Error = error{
-    OutOfMemory,
-    OutOfDeviceMemory,
-    InitFailed,
-    NotSupported,
-    NoSuitableDevice,
-    NoSuitableQueue,
-    NoSuitableMemoryType,
-    OutOfPoolMemory,
-    FragmentedPool,
-    Fragmentation,
-    DeviceLost,
-    SurfaceLost,
-    SurfaceInUse,
-    Timeout,
-    OutOfDate,
-    MemoryMapFailed,
-    Unknown,
 };
 
 pub const Instance = union(Api) {

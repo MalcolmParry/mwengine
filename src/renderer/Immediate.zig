@@ -8,6 +8,7 @@ stream_alloc: gpu.PushAllocator,
 staging: gpu.Buffer,
 stage_mapping: []u8,
 box_renderer: ?BoxRenderer,
+image_renderer: ?ImageRenderer,
 frame_data: ?FrameData,
 
 pub const InitInfo = struct {
@@ -17,6 +18,7 @@ pub const InitInfo = struct {
     streaming_buffer_size_pf: gpu.Size,
     color_format: gpu.Image.Format,
     box_info: ?BoxRenderer.InitInfo = null,
+    image_info: ?ImageRenderer.InitInfo = null,
 };
 
 pub fn init(info: InitInfo) !Immediate {
@@ -48,6 +50,7 @@ pub fn init(info: InitInfo) !Immediate {
         .staging = staging,
         .stage_mapping = stage_mapping,
         .box_renderer = null,
+        .image_renderer = null,
         .frame_data = null,
     };
 
@@ -56,10 +59,18 @@ pub fn init(info: InitInfo) !Immediate {
     errdefer if (info.box_info) |_|
         BoxRenderer.deinit(&immediate, info.device);
 
+    if (info.image_info) |_|
+        try ImageRenderer.init(&immediate, info);
+    errdefer if (info.image_info) |_|
+        ImageRenderer.deinit(&immediate, info.device);
+
     return immediate;
 }
 
 pub fn deinit(immediate: *Immediate, device: gpu.Device) void {
+    if (immediate.image_renderer) |_|
+        ImageRenderer.deinit(immediate, device);
+
     if (immediate.box_renderer) |_|
         BoxRenderer.deinit(immediate, device);
 
@@ -72,13 +83,18 @@ pub fn begin(immediate: *Immediate, image_size: [2]u16) !void {
         x.vertex_data.clearRetainingCapacity();
     }
 
+    if (immediate.image_renderer) |*x| {
+        x.draws.clearRetainingCapacity();
+        x.resource_sets.nextFrame();
+    }
+
     immediate.stream_alloc.nextFrame();
     immediate.frame_data = .{
         .image_size = image_size,
     };
 }
 
-pub fn render(immediate: *Immediate, cmd_encoder: gpu.CommandEncoder, image_view: gpu.Image.View) !void {
+pub fn render(immediate: *Immediate, device: gpu.Device, cmd_encoder: gpu.CommandEncoder, image_view: gpu.Image.View) !void {
     if (immediate.box_renderer) |_| try BoxRenderer.upload(immediate);
 
     const region = immediate.stream_alloc.usedRegion();
@@ -109,11 +125,8 @@ pub fn render(immediate: *Immediate, cmd_encoder: gpu.CommandEncoder, image_view
         .image_size = immediate.frame_data.?.image_size,
     });
 
-    const pc: PushConstants = .{
-        .image_size = @as(math.Vec2, @floatFromInt(@as(@Vector(2, u16), immediate.frame_data.?.image_size))),
-    };
-
-    if (immediate.box_renderer) |_| try BoxRenderer.render(immediate, render_pass, pc);
+    if (immediate.box_renderer) |_| try BoxRenderer.render(immediate, render_pass);
+    if (immediate.image_renderer) |_| try ImageRenderer.render(immediate, device, render_pass);
 
     render_pass.cmdEnd();
 }
@@ -175,6 +188,15 @@ pub fn drawLine(immediate: *Immediate, info: DrawLineInfo) !void {
         },
         .color = info.color,
     });
+}
+
+const DrawImageInfo = struct {
+    view: gpu.Image.View,
+    transform: Transform,
+};
+
+pub fn drawImage(immediate: *Immediate, info: DrawImageInfo) !void {
+    try immediate.image_renderer.?.draws.append(immediate.alloc, info);
 }
 
 pub const NormWithOffset = struct {
@@ -277,10 +299,14 @@ const BoxRenderer = struct {
         this.vertex_buffer_offset = region.offset;
     }
 
-    fn render(immediate: *Immediate, render_pass: gpu.RenderPassEncoder, pc: PushConstants) !void {
+    fn render(immediate: *Immediate, render_pass: gpu.RenderPassEncoder) !void {
         const this = &immediate.box_renderer.?;
         const count = this.vertex_data.items.len;
         if (count == 0) return;
+
+        const pc: PushConstants = .{
+            .image_size = @as(math.Vec2, @floatFromInt(@as(@Vector(2, u16), immediate.frame_data.?.image_size))),
+        };
 
         render_pass.cmdBindPipeline(this.pipeline);
         render_pass.cmdPushConstants(this.pipeline, .{
@@ -310,8 +336,149 @@ const BoxRenderer = struct {
         pivot: [2]i16,
         color: [4]u8,
     };
+
+    const PushConstants = extern struct {
+        image_size: [2]f32,
+    };
 };
 
-const PushConstants = extern struct {
-    image_size: [2]f32,
+const ImageRenderer = struct {
+    pipeline: gpu.GraphicsPipeline,
+    resource_layout: gpu.ResourceSet.Layout,
+    resource_sets: gpu.FrameRingPool(gpu.ResourceSet, gpu.ResourceSet.init, struct { gpu.Device, gpu.ResourceSet.Layout, std.mem.Allocator }),
+    sampler: gpu.Sampler,
+    draws: std.ArrayList(DrawImageInfo),
+
+    const InitInfo = struct {
+        shaders: []const gpu.Shader,
+    };
+
+    fn init(immediate: *Immediate, info: Immediate.InitInfo) !void {
+        const layout = try info.device.initResourceLayout(.{
+            .alloc = info.alloc,
+            .descriptors = &.{.{
+                .t = .image,
+                .stages = .{ .pixel = true },
+                .flags = .{},
+                .binding = 0,
+                .count = 1,
+            }},
+        });
+        errdefer layout.deinit(info.device, info.alloc);
+
+        const pipeline = try info.device.initGraphicsPipeline(.{
+            .alloc = info.alloc,
+            .render_target_desc = .{
+                .color_format = info.color_format,
+                .depth_format = null,
+            },
+            .shaders = info.image_info.?.shaders,
+            .push_constant_ranges = &.{.{
+                .size = @sizeOf(PushConstants),
+                .offset = 0,
+                .stages = .{ .vertex = true },
+            }},
+            .resource_layouts = &.{layout},
+            .blend_info = .{
+                .src_color_factor = .src_alpha,
+                .dst_color_factor = .one_minus_src_alpha,
+                .color_op = .add,
+                .src_alpha_factor = .one,
+                .dst_alpha_factor = .one,
+                .alpha_op = .max,
+            },
+        });
+        errdefer pipeline.deinit(info.device, info.alloc);
+
+        const sampler = try info.device.initSampler(.{
+            .alloc = info.alloc,
+            .min_filter = .linear,
+            .mag_filter = .linear,
+            .address_mode_u = .repeat,
+            .address_mode_v = .repeat,
+            .address_mode_w = .repeat,
+        });
+        errdefer sampler.deinit(info.device, info.alloc);
+
+        immediate.image_renderer = .{
+            .pipeline = pipeline,
+            .resource_layout = layout,
+            .resource_sets = try .init(info.alloc, info.frames_in_flight),
+            .sampler = sampler,
+            .draws = .empty,
+        };
+    }
+
+    fn deinit(immediate: *Immediate, device: gpu.Device) void {
+        const this = &immediate.image_renderer.?;
+
+        for (this.resource_sets.free_list.items) |x| x.deinit(device, immediate.alloc);
+        for (this.resource_sets.in_use_lists) |list|
+            for (list.items) |x| x.deinit(device, immediate.alloc);
+        this.resource_sets.deinit(immediate.alloc);
+        this.pipeline.deinit(device, immediate.alloc);
+        this.resource_layout.deinit(device, immediate.alloc);
+        this.sampler.deinit(device, immediate.alloc);
+        this.draws.deinit(immediate.alloc);
+    }
+
+    fn render(immediate: *Immediate, device: gpu.Device, render_pass: gpu.RenderPassEncoder) !void {
+        const this = &immediate.image_renderer.?;
+        if (this.draws.items.len == 0) return;
+
+        try this.resource_sets.ensureFree(immediate.alloc, .{ device, this.resource_layout, immediate.alloc }, this.draws.items.len);
+        render_pass.cmdBindPipeline(this.pipeline);
+
+        for (this.draws.items) |draw| {
+            const image_size: @Vector(2, u16) = immediate.frame_data.?.image_size;
+            const image_size_f: math.Vec2 = @floatFromInt(image_size);
+
+            const resource_set = this.resource_sets.allocateAssumeCapacity();
+            try resource_set.update(device, &.{.{
+                .binding = 0,
+                .data = .{ .image = &.{.{
+                    .view = draw.view,
+                    .sampler = this.sampler,
+                    .layout = .shader_read_only,
+                }} },
+            }}, immediate.alloc);
+
+            const i16x2 = @Vector(2, i16);
+            const pos: i16x2 = draw.transform.pos.pixels(image_size);
+            const size: i16x2 = draw.transform.size.pixels(image_size);
+
+            const pos_f: math.Vec2 = @floatFromInt(pos);
+            const size_f: math.Vec2 = @floatFromInt(size);
+
+            const pc: PushConstants = .{
+                .image_size = image_size_f,
+                .pos = pos_f,
+                .size = size_f,
+                .cos = @cos(draw.transform.angle),
+                .sin = @sin(draw.transform.angle),
+                .pivot = draw.transform.pivot,
+            };
+
+            render_pass.cmdPushConstants(this.pipeline, .{
+                .offset = 0,
+                .size = @sizeOf(PushConstants),
+                .stages = .{ .vertex = true },
+            }, std.mem.asBytes(&pc));
+            render_pass.cmdBindResourceSets(this.pipeline, &.{resource_set}, 0);
+
+            render_pass.cmdDraw(.{
+                .vertex_count = 6,
+                .indexed = false,
+            });
+        }
+    }
+
+    const PushConstants = extern struct {
+        image_size: [2]f32,
+        pos: [2]f32,
+        size: [2]f32,
+        cos: f32,
+        sin: f32,
+        pivot: [2]f32,
+    };
 };
