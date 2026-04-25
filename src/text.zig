@@ -37,7 +37,7 @@ pub const GlyphCache = struct {
     stage_man: *gpu.StagingManager,
     atlas_size: gpu.Image.Size2D,
     atlases: std.ArrayList(Atlas) = .empty,
-    glyphs: std.AutoHashMapUnmanaged(GlyphDesc, Glyph) = .empty,
+    glyphs: std.AutoHashMapUnmanaged(InternalGlyphDesc, Glyph) = .empty,
 
     current_atlas_id: u32 = 0,
     next_glyph_start: gpu.Image.Offset2D = @splat(0),
@@ -58,7 +58,7 @@ pub const GlyphCache = struct {
         layout: gpu.Image.Layout = .undefined,
     };
 
-    pub const GlyphDesc = struct {
+    const InternalGlyphDesc = struct {
         _ft_face_ptr: usize,
         height: u16,
         codepoint: UnicodeCodepoint,
@@ -76,8 +76,7 @@ pub const GlyphCache = struct {
         bearing: [2]i16,
     };
 
-    pub const LoadGlyphInfo = struct {
-        device: gpu.Device,
+    pub const GlyphDesc = struct {
         face: *Face,
         height: u16,
         codepoint: UnicodeCodepoint,
@@ -118,6 +117,12 @@ pub const GlyphCache = struct {
                 .alloc = cache.alloc,
                 .image = image,
                 .kind = .@"2d",
+                .component_mapping = .{
+                    .r = .r,
+                    .g = .r,
+                    .b = .r,
+                    .a = .r,
+                },
                 .subresource_range = .{
                     .aspect = .{ .color = true },
                 },
@@ -145,8 +150,16 @@ pub const GlyphCache = struct {
                 },
                 .old_layout = atlas.layout,
                 .new_layout = .transfer_dst,
-                .src_stage = .{ .pipeline_start = true },
-                .src_access = .{},
+                .src_stage = switch (atlas.layout) {
+                    .undefined => .{ .pipeline_start = true },
+                    .shader_read_only => .{ .pixel_shader = true },
+                    else => unreachable,
+                },
+                .src_access = switch (atlas.layout) {
+                    .undefined => .{},
+                    .shader_read_only => .{ .shader_read = true },
+                    else => unreachable,
+                },
                 .dst_stage = .{ .transfer = true },
                 .dst_access = .{ .transfer_write = true },
             });
@@ -204,19 +217,34 @@ pub const GlyphCache = struct {
         cache.atlas_dirty.clearRetainingCapacity();
     }
 
-    pub fn loadGlyph(cache: *GlyphCache, info: LoadGlyphInfo) !void {
-        const ft_face = info.face._ft_face;
-        const glyph_desc: GlyphDesc = .{
-            ._ft_face_ptr = @intFromPtr(ft_face),
-            .height = info.height,
-            .codepoint = info.codepoint,
+    pub fn getGlyph(cache: *GlyphCache, desc: GlyphDesc) ?Glyph {
+        const internal_desc: InternalGlyphDesc = .{
+            ._ft_face_ptr = @intFromPtr(desc.face._ft_face),
+            .height = desc.height,
+            .codepoint = desc.codepoint,
         };
-        if (cache.glyphs.contains(glyph_desc)) return;
 
-        const glyph_index = c.FT_Get_Char_Index(ft_face, info.codepoint);
+        return cache.glyphs.get(internal_desc);
+    }
+
+    pub fn getOrLoadGlyph(cache: *GlyphCache, desc: GlyphDesc) !Glyph {
+        try cache.loadGlyph(desc);
+        return cache.getGlyph(desc) orelse unreachable;
+    }
+
+    pub fn loadGlyph(cache: *GlyphCache, desc: GlyphDesc) !void {
+        const ft_face = desc.face._ft_face;
+        const internal_desc: InternalGlyphDesc = .{
+            ._ft_face_ptr = @intFromPtr(ft_face),
+            .height = desc.height,
+            .codepoint = desc.codepoint,
+        };
+        if (cache.glyphs.contains(internal_desc)) return;
+
+        const glyph_index = c.FT_Get_Char_Index(ft_face, desc.codepoint);
         if (glyph_index == 0) return;
 
-        if (c.FT_Set_Pixel_Sizes(ft_face, 0, info.height) != 0) return error.BadHeight;
+        if (c.FT_Set_Pixel_Sizes(ft_face, 0, desc.height) != 0) return error.BadHeight;
         if (c.FT_Load_Glyph(ft_face, glyph_index, c.FT_LOAD_DEFAULT) != 0) return error.GlyphLoadFailed;
 
         const ft_glyph = ft_face.*.glyph;
@@ -238,7 +266,7 @@ pub const GlyphCache = struct {
                 const y = if (y_flipped) height - uy - 1 else uy;
 
                 const src = bmp.buffer[y * pitch ..][0 .. width * bytes_per_pixel];
-                const dst = staging.slice[y * width * bytes_per_pixel ..][0 .. width * bytes_per_pixel];
+                const dst = staging.slice[uy * width * bytes_per_pixel ..][0 .. width * bytes_per_pixel];
                 @memcpy(dst, src);
             }
 
@@ -257,7 +285,7 @@ pub const GlyphCache = struct {
             },
         };
 
-        try cache.glyphs.put(cache.alloc, glyph_desc, .{
+        try cache.glyphs.put(cache.alloc, internal_desc, .{
             .loc = loc,
             .size = @as(@Vector(2, u16), @intCast(size)),
             .advance = .{
@@ -295,6 +323,66 @@ pub const GlyphCache = struct {
             .bounds = .{
                 .offset = pos,
                 .size = size,
+            },
+        };
+    }
+};
+
+pub const PositionedGlyph = struct {
+    atlas_id: u32,
+    pos_tl: [2]i16,
+    size: [2]u16,
+    /// unorm
+    uv_tl: [2]u16,
+    /// unorm
+    uv_br: [2]u16,
+};
+
+pub const PositionedGlyphIterator = struct {
+    cache: *GlyphCache,
+    face: *Face,
+    height: u16,
+    text: std.unicode.Utf8Iterator,
+
+    pen: [2]i16 = @splat(0),
+
+    const i16x2 = @Vector(2, i16);
+    const invalid_char: UnicodeCodepoint = 0xfffd;
+    pub fn next(iter: *PositionedGlyphIterator) !?PositionedGlyph {
+        const codepoint = iter.text.nextCodepoint() orelse return null;
+
+        const glyph = try iter.cache.getOrLoadGlyph(.{
+            .face = iter.face,
+            .height = iter.height,
+            .codepoint = codepoint,
+        });
+
+        const pen: i16x2 = iter.pen;
+        iter.pen[0] += glyph.advance[0];
+        const bearing: i16x2 = glyph.bearing;
+        const pos_tl = pen + bearing;
+
+        const uv_tl = glyph.loc.bounds.offset;
+        const uv_br = uv_tl + glyph.loc.bounds.size;
+
+        const uv_tl_f: math.Vec2 = @floatFromInt(uv_tl);
+        const uv_br_f: math.Vec2 = @floatFromInt(uv_br);
+
+        const atlas_size: math.Vec2 = @floatFromInt(iter.cache.atlas_size);
+        const uv_tl_n = uv_tl_f / atlas_size;
+        const uv_br_n = uv_br_f / atlas_size;
+
+        return .{
+            .atlas_id = glyph.loc.atlas_id,
+            .pos_tl = pos_tl,
+            .size = glyph.size,
+            .uv_tl = .{
+                math.normFromFloat(u16, uv_tl_n[0]),
+                math.normFromFloat(u16, uv_tl_n[1]),
+            },
+            .uv_br = .{
+                math.normFromFloat(u16, uv_br_n[0]),
+                math.normFromFloat(u16, uv_br_n[1]),
             },
         };
     }
