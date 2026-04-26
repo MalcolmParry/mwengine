@@ -39,6 +39,10 @@ pub const Face = struct {
     pub fn notDefGlyphIndex(_: *Face) u32 {
         return 0;
     }
+
+    pub fn lineHeight(face: *Face) u16 {
+        return @intCast(face._ft_face.*.size.*.metrics.height >> 6);
+    }
 };
 
 pub const GlyphCache = struct {
@@ -342,6 +346,14 @@ pub const PositionedGlyph = struct {
     uv_tl: [2]u16,
     /// unorm
     uv_br: [2]u16,
+
+    pub const empty: PositionedGlyph = .{
+        .atlas_id = 0,
+        .pos_tl = .{ 0, 0 },
+        .size = .{ 0, 0 },
+        .uv_tl = .{ 0, 0 },
+        .uv_br = .{ 0, 0 },
+    };
 };
 
 pub const GlyphPositioner = struct {
@@ -352,8 +364,23 @@ pub const GlyphPositioner = struct {
     pen: [2]i16 = @splat(0),
 
     pub fn position(iter: *GlyphPositioner, codepoint: UnicodeCodepoint) !PositionedGlyph {
-        const index = iter.face.glyphIndexFromUnicode(codepoint) orelse iter.face.notDefGlyphIndex();
-        return iter.positionFromGlyphIndex(index);
+        switch (codepoint) {
+            '\n' => {
+                iter.pen[0] = 0;
+                iter.pen[1] -= @intCast(iter.face.lineHeight());
+                return .empty;
+            },
+            '\t' => {
+                for (0..8) |_| {
+                    _ = try iter.position(' ');
+                }
+                return .empty;
+            },
+            else => {
+                const index = iter.face.glyphIndexFromUnicode(codepoint) orelse iter.face.notDefGlyphIndex();
+                return iter.positionFromGlyphIndex(index);
+            },
+        }
     }
 
     const i16x2 = @Vector(2, i16);
