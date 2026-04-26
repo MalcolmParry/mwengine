@@ -7,6 +7,8 @@ const c = @cImport({
 });
 
 pub const UnicodeCodepoint = u21;
+pub const invalid_codepoint: UnicodeCodepoint = 0xfffd;
+
 pub const Face = struct {
     _ft_lib: c.FT_Library,
     _ft_face: c.FT_Face,
@@ -229,20 +231,24 @@ pub const GlyphCache = struct {
 
     pub fn getOrLoadGlyph(cache: *GlyphCache, desc: GlyphDesc) !Glyph {
         try cache.loadGlyph(desc);
-        return cache.getGlyph(desc) orelse unreachable;
+        return cache.getGlyph(desc) orelse cache.getGlyph(.{
+            .face = desc.face,
+            .height = desc.height,
+            .codepoint = invalid_codepoint,
+        }) orelse unreachable;
     }
 
     pub fn loadGlyph(cache: *GlyphCache, desc: GlyphDesc) !void {
         const ft_face = desc.face._ft_face;
+        const glyph_index = c.FT_Get_Char_Index(ft_face, desc.codepoint);
+        const codepoint = if (glyph_index == 0) invalid_codepoint else desc.codepoint;
+
         const internal_desc: InternalGlyphDesc = .{
             ._ft_face_ptr = @intFromPtr(ft_face),
             .height = desc.height,
-            .codepoint = desc.codepoint,
+            .codepoint = codepoint,
         };
         if (cache.glyphs.contains(internal_desc)) return;
-
-        const glyph_index = c.FT_Get_Char_Index(ft_face, desc.codepoint);
-        if (glyph_index == 0) return;
 
         if (c.FT_Set_Pixel_Sizes(ft_face, 0, desc.height) != 0) return error.BadHeight;
         if (c.FT_Load_Glyph(ft_face, glyph_index, c.FT_LOAD_DEFAULT) != 0) return error.GlyphLoadFailed;
@@ -347,7 +353,6 @@ pub const PositionedGlyphIterator = struct {
     pen: [2]i16 = @splat(0),
 
     const i16x2 = @Vector(2, i16);
-    const invalid_char: UnicodeCodepoint = 0xfffd;
     pub fn next(iter: *PositionedGlyphIterator) !?PositionedGlyph {
         const codepoint = iter.text.nextCodepoint() orelse return null;
 
