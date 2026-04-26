@@ -7,8 +7,6 @@ const c = @cImport({
 });
 
 pub const UnicodeCodepoint = u21;
-pub const invalid_codepoint: UnicodeCodepoint = 0xfffd;
-
 pub const Face = struct {
     _ft_lib: c.FT_Library,
     _ft_face: c.FT_Face,
@@ -32,6 +30,15 @@ pub const Face = struct {
         _ = c.FT_Done_Face(face._ft_face);
         _ = c.FT_Done_FreeType(face._ft_lib);
     }
+
+    pub fn glyphIndexFromUnicode(face: *Face, codepoint: UnicodeCodepoint) ?u32 {
+        const index = c.FT_Get_Char_Index(face._ft_face, codepoint);
+        return if (index == 0) null else index;
+    }
+
+    pub fn notDefGlyphIndex(_: *Face) u32 {
+        return 0;
+    }
 };
 
 pub const GlyphCache = struct {
@@ -39,7 +46,7 @@ pub const GlyphCache = struct {
     stage_man: *gpu.StagingManager,
     atlas_size: gpu.Image.Size2D,
     atlases: std.ArrayList(Atlas) = .empty,
-    glyphs: std.AutoHashMapUnmanaged(InternalGlyphDesc, Glyph) = .empty,
+    glyphs: std.AutoHashMapUnmanaged(HashableGlyphDesc, Glyph) = .empty,
 
     current_atlas_id: u32 = 0,
     next_glyph_start: gpu.Image.Offset2D = @splat(0),
@@ -60,10 +67,10 @@ pub const GlyphCache = struct {
         layout: gpu.Image.Layout = .undefined,
     };
 
-    const InternalGlyphDesc = struct {
+    const HashableGlyphDesc = struct {
         _ft_face_ptr: usize,
         height: u16,
-        codepoint: UnicodeCodepoint,
+        index: u32,
     };
 
     pub const Glyph = struct {
@@ -81,7 +88,7 @@ pub const GlyphCache = struct {
     pub const GlyphDesc = struct {
         face: *Face,
         height: u16,
-        codepoint: UnicodeCodepoint,
+        index: u32,
     };
 
     pub fn deinit(cache: *GlyphCache, device: gpu.Device) void {
@@ -220,38 +227,31 @@ pub const GlyphCache = struct {
     }
 
     pub fn getGlyph(cache: *GlyphCache, desc: GlyphDesc) ?Glyph {
-        const internal_desc: InternalGlyphDesc = .{
+        const hashable_desc: HashableGlyphDesc = .{
             ._ft_face_ptr = @intFromPtr(desc.face._ft_face),
             .height = desc.height,
-            .codepoint = desc.codepoint,
+            .index = desc.index,
         };
 
-        return cache.glyphs.get(internal_desc);
+        return cache.glyphs.get(hashable_desc);
     }
 
     pub fn getOrLoadGlyph(cache: *GlyphCache, desc: GlyphDesc) !Glyph {
         try cache.loadGlyph(desc);
-        return cache.getGlyph(desc) orelse cache.getGlyph(.{
-            .face = desc.face,
-            .height = desc.height,
-            .codepoint = invalid_codepoint,
-        }) orelse unreachable;
+        return cache.getGlyph(desc) orelse unreachable;
     }
 
     pub fn loadGlyph(cache: *GlyphCache, desc: GlyphDesc) !void {
         const ft_face = desc.face._ft_face;
-        const glyph_index = c.FT_Get_Char_Index(ft_face, desc.codepoint);
-        const codepoint = if (glyph_index == 0) invalid_codepoint else desc.codepoint;
-
-        const internal_desc: InternalGlyphDesc = .{
+        const hashable_desc: HashableGlyphDesc = .{
             ._ft_face_ptr = @intFromPtr(ft_face),
             .height = desc.height,
-            .codepoint = codepoint,
+            .index = desc.index,
         };
-        if (cache.glyphs.contains(internal_desc)) return;
+        if (cache.glyphs.contains(hashable_desc)) return;
 
         if (c.FT_Set_Pixel_Sizes(ft_face, 0, desc.height) != 0) return error.BadHeight;
-        if (c.FT_Load_Glyph(ft_face, glyph_index, c.FT_LOAD_DEFAULT) != 0) return error.GlyphLoadFailed;
+        if (c.FT_Load_Glyph(ft_face, desc.index, c.FT_LOAD_DEFAULT) != 0) return error.GlyphLoadFailed;
 
         const ft_glyph = ft_face.*.glyph;
         if (c.FT_Render_Glyph(ft_glyph, c.FT_RENDER_MODE_NORMAL) != 0) return error.GlyphRenderFailed;
@@ -291,7 +291,7 @@ pub const GlyphCache = struct {
             },
         };
 
-        try cache.glyphs.put(cache.alloc, internal_desc, .{
+        try cache.glyphs.put(cache.alloc, hashable_desc, .{
             .loc = loc,
             .size = @as(@Vector(2, u16), @intCast(size)),
             .advance = .{
@@ -344,22 +344,24 @@ pub const PositionedGlyph = struct {
     uv_br: [2]u16,
 };
 
-pub const PositionedGlyphIterator = struct {
+pub const GlyphPositioner = struct {
     cache: *GlyphCache,
     face: *Face,
     height: u16,
-    text: std.unicode.Utf8Iterator,
 
     pen: [2]i16 = @splat(0),
 
-    const i16x2 = @Vector(2, i16);
-    pub fn next(iter: *PositionedGlyphIterator) !?PositionedGlyph {
-        const codepoint = iter.text.nextCodepoint() orelse return null;
+    pub fn position(iter: *GlyphPositioner, codepoint: UnicodeCodepoint) !PositionedGlyph {
+        const index = iter.face.glyphIndexFromUnicode(codepoint) orelse iter.face.notDefGlyphIndex();
+        return iter.positionFromGlyphIndex(index);
+    }
 
+    const i16x2 = @Vector(2, i16);
+    pub fn positionFromGlyphIndex(iter: *GlyphPositioner, index: u32) !PositionedGlyph {
         const glyph = try iter.cache.getOrLoadGlyph(.{
             .face = iter.face,
             .height = iter.height,
-            .codepoint = codepoint,
+            .index = index,
         });
 
         const pen: i16x2 = iter.pen;

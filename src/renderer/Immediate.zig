@@ -239,29 +239,39 @@ pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
     const image_size_f: math.Vec2 = @floatFromInt(image_size);
     const start: i16x2 = info.pos.pixels(image_size);
 
-    const initial_iter: text.PositionedGlyphIterator = .{
-        .cache = this.cache,
-        .face = info.font_face,
-        .height = info.height_px,
-        .text = .{
-            .bytes = info.text,
-            .i = 0,
-        },
+    const not_def = info.font_face.notDefGlyphIndex();
+    var iter: std.unicode.Utf8Iterator = .{
+        .bytes = info.text,
+        .i = 0,
     };
 
     // preload all glyphs used
-    var iter = initial_iter;
-    while (try iter.next()) |_| {}
+    while (iter.nextCodepoint()) |codepoint| {
+        const index = info.font_face.glyphIndexFromUnicode(codepoint) orelse not_def;
+        try this.cache.loadGlyph(.{
+            .face = info.font_face,
+            .height = info.height_px,
+            .index = index,
+        });
+    }
     const initial_atlas_count = this.per_atlas.items.len;
     try this.per_atlas.resize(immediate.alloc, this.cache.current_atlas_id + 1);
     @memset(this.per_atlas.items[initial_atlas_count..], .{});
 
-    iter = initial_iter;
-    while (try iter.next()) |glyph| {
-        const tl_rel: i16x2 = glyph.pos_tl;
+    var positioner: text.GlyphPositioner = .{
+        .cache = this.cache,
+        .face = info.font_face,
+        .height = info.height_px,
+    };
+
+    iter.i = 0;
+    while (iter.nextCodepoint()) |codepoint| {
+        const positioned = try positioner.position(codepoint);
+
+        const tl_rel: i16x2 = positioned.pos_tl;
         const tl = tl_rel + start;
 
-        const size_u: u16x2 = glyph.size;
+        const size_u: u16x2 = positioned.size;
         if (size_u[0] == 0 or size_u[1] == 0) continue;
         const size: i16x2 = @intCast(size_u);
         const br = tl + @as(i16x2, .{ size[0], -size[1] });
@@ -274,7 +284,7 @@ pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
         const tl_n = (tl_f / image_size_f) * two - one;
         const br_n = (br_f / image_size_f) * two - one;
 
-        const per_atlas = &this.per_atlas.items[glyph.atlas_id];
+        const per_atlas = &this.per_atlas.items[positioned.atlas_id];
         try per_atlas.vertex_input.append(immediate.alloc, .{
             .tl = .{
                 math.normFromFloat(i16, tl_n[0]),
@@ -284,8 +294,8 @@ pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
                 math.normFromFloat(i16, br_n[0]),
                 math.normFromFloat(i16, -br_n[1]),
             },
-            .uv_tl = glyph.uv_tl,
-            .uv_br = glyph.uv_br,
+            .uv_tl = positioned.uv_tl,
+            .uv_br = positioned.uv_br,
             .color = info.color,
         });
     }
