@@ -86,17 +86,46 @@ pub fn cross(a: Vec3, b: Vec3) Vec3 {
     };
 }
 
-pub fn changeSize(comptime len: u32, vec: anytype) @Vector(len, @typeInfo(@TypeOf(vec)).vector.child) {
-    var result: @Vector(len, @typeInfo(@TypeOf(vec)).vector.child) = @splat(0);
+pub inline fn clampToIntBounds(comptime T: type, x: anytype) @TypeOf(x) {
+    return std.math.clamp(x, std.math.minInt(T), std.math.maxInt(T));
+}
 
-    for (0..@typeInfo(@TypeOf(vec)).vector.len) |i| {
-        if (i >= len) break;
+pub fn Mapping(T: type) type {
+    return union(enum) {
+        pub const This = @This();
 
-        result[i] = vec[i];
+        x,
+        y,
+        z,
+        w,
+        val: T,
+
+        pub const r: This = .x;
+        pub const g: This = .y;
+        pub const b: This = .z;
+        pub const a: This = .w;
+
+        pub const u: This = .x;
+        pub const v: This = .y;
+
+        pub const zero: This = .{ .val = 0 };
+        pub const one: This = .{ .val = 1 };
+        pub const minus_one: This = .{ .val = -1 };
+    };
+}
+
+pub fn shuffle(x: anytype, comptime mapping: []const Mapping(Base(@TypeOf(x)))) @Vector(mapping.len, Base(@TypeOf(x))) {
+    var result: @Vector(mapping.len, Base(@TypeOf(x))) = undefined;
+
+    inline for (mapping, 0..) |map, i| {
+        result[i] = switch (map) {
+            .x => x[0],
+            .y => x[1],
+            .z => x[2],
+            .w => x[3],
+            .val => |value| value,
+        };
     }
-
-    if (len == 4)
-        result[3] = 1;
 
     return result;
 }
@@ -195,7 +224,7 @@ pub fn quatFromAxisAngle(axis: Vec3, angle: f32) Quat {
 
 pub fn quatMulVec(q: Quat, v: Vec3) Vec3 {
     const n = normalize(q);
-    const qv = changeSize(3, n);
+    const qv = shuffle(n, &.{ .x, .y, .z });
     const t = cross(qv, v) * @as(Vec3, @splat(2));
     return v + t * @as(Vec3, @splat(n[3])) + cross(qv, t);
 }
@@ -447,15 +476,24 @@ pub fn Base(T: type) type {
     };
 }
 
-pub const UNorm16 = u16;
-pub const SNorm16 = i16;
-
 /// x must be between -1 and 1
 pub fn normFromFloat(T: type, x: anytype) T {
     return if (x == -1)
         std.math.minInt(T)
     else
         @intFromFloat(x * @as(comptime_float, std.math.maxInt(T)));
+}
+
+/// x must be between -1 and 1
+pub fn normFromFloatVec(T: type, x: anytype) T {
+    const X = @TypeOf(x);
+    const B = Base(T);
+    const max_vec: X = @splat(std.math.maxInt(B));
+
+    return if (@reduce(.And, x == @as(X, @splat(-1))))
+        @splat(std.math.minInt(B))
+    else
+        @intFromFloat(x * max_vec);
 }
 
 pub fn normToFloat(Float: type, x: anytype) Float {

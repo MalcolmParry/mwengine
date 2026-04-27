@@ -172,17 +172,14 @@ pub fn drawRect(immediate: *Immediate, info: DrawRectInfo) !void {
         .size = info.transform.size.pixels(image_size),
         .cos = math.normFromFloat(i16, @cos(info.transform.angle)),
         .sin = math.normFromFloat(i16, @sin(info.transform.angle)),
-        .pivot = .{
-            math.normFromFloat(i16, s_pivot[0]),
-            math.normFromFloat(i16, s_pivot[1]),
-        },
+        .pivot = math.normFromFloatVec(@Vector(2, i16), s_pivot),
         .color = info.color,
     });
 }
 
 pub const DrawLineInfo = struct {
-    start: NormWithOffset,
-    end: NormWithOffset,
+    start: NormWithOffset2D,
+    end: NormWithOffset2D,
     thickness: u16 = 1,
     color: [4]u8 = black,
 };
@@ -206,7 +203,7 @@ pub fn drawLine(immediate: *Immediate, info: DrawLineInfo) !void {
         .sin = math.normFromFloat(i16, to_unit[1]),
         // center left
         .pivot = .{
-            std.math.minInt(i16),
+            math.normFromFloat(i16, -1),
             0,
         },
         .color = info.color,
@@ -225,7 +222,7 @@ pub fn drawImage(immediate: *Immediate, info: DrawImageInfo) !void {
 pub const DrawTextInfo = struct {
     font_face: *text.Face,
     height_px: u16,
-    pos: NormWithOffset,
+    pos: NormWithOffset2D,
     text: []const u8,
     color: [4]u8,
 };
@@ -281,19 +278,15 @@ pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
 
         const tl_f: math.Vec2 = @floatFromInt(tl);
         const br_f: math.Vec2 = @floatFromInt(br);
-        const tl_n = (tl_f / image_size_f) * two - one;
-        const br_n = (br_f / image_size_f) * two - one;
+        var tl_n = (tl_f / image_size_f) * two - one;
+        var br_n = (br_f / image_size_f) * two - one;
+        tl_n[1] *= -1;
+        br_n[1] *= -1;
 
         const per_atlas = &this.per_atlas.items[positioned.atlas_id];
         try per_atlas.vertex_input.append(immediate.alloc, .{
-            .tl = .{
-                math.normFromFloat(i16, tl_n[0]),
-                math.normFromFloat(i16, -tl_n[1]),
-            },
-            .br = .{
-                math.normFromFloat(i16, br_n[0]),
-                math.normFromFloat(i16, -br_n[1]),
-            },
+            .tl = math.normFromFloatVec(i16x2, tl_n),
+            .br = math.normFromFloatVec(i16x2, br_n),
             .uv_tl = positioned.uv_tl,
             .uv_br = positioned.uv_br,
             .color = info.color,
@@ -302,6 +295,25 @@ pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
 }
 
 pub const NormWithOffset = struct {
+    norm: f32 = 0,
+    /// offset in pixels
+    offset: i16 = 0,
+
+    pub fn pixels(this: NormWithOffset, length: u16) i16 {
+        const length_f: f32 = @floatFromInt(length);
+        if (!std.math.isFinite(this.norm)) return this.offset;
+
+        const scaled: f32 = this.norm * length_f;
+        const clamped = math.clampToIntBounds(i16, scaled);
+
+        const clamped_i: i32 = @intFromFloat(clamped);
+        const result = clamped_i + this.offset;
+
+        return @intCast(math.clampToIntBounds(i16, result));
+    }
+};
+
+pub const NormWithOffset2D = struct {
     /// bottom left = (0, 0), top right = (1, 1)
     norm: [2]f32 = @splat(0),
     /// offset in pixels
@@ -309,7 +321,7 @@ pub const NormWithOffset = struct {
 
     const u16x2 = @Vector(2, u16);
     const i16x2 = @Vector(2, i16);
-    pub fn pixels(this: NormWithOffset, image_size: [2]u16) [2]i16 {
+    pub fn pixels(this: NormWithOffset2D, image_size: [2]u16) [2]i16 {
         const f_image_size: math.Vec2 = @floatFromInt(@as(u16x2, image_size));
         const from_norm = @as(math.Vec2, this.norm) * f_image_size;
         const i_from_norm: i16x2 = @intFromFloat(from_norm);
@@ -318,8 +330,8 @@ pub const NormWithOffset = struct {
 };
 
 pub const Transform = struct {
-    pos: NormWithOffset,
-    size: NormWithOffset,
+    pos: NormWithOffset2D,
+    size: NormWithOffset2D,
     /// angle in radians
     angle: f32 = 0,
     /// coords relative to shape
@@ -734,9 +746,7 @@ pub const TextRenderer = struct {
     };
 
     const VertexInput = struct {
-        /// snorm
         tl: [2]i16,
-        /// snorm
         br: [2]i16,
         /// unorm
         uv_tl: [2]u16,
