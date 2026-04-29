@@ -40,9 +40,22 @@ pub const Face = struct {
         return 0;
     }
 
-    pub fn lineHeight(face: *Face) u16 {
-        return @intCast(face._ft_face.*.size.*.metrics.height >> 6);
+    pub fn getMetrics(face: *Face, height_px: u16) !Metrics {
+        if (c.FT_Set_Pixel_Sizes(face._ft_face, 0, height_px) != 0) return error.BadHeight;
+        const ft_metrics = &face._ft_face.*.size.*.metrics;
+
+        return .{
+            .line_height_px = @intCast(ft_metrics.height >> 6),
+            .ascender_px = @intCast(ft_metrics.ascender >> 6),
+            .descender_px = @intCast(ft_metrics.descender >> 6),
+        };
     }
+
+    pub const Metrics = struct {
+        line_height_px: u16,
+        ascender_px: i16,
+        descender_px: i16,
+    };
 };
 
 pub const GlyphCache = struct {
@@ -361,13 +374,32 @@ pub const GlyphPositioner = struct {
     face: *Face,
     height: u16,
 
-    pen: [2]i16 = @splat(0),
+    pen: [2]i16,
+    metrics: Face.Metrics,
+
+    pub const InitInfo = struct {
+        cache: *GlyphCache,
+        face: *Face,
+        height_px: u16,
+    };
+
+    pub fn init(info: InitInfo) !GlyphPositioner {
+        const metrics = try info.face.getMetrics(info.height_px);
+
+        return .{
+            .cache = info.cache,
+            .face = info.face,
+            .height = info.height_px,
+            .pen = .{ 0, -metrics.ascender_px },
+            .metrics = metrics,
+        };
+    }
 
     pub fn position(iter: *GlyphPositioner, codepoint: UnicodeCodepoint) !PositionedGlyph {
         switch (codepoint) {
             '\n' => {
                 iter.pen[0] = 0;
-                iter.pen[1] -= @intCast(iter.face.lineHeight());
+                iter.pen[1] -= @intCast(iter.metrics.line_height_px);
                 return .empty;
             },
             '\t' => {

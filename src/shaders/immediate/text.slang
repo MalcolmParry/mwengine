@@ -1,9 +1,9 @@
 struct PushConstants {
-    uint color;
+    float2 image_size;
 };
 
 struct VSInput {
-    [[vk::location(0)]] float4 bounds;
+    [[vk::location(0)]] int4 bounds;
     [[vk::location(1)]] float4 uv_bounds;
     [[vk::location(2)]] float4 color;
     uint vert_id : SV_VulkanVertexID;
@@ -31,8 +31,13 @@ ConstantBuffer<PushConstants> pc;
 VSOutput vsMain(VSInput input) {
     var mask = mask_table[input.vert_id];
 
+    float4 bounds = input.bounds;
+    float2 pos = lerp(bounds.xy, bounds.zw, mask);
+    float2 pos_n = (pos / pc.image_size) * 2 - 1;
+    pos_n.y *= -1;
+
     VSOutput o;
-    o.position = float4(lerp(input.bounds.xy, input.bounds.zw, mask), 0, 1);
+    o.position = float4(pos_n, 0, 1);
     o.uvs = lerp(input.uv_bounds.xy, input.uv_bounds.zw, mask);
     o.color = input.color;
     return o;

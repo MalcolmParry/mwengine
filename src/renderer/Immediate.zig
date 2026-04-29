@@ -233,7 +233,6 @@ pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
     const u16x2 = @Vector(2, u16);
     const i16x2 = @Vector(2, i16);
     const image_size: u16x2 = immediate.frame_data.?.image_size;
-    const image_size_f: math.Vec2 = @floatFromInt(image_size);
     const start: i16x2 = info.pos.pixels(image_size);
 
     const not_def = info.font_face.notDefGlyphIndex();
@@ -255,11 +254,11 @@ pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
     try this.per_atlas.resize(immediate.alloc, this.cache.current_atlas_id + 1);
     @memset(this.per_atlas.items[initial_atlas_count..], .{});
 
-    var positioner: text.GlyphPositioner = .{
+    var positioner: text.GlyphPositioner = try .init(.{
         .cache = this.cache,
         .face = info.font_face,
-        .height = info.height_px,
-    };
+        .height_px = info.height_px,
+    });
 
     iter.i = 0;
     while (iter.nextCodepoint()) |codepoint| {
@@ -273,20 +272,10 @@ pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
         const size: i16x2 = @intCast(size_u);
         const br = tl + @as(i16x2, .{ size[0], -size[1] });
 
-        const one: math.Vec2 = @splat(1);
-        const two: math.Vec2 = @splat(2);
-
-        const tl_f: math.Vec2 = @floatFromInt(tl);
-        const br_f: math.Vec2 = @floatFromInt(br);
-        var tl_n = (tl_f / image_size_f) * two - one;
-        var br_n = (br_f / image_size_f) * two - one;
-        tl_n[1] *= -1;
-        br_n[1] *= -1;
-
         const per_atlas = &this.per_atlas.items[positioned.atlas_id];
         try per_atlas.vertex_input.append(immediate.alloc, .{
-            .tl = math.normFromFloatVec(i16x2, tl_n),
-            .br = math.normFromFloatVec(i16x2, br_n),
+            .tl = tl,
+            .br = br,
             .uv_tl = positioned.uv_tl,
             .uv_br = positioned.uv_br,
             .color = info.color,
@@ -632,12 +621,17 @@ pub const TextRenderer = struct {
                 .depth_format = null,
             },
             .shaders = this_info.shaders,
+            .push_constant_ranges = &.{.{
+                .size = @sizeOf(PushConstants),
+                .offset = 0,
+                .stages = .{ .vertex = true },
+            }},
             .vertex_input_bindings = &.{.{
                 .binding = 0,
                 .rate = .per_instance,
                 .fields = &.{
                     // bounds
-                    .{ .type = .snorm16x4 },
+                    .{ .type = .sint16x4 },
                     // uv bounds
                     .{ .type = .unorm16x4 },
                     // color
@@ -711,6 +705,15 @@ pub const TextRenderer = struct {
         try this.resource_sets.ensureFree(immediate.alloc, .{ device, this.resource_layout, immediate.alloc }, this.per_atlas.items.len);
         render_pass.cmdBindPipeline(this.pipeline);
 
+        const image_size: @Vector(2, u16) = immediate.frame_data.?.image_size;
+        const image_size_f: math.Vec2 = @floatFromInt(image_size);
+        const pc: PushConstants = .{ .image_size = image_size_f };
+        render_pass.cmdPushConstants(this.pipeline, .{
+            .offset = 0,
+            .size = @sizeOf(PushConstants),
+            .stages = .{ .vertex = true },
+        }, std.mem.asBytes(&pc));
+
         for (this.per_atlas.items, 0..) |*per_atlas, atlas_id| {
             const count = per_atlas.vertex_input.items.len;
             if (count == 0) continue;
@@ -753,5 +756,9 @@ pub const TextRenderer = struct {
         /// unorm
         uv_br: [2]u16,
         color: [4]u8,
+    };
+
+    const PushConstants = extern struct {
+        image_size: [2]f32,
     };
 };
