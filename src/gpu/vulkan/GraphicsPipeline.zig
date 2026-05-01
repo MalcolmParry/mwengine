@@ -78,10 +78,12 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.InitInfo) gpu.Graphic
     for (info.vertex_input_bindings, vert_bind_descs) |bind, *native| {
         var stride: usize = 0;
         var loc: u32 = 0;
+        var biggest_alignment: std.mem.Alignment = .@"1";
 
         for (bind.fields) |field| {
             const alignment = field.alignment orelse field.type.alignment();
             stride = alignment.forward(stride);
+            biggest_alignment = biggest_alignment.max(alignment);
 
             switch (field.type) {
                 .float32x2x2 => {
@@ -137,6 +139,7 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.InitInfo) gpu.Graphic
             }
         }
 
+        stride = biggest_alignment.forward(stride);
         native.* = .{
             .binding = bind.binding,
             .input_rate = switch (bind.rate) {
