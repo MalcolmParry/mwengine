@@ -222,9 +222,12 @@ pub fn drawImage(immediate: *Immediate, info: DrawImageInfo) !void {
 pub const DrawTextInfo = struct {
     font_face: *text.Face,
     height_px: u16,
+    height_in_atlas_px: u16,
     pos: NormWithOffset2D,
     text: []const u8,
     color: [4]u8,
+    outline_width: f32 = 0,
+    outline_color: [4]u8 = @splat(0),
 };
 
 pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
@@ -232,8 +235,11 @@ pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
 
     const u16x2 = @Vector(2, u16);
     const i16x2 = @Vector(2, i16);
+    const u32x2 = @Vector(2, u32);
+    const i32x2 = @Vector(2, i32);
     const image_size: u16x2 = immediate.frame_data.?.image_size;
-    const start: i16x2 = info.pos.pixels(image_size);
+    const start: i32x2 = @as(i16x2, info.pos.pixels(image_size));
+    const size_ratio = @as(f32, @floatFromInt(info.height_px)) / @as(f32, @floatFromInt(info.height_in_atlas_px));
 
     const not_def = info.font_face.notDefGlyphIndex();
     var iter: std.unicode.Utf8Iterator = .{
@@ -246,7 +252,7 @@ pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
         const index = info.font_face.glyphIndexFromUnicode(codepoint) orelse not_def;
         try this.cache.loadGlyph(.{
             .face = info.font_face,
-            .height = info.height_px,
+            .height = info.height_in_atlas_px,
             .index = index,
         });
     }
@@ -257,28 +263,30 @@ pub fn drawText(immediate: *Immediate, info: DrawTextInfo) !void {
     var positioner: text.GlyphPositioner = try .init(.{
         .cache = this.cache,
         .face = info.font_face,
-        .height_px = info.height_px,
+        .height_px = info.height_in_atlas_px,
     });
 
     iter.i = 0;
     while (iter.nextCodepoint()) |codepoint| {
         const positioned = try positioner.position(codepoint);
 
-        const tl_rel: i16x2 = positioned.pos_tl;
+        const tl_rel = @as(i16x2, positioned.pos_tl) * @as(i32x2, @splat(info.height_px)) / @as(i32x2, @splat(info.height_in_atlas_px));
         const tl = tl_rel + start;
 
-        const size_u: u16x2 = positioned.size;
+        const size_u: u32x2 = @as(u16x2, positioned.size) * @as(u32x2, @splat(info.height_px)) / @as(u32x2, @splat(info.height_in_atlas_px));
         if (size_u[0] == 0 or size_u[1] == 0) continue;
-        const size: i16x2 = @intCast(size_u);
-        const br = tl + @as(i16x2, .{ size[0], -size[1] });
+        const size: i32x2 = @intCast(size_u);
+        const br = tl + @as(i32x2, .{ size[0], -size[1] });
 
         const per_atlas = &this.per_atlas.items[positioned.atlas_id];
         try per_atlas.vertex_input.append(immediate.alloc, .{
-            .tl = tl,
-            .br = br,
+            .tl = @as(i16x2, @intCast(tl)),
+            .br = @as(i16x2, @intCast(br)),
             .uv_tl = positioned.uv_tl,
             .uv_br = positioned.uv_br,
             .color = info.color,
+            .outline_color = info.outline_color,
+            .outline_width = @intFromFloat((info.outline_width / size_ratio) * (1 << 3)),
         });
     }
 }
@@ -371,8 +379,8 @@ const BoxRenderer = struct {
                 .dst_color_factor = .one_minus_src_alpha,
                 .color_op = .add,
                 .src_alpha_factor = .one,
-                .dst_alpha_factor = .one,
-                .alpha_op = .max,
+                .dst_alpha_factor = .one_minus_src_alpha,
+                .alpha_op = .add,
             },
         });
         errdefer pipeline.deinit(info.device, info.alloc);
@@ -487,8 +495,8 @@ const ImageRenderer = struct {
                 .dst_color_factor = .one_minus_src_alpha,
                 .color_op = .add,
                 .src_alpha_factor = .one,
-                .dst_alpha_factor = .one,
-                .alpha_op = .max,
+                .dst_alpha_factor = .one_minus_src_alpha,
+                .alpha_op = .add,
             },
         });
         errdefer pipeline.deinit(info.device, info.alloc);
@@ -636,16 +644,20 @@ pub const TextRenderer = struct {
                     .{ .type = .unorm16x4 },
                     // color
                     .{ .type = .unorm8x4 },
+                    // outline color
+                    .{ .type = .unorm8x4 },
+                    // outline width
+                    .{ .type = .uint8 },
                 },
             }},
             .resource_layouts = &.{layout},
             .blend_info = .{
-                .src_color_factor = .src_alpha,
+                .src_color_factor = .one,
                 .dst_color_factor = .one_minus_src_alpha,
                 .color_op = .add,
                 .src_alpha_factor = .one,
-                .dst_alpha_factor = .one,
-                .alpha_op = .max,
+                .dst_alpha_factor = .one_minus_src_alpha,
+                .alpha_op = .add,
             },
         });
         errdefer pipeline.deinit(info.device, info.alloc);
@@ -748,7 +760,7 @@ pub const TextRenderer = struct {
         buffer_offset: gpu.Size = 0,
     };
 
-    const VertexInput = struct {
+    const VertexInput = extern struct {
         tl: [2]i16,
         br: [2]i16,
         /// unorm
@@ -756,6 +768,9 @@ pub const TextRenderer = struct {
         /// unorm
         uv_br: [2]u16,
         color: [4]u8,
+        outline_color: [4]u8,
+        /// 5.3 fractional pixels
+        outline_width: u8,
     };
 
     const PushConstants = extern struct {

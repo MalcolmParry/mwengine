@@ -4,6 +4,7 @@ const math = @import("math.zig");
 
 const c = @cImport({
     @cInclude("freetype/freetype.h");
+    @cInclude("freetype/ftmodapi.h");
 });
 
 pub const UnicodeCodepoint = u21;
@@ -15,6 +16,9 @@ pub const Face = struct {
         var lib: c.FT_Library = null;
         if (c.FT_Init_FreeType(&lib) != 0) return error.FreeTypeInitFailed;
         errdefer _ = c.FT_Done_FreeType(lib);
+
+        const spread: c.FT_Int = 16;
+        if (c.FT_Property_Set(lib, "sdf", "spread", &spread) != 0) return error.FreeTypePropertySetFailed;
 
         var face: c.FT_Face = null;
         if (c.FT_New_Face(lib, path, 0, &face) != 0) return error.BadFont;
@@ -268,10 +272,10 @@ pub const GlyphCache = struct {
         if (cache.glyphs.contains(hashable_desc)) return;
 
         if (c.FT_Set_Pixel_Sizes(ft_face, 0, desc.height) != 0) return error.BadHeight;
-        if (c.FT_Load_Glyph(ft_face, desc.index, c.FT_LOAD_DEFAULT) != 0) return error.GlyphLoadFailed;
+        if (c.FT_Load_Glyph(ft_face, desc.index, c.FT_LOAD_NO_HINTING | c.FT_LOAD_NO_BITMAP | c.FT_LOAD_NO_AUTOHINT) != 0) return error.GlyphLoadFailed;
 
         const ft_glyph = ft_face.*.glyph;
-        if (c.FT_Render_Glyph(ft_glyph, c.FT_RENDER_MODE_NORMAL) != 0) return error.GlyphRenderFailed;
+        if (c.FT_Render_Glyph(ft_glyph, c.FT_RENDER_MODE_SDF) != 0) return error.GlyphRenderFailed;
 
         const bmp = ft_glyph.*.bitmap;
         const width: usize = bmp.width;
@@ -282,7 +286,7 @@ pub const GlyphCache = struct {
         const bytes_per_pixel = 1;
 
         const loc: Glyph.Loc = if (width != 0 and height != 0) blk: {
-            const loc = try cache.allocateAtlasSpace(size);
+            const loc = try cache.allocateAtlasSpaceWithPad(size);
             const staging = try cache.stage_man.allocateBytesAligned(width * height * bytes_per_pixel, .@"4");
 
             for (0..height) |uy| {
@@ -320,6 +324,18 @@ pub const GlyphCache = struct {
                 @intCast(ft_glyph.*.bitmap_top),
             },
         });
+    }
+
+    fn allocateAtlasSpaceWithPad(cache: *GlyphCache, size: gpu.Image.Size2D) !Glyph.Loc {
+        const result = try cache.allocateAtlasSpace(size + @as(gpu.Image.Size2D, @splat(2)));
+
+        return .{
+            .atlas_id = result.atlas_id,
+            .bounds = .{
+                .size = size,
+                .offset = result.bounds.offset + @as(gpu.Image.Size2D, @splat(1)),
+            },
+        };
     }
 
     fn allocateAtlasSpace(cache: *GlyphCache, size: gpu.Image.Size2D) !Glyph.Loc {
