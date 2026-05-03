@@ -666,9 +666,9 @@ pub const TextRenderer = struct {
             .alloc = info.alloc,
             .min_filter = .linear,
             .mag_filter = .linear,
-            .address_mode_u = .repeat,
-            .address_mode_v = .repeat,
-            .address_mode_w = .repeat,
+            .address_mode_u = .clamp_to_edge,
+            .address_mode_v = .clamp_to_edge,
+            .address_mode_w = .clamp_to_edge,
         });
         errdefer sampler.deinit(info.device, info.alloc);
 

@@ -16,8 +16,8 @@ struct VSOutput {
     float4 position : SV_Position;
     float2 uvs : TEXCOORD0;
     nointerpolation float4 color : TEXCOORD1;
-    nointerpolation float4 outline_color: TEXCOORD2;
-    nointerpolation float outline_width: TEXCOORD3;
+    nointerpolation float4 outline_color : TEXCOORD2;
+    nointerpolation float outline_width : TEXCOORD3;
 };
 
 static const float2 mask_table[] = {
