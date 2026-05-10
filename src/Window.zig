@@ -1,67 +1,127 @@
 const std = @import("std");
-const events = @import("events.zig");
+const input = @import("input.zig");
+const Keycode = input.Keycode;
+const MouseButton = input.MouseButton;
 const glfw = @import("glfw");
 const Window = @This();
 
+alloc: std.mem.Allocator,
 _window: *glfw.Window,
-maybe_event_queue: ?*events.Queue,
+event_queue: []Event,
+queue_start: usize,
+queue_len: usize,
 
-pub fn init(alloc: std.mem.Allocator, title: []const u8, size: @Vector(2, u32), maybe_event_queue: ?*events.Queue) !Window {
+pub const Event = union(enum) {
+    close,
+    resize: @Vector(2, u32),
+    key_down: Keycode,
+    key_up: Keycode,
+    key_repeat: Keycode,
+    mouse_down: MouseButton,
+    mouse_up: MouseButton,
+};
+
+pub fn init(alloc: std.mem.Allocator, title: []const u8, size: [2]u32) !*Window {
     try addRef();
+    errdefer subRef();
+
     const nt_title = try alloc.dupeZ(u8, title);
     defer alloc.free(nt_title);
     glfw.windowHint(.client_api, .no_api);
     glfw.windowHint(.visible, true);
 
-    const window = try glfw.createWindow(@intCast(size[0]), @intCast(size[1]), nt_title, null);
-    errdefer {
-        glfw.destroyWindow(window);
-        subRef();
-    }
+    const glfw_window = try glfw.createWindow(@intCast(size[0]), @intCast(size[1]), nt_title, null);
+    errdefer glfw.destroyWindow(glfw_window);
 
-    if (maybe_event_queue) |event_queue| {
-        glfw.setWindowUserPointer(window, event_queue);
-        _ = glfw.setFramebufferSizeCallback(window, framebufferSizeCallback);
-        _ = glfw.setKeyCallback(window, keyCallback);
-        _ = glfw.setMouseButtonCallback(window, mouseButtonCallback);
-    }
+    _ = glfw.setFramebufferSizeCallback(glfw_window, framebufferSizeCallback);
+    _ = glfw.setKeyCallback(glfw_window, keyCallback);
+    _ = glfw.setMouseButtonCallback(glfw_window, mouseButtonCallback);
 
-    return .{
-        ._window = window,
-        .maybe_event_queue = maybe_event_queue,
+    const window = try alloc.create(Window);
+    window.* = .{
+        .alloc = alloc,
+        ._window = glfw_window,
+        .event_queue = try alloc.alloc(Event, 16),
+        .queue_start = 0,
+        .queue_len = 0,
     };
+
+    glfw.setWindowUserPointer(glfw_window, window);
+    return window;
 }
 
-pub fn deinit(this: *Window) void {
-    glfw.destroyWindow(this._window);
+pub fn deinit(window: *Window) void {
+    window.alloc.free(window.event_queue);
+    glfw.destroyWindow(window._window);
+    window.alloc.destroy(window);
     subRef();
 }
 
-pub fn setTitle(this: *Window, title: []const u8, alloc: std.mem.Allocator) !void {
-    const nt_title = try alloc.dupeZ(u8, title);
-    defer alloc.free(nt_title);
-
-    glfw.setWindowTitle(this._window, nt_title);
+pub fn peekEvent(window: Window) ?Event {
+    if (window.queue_len == 0) return null;
+    return window.event_queue[window.queue_start];
 }
 
-pub fn update(this: *Window) void {
-    _ = this;
+pub fn popEvent(window: *Window) ?Event {
+    const event = window.peekEvent() orelse return null;
+    window.queue_start = (window.queue_start + 1) % window.event_queue.len;
+    window.queue_len -= 1;
+    return event;
+}
+
+pub fn pendingEvent(window: Window) bool {
+    return window.queue_len != 0;
+}
+
+pub fn pushEvent(window: *Window, event: Event) !void {
+    if (window.queue_len == window.event_queue.len) {
+        const old = window.event_queue;
+
+        // 1.5x
+        const new_len = @max(old.len + old.len / 2, old.len + 1);
+        const new = try window.alloc.alloc(Event, new_len);
+
+        const first_len = @min(window.queue_len, old.len - window.queue_start);
+        const last_len = window.queue_len - first_len;
+
+        @memcpy(new[0..first_len], old[window.queue_start..][0..first_len]);
+        if (last_len != 0)
+            @memcpy(new[first_len..][0..last_len], old[0..last_len]);
+
+        window.alloc.free(window.event_queue);
+        window.event_queue = new;
+        window.queue_start = 0;
+    }
+
+    const i = (window.queue_start + window.queue_len) % window.event_queue.len;
+    window.event_queue[i] = event;
+    window.queue_len += 1;
+}
+
+pub fn setTitle(window: Window, title: []const u8) !void {
+    const nt_title = try window.alloc.dupeZ(u8, title);
+    defer window.alloc.free(nt_title);
+
+    glfw.setWindowTitle(window._window, nt_title);
+}
+
+pub fn update(_: Window) void {
     glfw.pollEvents();
 }
 
-pub fn shouldClose(this: *Window) bool {
-    return glfw.windowShouldClose(this._window);
+pub fn shouldClose(window: Window) bool {
+    return glfw.windowShouldClose(window._window);
 }
 
-pub fn isKeyDown(this: *const Window, key: events.Keycode) bool {
-    return glfw.getKey(this._window, keycodeToGlfw(key)) == .press;
+pub fn isKeyDown(window: Window, key: Keycode) bool {
+    return glfw.getKey(window._window, keycodeToGlfw(key)) == .press;
 }
 
-pub fn isMouseDown(this: *const Window, button: events.MouseButton) bool {
-    return glfw.getMouseButton(this._window, mouseButtonToGlfw(button)) == .press;
+pub fn isMouseDown(window: Window, button: MouseButton) bool {
+    return glfw.getMouseButton(window._window, mouseButtonToGlfw(button)) == .press;
 }
 
-pub fn getCursorPos(this: *const Window) @Vector(2, f32) {
+pub fn getCursorPos(this: Window) @Vector(2, f32) {
     var x: f64 = 0;
     var y: f64 = 0;
     glfw.getCursorPos(this._window, &x, &y);
@@ -75,7 +135,7 @@ pub const CursorMode = enum {
     captured,
 };
 
-pub fn setCursorMode(this: *Window, mode: CursorMode) !void {
+pub fn setCursorMode(this: Window, mode: CursorMode) !void {
     try glfw.setInputMode(this._window, .cursor, switch (mode) {
         .normal => .normal,
         .hidden => .hidden,
@@ -85,7 +145,7 @@ pub fn setCursorMode(this: *Window, mode: CursorMode) !void {
     try glfw.setInputMode(this._window, .raw_mouse_motion, true);
 }
 
-pub fn getFramebufferSize(this: *const Window) @Vector(2, u32) {
+pub fn getFramebufferSize(this: Window) @Vector(2, u32) {
     var width: c_int = undefined;
     var height: c_int = undefined;
 
@@ -93,37 +153,37 @@ pub fn getFramebufferSize(this: *const Window) @Vector(2, u32) {
     return @Vector(2, u32){ @intCast(width), @intCast(height) };
 }
 
-fn framebufferSizeCallback(window: *glfw.Window, height: c_int, width: c_int) callconv(.c) void {
-    const event_queue: *events.Queue = glfw.getWindowUserPointer(window, events.Queue).?;
-    event_queue.push(.{ .resize = .{ @intCast(width), @intCast(height) } }) catch @panic("out of memory");
+fn framebufferSizeCallback(glfw_window: *glfw.Window, width: c_int, height: c_int) callconv(.c) void {
+    const window: *Window = glfw.getWindowUserPointer(glfw_window, Window).?;
+    window.pushEvent(.{ .resize = .{ @intCast(width), @intCast(height) } }) catch @panic("out of memory");
 }
 
-fn keyCallback(window: *glfw.Window, glfw_kc: glfw.Key, scancode: c_int, action: glfw.Action, mods: glfw.Mods) callconv(.c) void {
+fn keyCallback(glfw_window: *glfw.Window, glfw_kc: glfw.Key, scancode: c_int, action: glfw.Action, mods: glfw.Mods) callconv(.c) void {
     _ = scancode;
     _ = mods;
 
-    const event_queue: *events.Queue = glfw.getWindowUserPointer(window, events.Queue).?;
+    const window: *Window = glfw.getWindowUserPointer(glfw_window, Window).?;
     const keycode = keycodeFromGlfw(glfw_kc);
-    event_queue.push(switch (action) {
+    window.pushEvent(switch (action) {
         .press => .{ .key_down = keycode },
         .release => .{ .key_up = keycode },
         .repeat => .{ .key_repeat = keycode },
     }) catch @panic("out of memory");
 }
 
-fn mouseButtonCallback(window: *glfw.Window, glfw_button: glfw.MouseButton, action: glfw.Action, mods: glfw.Mods) callconv(.c) void {
+fn mouseButtonCallback(glfw_window: *glfw.Window, glfw_button: glfw.MouseButton, action: glfw.Action, mods: glfw.Mods) callconv(.c) void {
     _ = mods;
 
-    const event_queue: *events.Queue = glfw.getWindowUserPointer(window, events.Queue).?;
+    const window: *Window = glfw.getWindowUserPointer(glfw_window, Window).?;
     const button = mouseButtonFromGlfw(glfw_button);
-    event_queue.push(switch (action) {
+    window.pushEvent(switch (action) {
         .press => .{ .mouse_down = button },
         .release => .{ .mouse_up = button },
         .repeat => unreachable,
     }) catch @panic("out of memory");
 }
 
-fn keycodeFromGlfw(glfw_kc: glfw.Key) events.Keycode {
+fn keycodeFromGlfw(glfw_kc: glfw.Key) Keycode {
     return switch (glfw_kc) {
         .space => .space,
         .apostrophe => .apostrophe,
@@ -250,7 +310,7 @@ fn keycodeFromGlfw(glfw_kc: glfw.Key) events.Keycode {
     };
 }
 
-fn keycodeToGlfw(kc: events.Keycode) glfw.Key {
+fn keycodeToGlfw(kc: Keycode) glfw.Key {
     return switch (kc) {
         .space => .space,
         .apostrophe => .apostrophe,
@@ -377,7 +437,7 @@ fn keycodeToGlfw(kc: events.Keycode) glfw.Key {
     };
 }
 
-fn mouseButtonToGlfw(button: events.MouseButton) glfw.MouseButton {
+fn mouseButtonToGlfw(button: MouseButton) glfw.MouseButton {
     return switch (button) {
         .left => .left,
         .right => .right,
@@ -390,7 +450,7 @@ fn mouseButtonToGlfw(button: events.MouseButton) glfw.MouseButton {
     };
 }
 
-fn mouseButtonFromGlfw(button: glfw.MouseButton) events.MouseButton {
+fn mouseButtonFromGlfw(button: glfw.MouseButton) MouseButton {
     return switch (button) {
         .left => .left,
         .right => .right,
