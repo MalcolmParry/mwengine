@@ -88,9 +88,9 @@ pub fn allocateBytesAligned(man: *StagingManager, size: gpu.Size, alignment: std
     const per_frame = &man.per_frame_in_flight[man.frame_index];
     const offset = std.mem.alignForward(gpu.Size, per_frame.offset, alignment.toByteUnits());
     const end = offset + size;
-    per_frame.offset = end;
 
     if (end > man.buffer_size) return error.StagingFull;
+    per_frame.offset = end;
 
     return .{
         .slice = per_frame.mapping[offset..end],

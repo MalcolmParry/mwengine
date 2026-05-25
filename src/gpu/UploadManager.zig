@@ -25,7 +25,7 @@ pub fn deinit(man: *UploadManager) void {
 }
 
 pub fn upload(man: *UploadManager, cmd_encoder: gpu.CommandEncoder) !void {
-    if (man.pre_copy_buffer_barriers.items.len > 0)
+    if (man.pre_copy_buffer_barriers.items.len > 0 or man.pre_copy_image_barriers.items.len > 0)
         cmd_encoder.cmdMemoryBarrier(.{
             .image_barriers = man.pre_copy_image_barriers.items,
             .buffer_barriers = man.pre_copy_buffer_barriers.items,
@@ -35,7 +35,7 @@ pub fn upload(man: *UploadManager, cmd_encoder: gpu.CommandEncoder) !void {
         cmd_encoder.cmdCopyBuffer(src, dst);
     }
 
-    if (man.post_copy_buffer_barriers.items.len > 0)
+    if (man.post_copy_buffer_barriers.items.len > 0 or man.post_copy_image_barriers.items.len > 0)
         cmd_encoder.cmdMemoryBarrier(.{
             .image_barriers = man.post_copy_image_barriers.items,
             .buffer_barriers = man.post_copy_buffer_barriers.items,
