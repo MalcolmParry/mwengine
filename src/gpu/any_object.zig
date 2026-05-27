@@ -19,10 +19,10 @@ pub const AnyObject = union(enum) {
 
     pub fn deinit(this: AnyObject, device: gpu.Device, alloc: std.mem.Allocator) void {
         switch (this) {
-            .instance => |_| @panic("invalid type"),
-            .device => |_| @panic("invalid type"),
-            .phys_device => |_| @panic("invalid type"),
-            .display => |_| @panic("invalid type"),
+            .instance => @panic("invalid type"),
+            .device => @panic("invalid type"),
+            .phys_device => @panic("invalid type"),
+            .display => @panic("invalid type"),
             .shader => |x| x.deinit(device, alloc),
             .graphics_pipeline => |x| x.deinit(device, alloc),
             .resource_layout => |x| x.deinit(device, alloc),

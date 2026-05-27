@@ -111,9 +111,7 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
     }
 
     device.vk.device.updateDescriptorSets(
-        @intCast(writes.len),
-        descriptor_writes.ptr,
-        0,
+        descriptor_writes,
         null,
     );
 }

@@ -49,9 +49,9 @@ pub const Face = struct {
         const ft_metrics = &face._ft_face.*.size.*.metrics;
 
         return .{
-            .line_height_px = @intCast(ft_metrics.height >> 6),
-            .ascender_px = @intCast(ft_metrics.ascender >> 6),
-            .descender_px = @intCast(ft_metrics.descender >> 6),
+            .line_height_px = @intCast(ft_metrics.*.height >> 6),
+            .ascender_px = @intCast(ft_metrics.*.ascender >> 6),
+            .descender_px = @intCast(ft_metrics.*.descender >> 6),
         };
     }
 

@@ -300,7 +300,7 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.InitInfo) gpu.Graphic
     // the only way for pipeline creation to return a non zig error is
     // if we requested lazy compilation in flags
     this.pipeline = .null_handle;
-    const result = native_device.createGraphicsPipelines(.null_handle, 1, @ptrCast(&pipeline_create_info), vk_alloc, @ptrCast(&this.pipeline)) catch |err| return switch (err) {
+    const result = native_device.createGraphicsPipelines(.null_handle, (&pipeline_create_info)[0..1], vk_alloc, (&this.pipeline)[0..1]) catch |err| return switch (err) {
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,
         error.InvalidShaderNV => error.InvalidShader,

@@ -30,7 +30,7 @@ pub fn init(alloc: std.mem.Allocator, title: []const u8, size: [2]u32) !*Window 
     glfw.windowHint(.client_api, .no_api);
     glfw.windowHint(.visible, true);
 
-    const glfw_window = try glfw.createWindow(@intCast(size[0]), @intCast(size[1]), nt_title, null);
+    const glfw_window = try glfw.createWindow(@intCast(size[0]), @intCast(size[1]), nt_title, null, null);
     errdefer glfw.destroyWindow(glfw_window);
 
     _ = glfw.setFramebufferSizeCallback(glfw_window, framebufferSizeCallback);

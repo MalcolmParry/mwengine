@@ -30,7 +30,7 @@ pub fn init(device: gpu.Device) gpu.CommandEncoder.InitError!gpu.CommandEncoder 
 }
 
 pub fn deinit(this: gpu.CommandEncoder, device: gpu.Device) void {
-    device.vk.device.freeCommandBuffers(device.vk.command_pool, 1, @ptrCast(&this.vk.command_buffer));
+    device.vk.device.freeCommandBuffers(device.vk.command_pool, (&this.vk.command_buffer)[0..1]);
 }
 
 pub fn begin(this: gpu.CommandEncoder) gpu.CommandEncoder.BeginError!void {
@@ -62,7 +62,7 @@ pub fn cmdCopyBuffer(cmd_encoder: gpu.CommandEncoder, src: gpu.Buffer.Region, ds
         .dst_offset = dst.offset,
     };
 
-    cmd_encoder.vk.dispatch.cmdCopyBuffer(cmd_encoder.vk.command_buffer, src.buffer.vk.buffer, dst.buffer.vk.buffer, 1, @ptrCast(&copy_region));
+    cmd_encoder.vk.dispatch.cmdCopyBuffer(cmd_encoder.vk.command_buffer, src.buffer.vk.buffer, dst.buffer.vk.buffer, (&copy_region)[0..1]);
 }
 
 pub fn cmdCopyBufferToImage(this: gpu.CommandEncoder, info: gpu.CommandEncoder.BufferToImageCopyInfo) void {
@@ -95,8 +95,7 @@ pub fn cmdCopyBufferToImage(this: gpu.CommandEncoder, info: gpu.CommandEncoder.B
         info.src.buffer.vk.buffer,
         info.dst.vk.image,
         Image.layoutToNative(info.layout),
-        1,
-        @ptrCast(&buffer_image_copy),
+        (&buffer_image_copy)[0..1],
     );
 }
 
@@ -136,8 +135,7 @@ pub fn cmdCopyImageWithScaling(cmd_encoder: gpu.CommandEncoder, info: gpu.Comman
         Image.layoutToNative(info.src_layout),
         info.dst.vk.image,
         Image.layoutToNative(info.dst_layout),
-        1,
-        @ptrCast(&blit),
+        (&blit)[0..1],
         Sampler.filterToNative(info.filter),
     );
 }
@@ -314,19 +312,19 @@ pub const RenderPassEncoder = struct {
             .max_depth = 1,
         };
 
-        this.vk.cmd_encoder.dispatch.cmdSetViewport(this.vk.cmd_encoder.command_buffer, 0, 1, @ptrCast(&viewport));
+        this.vk.cmd_encoder.dispatch.cmdSetViewport(this.vk.cmd_encoder.command_buffer, 0, (&viewport)[0..1]);
 
         const scissor: vk.Rect2D = .{
             .extent = .{ .width = this.vk.image_size[0], .height = this.vk.image_size[1] },
             .offset = .{ .x = 0, .y = 0 },
         };
 
-        this.vk.cmd_encoder.dispatch.cmdSetScissor(this.vk.cmd_encoder.command_buffer, 0, 1, @ptrCast(&scissor));
+        this.vk.cmd_encoder.dispatch.cmdSetScissor(this.vk.cmd_encoder.command_buffer, 0, (&scissor)[0..1]);
     }
 
     pub fn cmdBindVertexBuffer(this: gpu.RenderPassEncoder, binding: u32, buffer_region: gpu.Buffer.Region) void {
         const offset = buffer_region.offset;
-        this.vk.cmd_encoder.dispatch.cmdBindVertexBuffers(this.vk.cmd_encoder.command_buffer, binding, 1, @ptrCast(&buffer_region.buffer.vk.buffer), @ptrCast(&offset));
+        this.vk.cmd_encoder.dispatch.cmdBindVertexBuffers(this.vk.cmd_encoder.command_buffer, binding, (&buffer_region.buffer.vk.buffer)[0..1], (&offset)[0..1]);
     }
 
     pub fn cmdBindIndexBuffer(this: gpu.RenderPassEncoder, buffer_region: gpu.Buffer.Region, index_type: gpu.RenderPassEncoder.IndexType) void {
@@ -346,9 +344,7 @@ pub const RenderPassEncoder = struct {
             .graphics,
             pipeline.vk.pipeline_layout,
             first,
-            @intCast(resource_sets.len),
-            natives.ptr,
-            0,
+            natives,
             null,
         );
     }

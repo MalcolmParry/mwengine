@@ -222,7 +222,7 @@ pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) gpu.
         .p_signal_semaphore_infos = @ptrCast(native_signals.ptr),
     };
 
-    this.vk.device.queueSubmit2(this.vk.queue, 1, @ptrCast(&submit_info), .null_handle) catch |err| return switch (err) {
+    this.vk.device.queueSubmit2(this.vk.queue, (&submit_info)[0..1], .null_handle) catch |err| return switch (err) {
         error.DeviceLost => error.DeviceLost,
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,

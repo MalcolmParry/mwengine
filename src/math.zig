@@ -246,21 +246,44 @@ pub const MatrixDesc = struct {
         };
     }
 
+    pub fn fromArray(T: type) MatrixDesc {
+        const tinfo = @typeInfo(T).array;
+        const row_info = @typeInfo(tinfo.child).array;
+
+        return .{
+            .Child = row_info.child,
+            .rows = tinfo.len,
+            .cols = row_info.len,
+        };
+    }
+
+    pub fn Make(comptime desc: MatrixDesc) type {
+        return Matrix(desc.Child, desc.rows, desc.cols);
+    }
+
     pub fn Row(desc: MatrixDesc) type {
         return @Vector(desc.cols, desc.Child);
     }
 
-    pub fn Cow(desc: MatrixDesc) type {
+    pub fn Col(desc: MatrixDesc) type {
         return @Vector(desc.rows, desc.Child);
+    }
+
+    pub fn RowArray(desc: MatrixDesc) type {
+        return [desc.cols]desc.Child;
+    }
+
+    pub fn ColArray(desc: MatrixDesc) type {
+        return [desc.rows]desc.Child;
     }
 };
 
-pub fn identity(T: type) T {
-    const info = MatrixDesc.get(T);
+pub fn identity(comptime T: type) T {
+    const info = comptime MatrixDesc.get(T);
     var result: T = undefined;
 
-    for (0..info.rows) |row| {
-        for (0..info.cols) |col| {
+    inline for (0..info.rows) |row| {
+        inline for (0..info.cols) |col| {
             result[row][col] = if (row == col) 1 else 0;
         }
     }
@@ -268,12 +291,13 @@ pub fn identity(T: type) T {
     return result;
 }
 
-pub fn column(mat: anytype, index: u8) MatrixDesc.get(@TypeOf(mat)).Row() {
+pub fn column(mat: anytype, index: u8) MatrixDesc.get(@TypeOf(mat)).Col() {
     const info = MatrixDesc.get(@TypeOf(mat));
-    var result: info.Row() = undefined;
+    var result: info.ColArray() = undefined;
 
-    for (0..info.rows) |row| {
-        result[row] = mat[row][index];
+    for (0..info.rows) |row_i| {
+        const row: info.RowArray() = mat[row_i];
+        result[row_i] = row[index];
     }
 
     return result;
@@ -281,7 +305,7 @@ pub fn column(mat: anytype, index: u8) MatrixDesc.get(@TypeOf(mat)).Row() {
 
 pub fn matMul(T: type, left: anytype, right: anytype) T {
     const info = MatrixDesc.get(T);
-    var result: T = undefined;
+    var result: MatrixAsArray(T) = undefined;
 
     inline for (0..info.rows) |row| {
         inline for (0..info.cols) |col| {
@@ -293,7 +317,7 @@ pub fn matMul(T: type, left: anytype, right: anytype) T {
         }
     }
 
-    return result;
+    return arrayToMatrix(result);
 }
 
 pub fn matMulMany(T: type, operands: anytype) T {
@@ -329,30 +353,35 @@ pub fn matMulVec(T: type, mat: [@typeInfo(T).vector.len]T, vec: T) T {
     return result;
 }
 
-pub const MatrixLayout = enum {
-    row_major,
-    column_major,
-};
-
-pub fn MatrixAsArrayT(T: type) type {
+pub fn MatrixAsArray(T: type) type {
     const desc = MatrixDesc.get(T);
-    return [desc.rows * desc.cols]desc.Child;
+    return [desc.rows]desc.RowArray();
 }
 
-pub fn matrixToArray(x: anytype, order: MatrixLayout) MatrixAsArrayT(@TypeOf(x)) {
+pub fn matrixToArray(x: anytype) MatrixAsArray(@TypeOf(x)) {
     const T = @TypeOf(x);
     const desc = MatrixDesc.get(T);
-    var result: MatrixAsArrayT(T) = undefined;
+    var result: MatrixAsArray(T) = undefined;
 
     for (0..desc.rows) |row| {
-        for (0..desc.cols) |col| {
-            const i = switch (order) {
-                .row_major => row * desc.cols + col,
-                .column_major => col * desc.rows + row,
-            };
+        result[row] = x[row];
+    }
 
-            result[i] = x[row][col];
-        }
+    return result;
+}
+
+pub fn ArrayAsMatrix(T: type) type {
+    const desc = MatrixDesc.fromArray(T);
+    return desc.Make();
+}
+
+pub fn arrayToMatrix(x: anytype) ArrayAsMatrix(@TypeOf(x)) {
+    const T = @TypeOf(x);
+    const desc = MatrixDesc.fromArray(T);
+    var result: ArrayAsMatrix(T) = undefined;
+
+    for (0..desc.rows) |row| {
+        result[row] = x[row];
     }
 
     return result;
