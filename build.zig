@@ -58,8 +58,9 @@ pub fn build(b: *Build) !void {
             .target = target,
         }),
     });
+    unit_tests.root_module.addOptions("options", options);
 
-    const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
+    const run_unit_tests = b.addRunArtifact(unit_tests);
     test_step.dependOn(&run_unit_tests.step);
 }

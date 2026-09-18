@@ -536,10 +536,10 @@ pub fn normToFloat(Float: type, x: anytype) Float {
 }
 
 test "dot" {
-    try std.testing.expect(dot(dir_forward, dir_right) == 0);
-    try std.testing.expect(dot(dir_forward, dir_up) == 0);
-    try std.testing.expect(dot(dir_forward, -dir_forward) == -1);
-    try std.testing.expect(dot(dir_forward, dir_forward) == 1);
+    try std.testing.expect(dot(Vec3, dir_forward, dir_right) == 0);
+    try std.testing.expect(dot(Vec3, dir_forward, dir_up) == 0);
+    try std.testing.expect(dot(Vec3, dir_forward, -dir_forward) == -1);
+    try std.testing.expect(dot(Vec3, dir_forward, dir_forward) == 1);
 }
 
 test "quaternions" {

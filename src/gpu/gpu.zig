@@ -2,6 +2,7 @@ const std = @import("std");
 const Window = @import("../Window.zig");
 const vk = @import("vulkan/vulkan.zig");
 
+pub const FreeListAllocator = @import("free_list_allocator.zig").FreeListAllocator;
 pub const FrameRingPool = @import("frame_ring_pool.zig").FrameRingPool;
 pub const StagingManager = @import("StagingManager.zig");
 pub const UploadManager = @import("UploadManager.zig");
