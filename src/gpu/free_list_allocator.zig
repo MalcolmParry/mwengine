@@ -183,6 +183,8 @@ pub fn FreeListAllocator(comptime opts: Options) type {
             if (desc.free_count == 0) {
                 if (gpu_alloc.first_slab_with_free_slot[class]) |other| {
                     gpu_alloc.super_descs.items[other.super].slab_descs[other.slab].desc.prev_slab_with_free_slot = slab;
+                } else {
+                    gpu_alloc.first_slab_with_free_slot[class] = desc.next_slab_with_free_slot;
                 }
 
                 gpu_alloc.first_slab_with_free_slot[class] = desc.next_slab_with_free_slot;
