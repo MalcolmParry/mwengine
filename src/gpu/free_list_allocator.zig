@@ -181,13 +181,15 @@ pub fn FreeListAllocator(comptime opts: Options) type {
             const desc = &gpu_alloc.super_descs.items[slab.super].slab_descs[slab.slab].desc;
             desc.free_count -= 1;
             if (desc.free_count == 0) {
-                if (gpu_alloc.first_slab_with_free_slot[class]) |other| {
-                    gpu_alloc.super_descs.items[other.super].slab_descs[other.slab].desc.prev_slab_with_free_slot = slab;
+                if (desc.prev_slab_with_free_slot) |prev| {
+                    gpu_alloc.super_descs.items[prev.super].slab_descs[prev.slab].desc.next_slab_with_free_slot = desc.next_slab_with_free_slot;
                 } else {
                     gpu_alloc.first_slab_with_free_slot[class] = desc.next_slab_with_free_slot;
                 }
 
-                gpu_alloc.first_slab_with_free_slot[class] = desc.next_slab_with_free_slot;
+                if (desc.next_slab_with_free_slot) |next| {
+                    gpu_alloc.super_descs.items[next.super].slab_descs[next.slab].desc.prev_slab_with_free_slot = desc.prev_slab_with_free_slot;
+                }
             }
 
             if (desc.bump < slot_count) {
