@@ -726,7 +726,7 @@ pub const Buffer = union(Api) {
     }
 
     pub fn debugLabel(buffer: Buffer, device: Device, name: [:0]const u8) void {
-        return call(device, @src(), "Buffer", .{ buffer, device, name });
+        if (debug_info) return call(device, @src(), "Buffer", .{ buffer, device, name });
     }
 
     pub fn region(this: Buffer) Region {
@@ -786,7 +786,7 @@ pub const Image = union {
     }
 
     pub fn debugLabel(image: Image, device: Device, name: [:0]const u8) void {
-        return call(device, @src(), "Image", .{ image, device, name });
+        if (debug_info) return call(device, @src(), "Image", .{ image, device, name });
     }
 
     pub const Format = enum {
@@ -885,7 +885,7 @@ pub const Image = union {
         }
 
         pub fn debugLabel(view: View, device: Device, name: [:0]const u8) void {
-            return call(device, @src(), .{ "Image", "View" }, .{ view, device, name });
+            if (debug_info) return call(device, @src(), .{ "Image", "View" }, .{ view, device, name });
         }
     };
 

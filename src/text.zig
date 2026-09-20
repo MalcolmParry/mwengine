@@ -159,7 +159,7 @@ pub const GlyphCache = struct {
                 },
             });
             errdefer view.deinit(device, cache.alloc);
-            image.debugLabel(device, "text glyph atlas image view");
+            view.debugLabel(device, "text glyph atlas image view");
 
             cache.atlases.items[atlas_id] = .{
                 .image = image,

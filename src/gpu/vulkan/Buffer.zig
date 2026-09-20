@@ -67,6 +67,7 @@ pub fn size(this: gpu.Buffer) gpu.Size {
 }
 
 pub fn debugLabel(buffer: gpu.Buffer, device: gpu.Device, name: [:0]const u8) void {
+    if (device.vk.instance.maybe_debug_messenger == null) return;
     device.vk.device.setDebugUtilsObjectNameEXT(&.{
         .object_type = .buffer,
         .object_handle = @intFromEnum(buffer.vk.buffer),

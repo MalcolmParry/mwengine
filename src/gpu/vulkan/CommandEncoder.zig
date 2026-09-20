@@ -13,6 +13,7 @@ dispatch: *const vk.DeviceWrapper,
 arena: std.heap.ArenaAllocator.State,
 gpa: std.mem.Allocator,
 out_of_memory: bool = false,
+debug: bool,
 
 pub fn init(device: gpu.Device, alloc: std.mem.Allocator) gpu.CommandEncoder.InitError!gpu.CommandEncoder {
     const encoder = try alloc.create(CommandEncoder);
@@ -34,6 +35,7 @@ pub fn init(device: gpu.Device, alloc: std.mem.Allocator) gpu.CommandEncoder.Ini
         .dispatch = device.vk.device.wrapper,
         .arena = .init,
         .gpa = alloc,
+        .debug = device.vk.instance.maybe_debug_messenger != null,
     };
 
     return .{ .vk = encoder };
@@ -246,6 +248,7 @@ pub fn cmdMemoryBarrier(encoder: gpu.CommandEncoder, info: gpu.CommandEncoder.Me
 }
 
 pub fn cmdBeginDebugBlockLabel(encoder: gpu.CommandEncoder, name: [:0]const u8) void {
+    if (!encoder.vk.debug) return;
     const info: vk.DebugUtilsLabelEXT = .{
         .p_label_name = name,
         .color = @splat(0),
@@ -255,6 +258,7 @@ pub fn cmdBeginDebugBlockLabel(encoder: gpu.CommandEncoder, name: [:0]const u8) 
 }
 
 pub fn cmdEndDebugBlockLabel(encoder: gpu.CommandEncoder) void {
+    if (!encoder.vk.debug) return;
     encoder.vk.dispatch.cmdEndDebugUtilsLabelEXT(encoder.vk.command_buffer);
 }
 

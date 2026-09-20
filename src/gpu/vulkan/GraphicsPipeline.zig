@@ -325,6 +325,7 @@ pub fn deinit(this: gpu.GraphicsPipeline, device: gpu.Device, alloc: std.mem.All
 }
 
 pub fn debugLabel(pipeline: gpu.GraphicsPipeline, device: gpu.Device, name: [:0]const u8) void {
+    if (device.vk.instance.maybe_debug_messenger == null) return;
     device.vk.device.setDebugUtilsObjectNameEXT(&.{
         .object_type = .pipeline,
         .object_handle = @intFromEnum(pipeline.vk.pipeline),

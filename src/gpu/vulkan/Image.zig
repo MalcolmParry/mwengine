@@ -76,6 +76,7 @@ pub fn format(this: gpu.Image, device: gpu.Device) gpu.Image.Format {
 }
 
 pub fn debugLabel(image: gpu.Image, device: gpu.Device, name: [:0]const u8) void {
+    if (device.vk.instance.maybe_debug_messenger == null) return;
     device.vk.device.setDebugUtilsObjectNameEXT(&.{
         .object_type = .image,
         .object_handle = @intFromEnum(image.vk.image),
@@ -130,6 +131,7 @@ pub const View = struct {
     }
 
     pub fn debugLabel(view: gpu.Image.View, device: gpu.Device, name: [:0]const u8) void {
+        if (device.vk.instance.maybe_debug_messenger == null) return;
         device.vk.device.setDebugUtilsObjectNameEXT(&.{
             .object_type = .image_view,
             .object_handle = @intFromEnum(view.vk.image_view),
