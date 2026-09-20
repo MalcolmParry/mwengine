@@ -51,8 +51,15 @@ pub fn init(device: gpu.Device, info: gpu.Image.InitInfo) gpu.Image.InitError!gp
         .device => .{ .device_local_bit = true },
     };
 
-    this.memory_region = try device.vk.allocateMemory(device.vk.device.getImageMemoryRequirements(this.image), properties);
+    this.memory_region = device.vk.allocateMemory(device.vk.device.getImageMemoryRequirements(this.image), properties, false) catch |err| return switch (err) {
+        error.OutOfMemory => error.OutOfMemory,
+        error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+        error.MemoryMapFailed => unreachable,
+        error.NoSuitableMemoryType => error.NoSuitableMemoryType,
+        error.Unknown => error.Unknown,
+    };
     errdefer device.vk.freeMemory(this.memory_region);
+
     device.vk.device.bindImageMemory(this.image, this.memory_region.memory, this.memory_region.offset) catch |err| return switch (err) {
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,

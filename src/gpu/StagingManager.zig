@@ -9,32 +9,25 @@ buffer_size: gpu.Size,
 
 const PerFrameInFlight = struct {
     buffer: gpu.Buffer,
-    mapping: []u8,
     offset: gpu.Size,
 
     fn init(pf: *PerFrameInFlight, info: InitInfo) !void {
         const buffer = try info.device.initBuffer(.{
-            .alloc = info.alloc,
             .loc = .host,
-            .usage = .{ .src = true },
+            .usage = .{ .src = true, .mapped = true },
             .size = info.buffer_size,
         });
-        errdefer buffer.deinit(info.device, info.alloc);
+        errdefer buffer.deinit(info.device);
         buffer.debugLabel(info.device, "staging buffer");
-
-        const mapping = try buffer.map(info.device);
-        errdefer buffer.unmap(info.device);
 
         pf.* = .{
             .buffer = buffer,
-            .mapping = mapping,
             .offset = 0,
         };
     }
 
-    fn deinit(pf: *PerFrameInFlight, device: gpu.Device, alloc: std.mem.Allocator) void {
-        pf.buffer.unmap(device);
-        pf.buffer.deinit(device, alloc);
+    fn deinit(pf: *PerFrameInFlight, device: gpu.Device) void {
+        pf.buffer.deinit(device);
     }
 };
 
@@ -50,7 +43,7 @@ pub fn init(info: InitInfo) !StagingManager {
     errdefer info.alloc.free(per_frame_in_flight);
 
     var init_count: usize = 0;
-    errdefer for (per_frame_in_flight[0..init_count]) |*pf| pf.deinit(info.device, info.alloc);
+    errdefer for (per_frame_in_flight[0..init_count]) |*pf| pf.deinit(info.device);
     for (per_frame_in_flight) |*per_frame| {
         try per_frame.init(info);
         init_count += 1;
@@ -65,7 +58,7 @@ pub fn init(info: InitInfo) !StagingManager {
 
 pub fn deinit(man: *StagingManager, device: gpu.Device, alloc: std.mem.Allocator) void {
     for (man.per_frame_in_flight) |*pf| {
-        pf.deinit(device, alloc);
+        pf.deinit(device);
     }
     alloc.free(man.per_frame_in_flight);
 }
@@ -94,7 +87,7 @@ pub fn allocateBytesAligned(man: *StagingManager, size: gpu.Size, alignment: std
     per_frame.offset = end;
 
     return .{
-        .slice = per_frame.mapping[offset..end],
+        .slice = per_frame.buffer.mapping().?[offset..end],
         .region = .{
             .buffer = per_frame.buffer,
             .offset = offset,

@@ -670,8 +670,12 @@ pub const MemLocation = enum {
     device,
 };
 
-pub const Buffer = union(Api) {
-    vk: vk.Buffer.Handle,
+pub const Buffer = struct {
+    size: Size,
+    mapping_ptr: ?[*]u8,
+    impl: union {
+        vk: vk.Buffer.Handle,
+    },
 
     pub const Usage = packed struct {
         const BackingInt = @typeInfo(@TypeOf(@This())).@"struct".backing_integer.?;
@@ -682,10 +686,10 @@ pub const Buffer = union(Api) {
         vertex: bool = false,
         index: bool = false,
         uniform: bool = false,
+        mapped: bool = false,
     };
 
     pub const InitInfo = struct {
-        alloc: std.mem.Allocator,
         loc: MemLocation,
         usage: Usage,
         size: Size,
@@ -695,6 +699,7 @@ pub const Buffer = union(Api) {
         OutOfMemory,
         OutOfDeviceMemory,
         NoSuitableMemoryType,
+        MemoryMapFailed,
         Unknown,
     };
 
@@ -702,53 +707,30 @@ pub const Buffer = union(Api) {
         return call(device, @src(), "Buffer", .{ device, info });
     }
 
-    pub fn deinit(this: Buffer, device: Device, alloc: std.mem.Allocator) void {
-        return call(device, @src(), "Buffer", .{ this, device, alloc });
+    pub fn deinit(buffer: Buffer, device: Device) void {
+        return call(device, @src(), "Buffer", .{ buffer, device });
     }
 
-    pub const MapError = error{
-        OutOfMemory,
-        OutOfDeviceMemory,
-        MemoryMapFailed,
-        Unknown,
-    };
-
-    pub fn map(this: Buffer, device: Device) MapError![]u8 {
-        return this.region().map(device);
-    }
-
-    pub fn unmap(this: Buffer, device: Device) void {
-        this.region().unmap(device);
-    }
-
-    pub fn size(this: Buffer) Size {
-        return call(this, @src(), "Buffer", .{this});
-    }
-
-    pub fn debugLabel(buffer: Buffer, device: Device, name: [:0]const u8) void {
-        if (debug_info) return call(device, @src(), "Buffer", .{ buffer, device, name });
+    pub fn mapping(buffer: Buffer) ?[]u8 {
+        return if (buffer.mapping_ptr) |ptr| ptr[0..buffer.size] else null;
     }
 
     pub fn region(this: Buffer) Region {
         return .{
             .buffer = this,
             .offset = 0,
-            .size = this.size(),
+            .size = this.size,
         };
+    }
+
+    pub fn debugLabel(buffer: Buffer, device: Device, name: [:0]const u8) void {
+        if (debug_info) return call(device, @src(), "Buffer", .{ buffer, device, name });
     }
 
     pub const Region = struct {
         buffer: Buffer,
         offset: Size,
         size: Size,
-
-        pub fn map(this: Region, device: Device) MapError![]u8 {
-            return call(device, @src(), .{ "Buffer", "Region" }, .{ this, device });
-        }
-
-        pub fn unmap(this: Region, device: Device) void {
-            return call(device, @src(), .{ "Buffer", "Region" }, .{ this, device });
-        }
     };
 };
 

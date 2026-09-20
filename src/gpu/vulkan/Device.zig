@@ -234,9 +234,11 @@ pub const MemoryRegion = struct {
     memory: vk.DeviceMemory,
     offset: Size,
     size: Size,
+    /// not offseted
+    mapping: ?[*]u8,
 };
 
-pub fn allocateMemory(this: *Device, requirements: vk.MemoryRequirements, properties: vk.MemoryPropertyFlags) !MemoryRegion {
+pub fn allocateMemory(this: *Device, requirements: vk.MemoryRequirements, properties: vk.MemoryPropertyFlags, map: bool) !MemoryRegion {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const mem_index: u32 = blk: {
         const mem_properties = this.instance.instance.getPhysicalDeviceMemoryProperties(this.phys);
@@ -250,8 +252,9 @@ pub fn allocateMemory(this: *Device, requirements: vk.MemoryRequirements, proper
         return error.NoSuitableMemoryType;
     };
 
+    const memory_size = requirements.size;
     const memory = this.device.allocateMemory(&.{
-        .allocation_size = requirements.size,
+        .allocation_size = memory_size,
         .memory_type_index = mem_index,
     }, vk_alloc) catch |err| return switch (err) {
         error.OutOfHostMemory => error.OutOfMemory,
@@ -263,14 +266,27 @@ pub fn allocateMemory(this: *Device, requirements: vk.MemoryRequirements, proper
         error.Unknown => error.Unknown,
     };
 
+    const mapping: ?*anyopaque = if (map)
+        this.device.mapMemory(memory, 0, memory_size, .{}) catch |err| return switch (err) {
+            error.OutOfHostMemory => error.OutOfMemory,
+            error.OutOfDeviceMemory => error.OutOfDeviceMemory,
+            error.MemoryMapFailed => error.MemoryMapFailed,
+            error.Unknown => error.Unknown,
+        }
+    else
+        null;
+
     return .{
         .memory = memory,
         .offset = 0,
         .size = requirements.size,
+        .mapping = @ptrCast(mapping),
     };
 }
 
 pub fn freeMemory(this: *Device, memory_region: MemoryRegion) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
+    if (memory_region.mapping) |_|
+        this.device.unmapMemory(memory_region.memory);
     this.device.freeMemory(memory_region.memory, vk_alloc);
 }

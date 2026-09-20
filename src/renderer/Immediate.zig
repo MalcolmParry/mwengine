@@ -7,7 +7,6 @@ const Immediate = @This();
 alloc: std.mem.Allocator,
 stream_alloc: gpu.PushAllocator,
 staging: gpu.Buffer,
-stage_mapping: []u8,
 box_renderer: ?BoxRenderer,
 image_renderer: ?ImageRenderer,
 text_renderer: ?TextRenderer,
@@ -27,22 +26,19 @@ pub const InitInfo = struct {
 pub fn init(info: InitInfo) !Immediate {
     const buffer_size = info.streaming_buffer_size_pf * info.frames_in_flight;
     const streaming_buffer = try info.device.initBuffer(.{
-        .alloc = info.alloc,
         .loc = .device,
         .usage = .{ .dst = true, .vertex = true },
         .size = buffer_size,
     });
-    errdefer streaming_buffer.deinit(info.device, info.alloc);
+    errdefer streaming_buffer.deinit(info.device);
     streaming_buffer.debugLabel(info.device, "immediate renderer streaming buffer");
 
     const staging = try info.device.initBuffer(.{
-        .alloc = info.alloc,
         .loc = .host,
-        .usage = .{ .src = true },
+        .usage = .{ .src = true, .mapped = true },
         .size = buffer_size,
     });
-    errdefer staging.deinit(info.device, info.alloc);
-    const stage_mapping = try staging.map(info.device);
+    errdefer staging.deinit(info.device);
     staging.debugLabel(info.device, "immediate renderer staging buffer");
 
     var immediate: Immediate = .{
@@ -53,7 +49,6 @@ pub fn init(info: InitInfo) !Immediate {
             .size_pf = info.streaming_buffer_size_pf,
         },
         .staging = staging,
-        .stage_mapping = stage_mapping,
         .box_renderer = null,
         .image_renderer = null,
         .text_renderer = null,
@@ -88,8 +83,8 @@ pub fn deinit(immediate: *Immediate, device: gpu.Device) void {
     if (immediate.box_renderer) |_|
         BoxRenderer.deinit(immediate, device);
 
-    immediate.stream_alloc.buffer.deinit(device, immediate.alloc);
-    immediate.staging.deinit(device, immediate.alloc);
+    immediate.stream_alloc.buffer.deinit(device);
+    immediate.staging.deinit(device);
 }
 
 pub fn begin(immediate: *Immediate, image_size: [2]u16) !void {
@@ -406,7 +401,7 @@ const BoxRenderer = struct {
         if (data.len == 0) return;
 
         const region = try immediate.stream_alloc.allocTAligned(VertexInput, data.len, .@"4");
-        const staging = immediate.stage_mapping[region.offset..][0..region.size];
+        const staging = immediate.staging.mapping().?[region.offset..][0..region.size];
 
         @memcpy(staging, std.mem.sliceAsBytes(data));
         this.vertex_buffer_offset = region.offset;
@@ -707,7 +702,7 @@ pub const TextRenderer = struct {
             if (data.len == 0) continue;
 
             const region = try immediate.stream_alloc.allocTAligned(VertexInput, data.len, .@"4");
-            const staging = immediate.stage_mapping[region.offset..][0..region.size];
+            const staging = immediate.staging.mapping().?[region.offset..][0..region.size];
             @memcpy(staging, std.mem.sliceAsBytes(data));
             per_atlas.buffer_offset = region.offset;
         }

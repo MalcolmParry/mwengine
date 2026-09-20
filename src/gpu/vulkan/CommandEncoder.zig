@@ -81,7 +81,7 @@ pub fn cmdCopyBuffer(cmd_encoder: gpu.CommandEncoder, src: gpu.Buffer.Region, ds
         .dst_offset = dst.offset,
     };
 
-    cmd_encoder.vk.dispatch.cmdCopyBuffer(cmd_encoder.vk.command_buffer, src.buffer.vk.buffer, dst.buffer.vk.buffer, (&copy_region)[0..1]);
+    cmd_encoder.vk.dispatch.cmdCopyBuffer(cmd_encoder.vk.command_buffer, src.buffer.impl.vk.buffer, dst.buffer.impl.vk.buffer, (&copy_region)[0..1]);
 }
 
 pub fn cmdCopyBufferToImage(encoder: gpu.CommandEncoder, info: gpu.CommandEncoder.BufferToImageCopyInfo) void {
@@ -111,7 +111,7 @@ pub fn cmdCopyBufferToImage(encoder: gpu.CommandEncoder, info: gpu.CommandEncode
 
     encoder.vk.dispatch.cmdCopyBufferToImage(
         encoder.vk.command_buffer,
-        info.src.buffer.vk.buffer,
+        info.src.buffer.impl.vk.buffer,
         info.dst.vk.image,
         Image.layoutToNative(info.layout),
         (&buffer_image_copy)[0..1],
@@ -227,7 +227,7 @@ pub fn cmdMemoryBarrier(encoder: gpu.CommandEncoder, info: gpu.CommandEncoder.Me
 
     for (info.buffer_barriers, buffer_barriers) |barrier, *native| {
         native.* = .{
-            .buffer = barrier.region.buffer.vk.buffer,
+            .buffer = barrier.region.buffer.impl.vk.buffer,
             .size = barrier.region.size,
             .offset = barrier.region.offset,
             .src_stage_mask = stageToNative(barrier.src_stage),
@@ -362,7 +362,12 @@ pub const RenderPassEncoder = struct {
 
     pub fn cmdBindVertexBuffer(encoder: gpu.RenderPassEncoder, binding: u32, buffer_region: gpu.Buffer.Region) void {
         const offset = buffer_region.offset;
-        encoder.vk.cmd_encoder.dispatch.cmdBindVertexBuffers(encoder.vk.cmd_encoder.command_buffer, binding, (&buffer_region.buffer.vk.buffer)[0..1], (&offset)[0..1]);
+        encoder.vk.cmd_encoder.dispatch.cmdBindVertexBuffers(
+            encoder.vk.cmd_encoder.command_buffer,
+            binding,
+            (&buffer_region.buffer.impl.vk.buffer)[0..1],
+            (&offset)[0..1],
+        );
     }
 
     pub fn cmdBindIndexBuffer(encoder: gpu.RenderPassEncoder, buffer_region: gpu.Buffer.Region, index_type: gpu.RenderPassEncoder.IndexType) void {

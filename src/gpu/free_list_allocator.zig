@@ -85,7 +85,7 @@ pub fn FreeListAllocator(comptime opts: Options) type {
         pub fn deinit(gpu_alloc: *GpuAlloc, device: gpu.Device) void {
             const gpa = gpu_alloc.gpa;
             for (gpu_alloc.super_descs.items) |super| {
-                super.buffer.deinit(device, gpa);
+                super.buffer.deinit(device);
                 for (super.slab_descs[0..]) |slab| {
                     switch (slab) {
                         .desc => |desc| gpa.free(desc.free_list),
@@ -119,12 +119,11 @@ pub fn FreeListAllocator(comptime opts: Options) type {
 
             const gpa = gpu_alloc.gpa;
             const buffer = try device.initBuffer(.{
-                .alloc = gpa,
                 .size = super_size,
                 .loc = gpu_alloc.buffer_loc,
                 .usage = gpu_alloc.buffer_usage,
             });
-            errdefer buffer.deinit(device, gpa);
+            errdefer buffer.deinit(device);
             buffer.debugLabel(device, "free list allocator super slab buffer");
 
             try gpu_alloc.super_descs.append(gpa, .{
