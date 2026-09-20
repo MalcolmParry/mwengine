@@ -6,12 +6,18 @@ const Image = @import("Image.zig");
 const Sampler = @import("Sampler.zig");
 
 const CommandEncoder = @This();
-pub const Handle = CommandEncoder;
+pub const Handle = *CommandEncoder;
 
 command_buffer: vk.CommandBuffer,
 dispatch: *const vk.DeviceWrapper,
+arena: std.heap.ArenaAllocator.State,
+gpa: std.mem.Allocator,
+out_of_memory: bool = false,
 
-pub fn init(device: gpu.Device) gpu.CommandEncoder.InitError!gpu.CommandEncoder {
+pub fn init(device: gpu.Device, alloc: std.mem.Allocator) gpu.CommandEncoder.InitError!gpu.CommandEncoder {
+    const encoder = try alloc.create(CommandEncoder);
+    errdefer alloc.destroy(encoder);
+
     var command_buffer: vk.CommandBuffer = .null_handle;
     device.vk.device.allocateCommandBuffers(&.{
         .command_pool = device.vk.command_pool,
@@ -23,19 +29,26 @@ pub fn init(device: gpu.Device) gpu.CommandEncoder.InitError!gpu.CommandEncoder 
         error.Unknown => error.Unknown,
     };
 
-    return .{ .vk = .{
+    encoder.* = .{
         .command_buffer = command_buffer,
         .dispatch = device.vk.device.wrapper,
-    } };
+        .arena = .init,
+        .gpa = alloc,
+    };
+
+    return .{ .vk = encoder };
 }
 
-pub fn deinit(this: gpu.CommandEncoder, device: gpu.Device) void {
-    device.vk.device.freeCommandBuffers(device.vk.command_pool, (&this.vk.command_buffer)[0..1]);
+pub fn deinit(encoder: gpu.CommandEncoder, device: gpu.Device) void {
+    const gpa = encoder.vk.gpa;
+    device.vk.device.freeCommandBuffers(device.vk.command_pool, (&encoder.vk.command_buffer)[0..1]);
+    encoder.vk.arena.promote(gpa).deinit();
+    gpa.destroy(encoder.vk);
 }
 
-pub fn begin(this: gpu.CommandEncoder) gpu.CommandEncoder.BeginError!void {
-    try this.vk.dispatch.resetCommandBuffer(this.vk.command_buffer, .{});
-    this.vk.dispatch.beginCommandBuffer(this.vk.command_buffer, &.{
+pub fn begin(encoder: gpu.CommandEncoder) gpu.CommandEncoder.BeginError!void {
+    try encoder.vk.dispatch.resetCommandBuffer(encoder.vk.command_buffer, .{});
+    encoder.vk.dispatch.beginCommandBuffer(encoder.vk.command_buffer, &.{
         .flags = .{},
     }) catch |err| return switch (err) {
         error.OutOfHostMemory => error.OutOfMemory,
@@ -44,13 +57,17 @@ pub fn begin(this: gpu.CommandEncoder) gpu.CommandEncoder.BeginError!void {
     };
 }
 
-pub fn end(this: gpu.CommandEncoder) gpu.CommandEncoder.EndError!void {
-    this.vk.dispatch.endCommandBuffer(this.vk.command_buffer) catch |err| return switch (err) {
+pub fn end(encoder: gpu.CommandEncoder) gpu.CommandEncoder.EndError!void {
+    defer encoder.vk.out_of_memory = false;
+
+    encoder.vk.dispatch.endCommandBuffer(encoder.vk.command_buffer) catch |err| return switch (err) {
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,
         error.InvalidVideoStdParametersKHR => unreachable,
         error.Unknown => error.Unknown,
     };
+
+    if (encoder.vk.out_of_memory) return error.OutOfMemory;
 }
 
 pub fn cmdCopyBuffer(cmd_encoder: gpu.CommandEncoder, src: gpu.Buffer.Region, dst: gpu.Buffer.Region) void {
@@ -65,7 +82,7 @@ pub fn cmdCopyBuffer(cmd_encoder: gpu.CommandEncoder, src: gpu.Buffer.Region, ds
     cmd_encoder.vk.dispatch.cmdCopyBuffer(cmd_encoder.vk.command_buffer, src.buffer.vk.buffer, dst.buffer.vk.buffer, (&copy_region)[0..1]);
 }
 
-pub fn cmdCopyBufferToImage(this: gpu.CommandEncoder, info: gpu.CommandEncoder.BufferToImageCopyInfo) void {
+pub fn cmdCopyBufferToImage(encoder: gpu.CommandEncoder, info: gpu.CommandEncoder.BufferToImageCopyInfo) void {
     const signed_offset: @Vector(3, i32) = @intCast(info.region.offset);
 
     const buffer_image_copy: vk.BufferImageCopy = .{
@@ -90,8 +107,8 @@ pub fn cmdCopyBufferToImage(this: gpu.CommandEncoder, info: gpu.CommandEncoder.B
         },
     };
 
-    this.vk.dispatch.cmdCopyBufferToImage(
-        this.vk.command_buffer,
+    encoder.vk.dispatch.cmdCopyBufferToImage(
+        encoder.vk.command_buffer,
         info.src.buffer.vk.buffer,
         info.dst.vk.image,
         Image.layoutToNative(info.layout),
@@ -167,68 +184,85 @@ pub fn accessToNative(access: gpu.Access) vk.AccessFlags2KHR {
     };
 }
 
-pub fn cmdMemoryBarrier(this: gpu.CommandEncoder, info: gpu.CommandEncoder.MemoryBarrierInfo) void {
-    var remaining_image = info.image_barriers;
-    var remaining_buffer = info.buffer_barriers;
-    var image_buffer: [16]vk.ImageMemoryBarrier2 = undefined;
-    var buffer_buffer: [16]vk.BufferMemoryBarrier2 = undefined;
-
-    while (remaining_image.len > 0 or remaining_buffer.len > 0) {
-        const image = if (remaining_image.len > image_buffer.len) remaining_image[0..image_buffer.len] else remaining_image;
-        remaining_image = if (remaining_image.len > image_buffer.len) remaining_image[image_buffer.len..] else &.{};
-
-        for (image, 0..) |barrier, i| {
-            image_buffer[i] = .{
-                .image = barrier.image.vk.image,
-                .old_layout = Image.layoutToNative(barrier.old_layout),
-                .new_layout = Image.layoutToNative(barrier.new_layout),
-                .src_stage_mask = stageToNative(barrier.src_stage),
-                .dst_stage_mask = stageToNative(barrier.dst_stage),
-                .src_access_mask = accessToNative(barrier.src_access),
-                .dst_access_mask = accessToNative(barrier.dst_access),
-                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-                .subresource_range = .{
-                    .aspect_mask = Image.aspectToNative(barrier.subresource_range.aspect),
-                    .base_mip_level = barrier.subresource_range.mip_offset,
-                    .level_count = if (barrier.subresource_range.mip_count) |x| x else vk.REMAINING_MIP_LEVELS,
-                    .base_array_layer = barrier.subresource_range.layer_offset,
-                    .layer_count = if (barrier.subresource_range.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
-                },
-            };
-        }
-
-        const buffer = if (remaining_buffer.len > buffer_buffer.len) remaining_buffer[0..buffer_buffer.len] else remaining_buffer;
-        remaining_buffer = if (remaining_buffer.len > buffer_buffer.len) remaining_buffer[buffer_buffer.len..] else &.{};
-
-        for (buffer, 0..) |barrier, i| {
-            buffer_buffer[i] = .{
-                .buffer = barrier.region.buffer.vk.buffer,
-                .size = barrier.region.size,
-                .offset = barrier.region.offset,
-                .src_stage_mask = stageToNative(barrier.src_stage),
-                .dst_stage_mask = stageToNative(barrier.dst_stage),
-                .src_access_mask = accessToNative(barrier.src_access),
-                .dst_access_mask = accessToNative(barrier.dst_access),
-                .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-                .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
-            };
-        }
-
-        this.vk.dispatch.cmdPipelineBarrier2(this.vk.command_buffer, &.{
-            .image_memory_barrier_count = @intCast(image.len),
-            .p_image_memory_barriers = &image_buffer,
-            .buffer_memory_barrier_count = @intCast(buffer.len),
-            .p_buffer_memory_barriers = &buffer_buffer,
-        });
+pub fn cmdMemoryBarrier(encoder: gpu.CommandEncoder, info: gpu.CommandEncoder.MemoryBarrierInfo) void {
+    var arena_obj = encoder.vk.arena.promote(encoder.vk.gpa);
+    defer {
+        _ = arena_obj.reset(.retain_capacity);
+        encoder.vk.arena = arena_obj.state;
     }
+    const arena = arena_obj.allocator();
+
+    const image_barriers = arena.alloc(vk.ImageMemoryBarrier2, info.image_barriers.len) catch {
+        encoder.vk.out_of_memory = true;
+        return;
+    };
+
+    const buffer_barriers = arena.alloc(vk.BufferMemoryBarrier2, info.buffer_barriers.len) catch {
+        encoder.vk.out_of_memory = true;
+        return;
+    };
+
+    for (info.image_barriers, image_barriers) |barrier, *native| {
+        native.* = .{
+            .image = barrier.image.vk.image,
+            .old_layout = Image.layoutToNative(barrier.old_layout),
+            .new_layout = Image.layoutToNative(barrier.new_layout),
+            .src_stage_mask = stageToNative(barrier.src_stage),
+            .dst_stage_mask = stageToNative(barrier.dst_stage),
+            .src_access_mask = accessToNative(barrier.src_access),
+            .dst_access_mask = accessToNative(barrier.dst_access),
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .subresource_range = .{
+                .aspect_mask = Image.aspectToNative(barrier.subresource_range.aspect),
+                .base_mip_level = barrier.subresource_range.mip_offset,
+                .level_count = if (barrier.subresource_range.mip_count) |x| x else vk.REMAINING_MIP_LEVELS,
+                .base_array_layer = barrier.subresource_range.layer_offset,
+                .layer_count = if (barrier.subresource_range.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
+            },
+        };
+    }
+
+    for (info.buffer_barriers, buffer_barriers) |barrier, *native| {
+        native.* = .{
+            .buffer = barrier.region.buffer.vk.buffer,
+            .size = barrier.region.size,
+            .offset = barrier.region.offset,
+            .src_stage_mask = stageToNative(barrier.src_stage),
+            .dst_stage_mask = stageToNative(barrier.dst_stage),
+            .src_access_mask = accessToNative(barrier.src_access),
+            .dst_access_mask = accessToNative(barrier.dst_access),
+            .src_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+            .dst_queue_family_index = vk.QUEUE_FAMILY_IGNORED,
+        };
+    }
+
+    encoder.vk.dispatch.cmdPipelineBarrier2(encoder.vk.command_buffer, &.{
+        .image_memory_barrier_count = @intCast(image_barriers.len),
+        .p_image_memory_barriers = image_barriers.ptr,
+        .buffer_memory_barrier_count = @intCast(buffer_barriers.len),
+        .p_buffer_memory_barriers = buffer_barriers.ptr,
+    });
+}
+
+pub fn cmdBeginDebugBlockLabel(encoder: gpu.CommandEncoder, name: [:0]const u8) void {
+    const info: vk.DebugUtilsLabelEXT = .{
+        .p_label_name = name,
+        .color = @splat(0),
+    };
+
+    encoder.vk.dispatch.cmdBeginDebugUtilsLabelEXT(encoder.vk.command_buffer, &info);
+}
+
+pub fn cmdEndDebugBlockLabel(encoder: gpu.CommandEncoder) void {
+    encoder.vk.dispatch.cmdEndDebugUtilsLabelEXT(encoder.vk.command_buffer);
 }
 
 pub const cmdBeginRenderPass = RenderPassEncoder.cmdBegin;
 pub const RenderPassEncoder = struct {
     pub const Handle = RenderPassEncoder;
 
-    cmd_encoder: CommandEncoder,
+    cmd_encoder: *CommandEncoder,
     image_size: [2]u32,
 
     fn clearValueToVk(val: gpu.RenderAttachment.ClearValue) vk.ClearValue {
@@ -296,51 +330,59 @@ pub const RenderPassEncoder = struct {
         } };
     }
 
-    pub fn cmdEnd(this: gpu.RenderPassEncoder) void {
-        this.vk.cmd_encoder.dispatch.cmdEndRendering(this.vk.cmd_encoder.command_buffer);
+    pub fn cmdEnd(encoder: gpu.RenderPassEncoder) void {
+        encoder.vk.cmd_encoder.dispatch.cmdEndRendering(encoder.vk.cmd_encoder.command_buffer);
     }
 
-    pub fn cmdBindPipeline(this: gpu.RenderPassEncoder, graphics_pipeline: gpu.GraphicsPipeline) void {
-        this.vk.cmd_encoder.dispatch.cmdBindPipeline(this.vk.cmd_encoder.command_buffer, .graphics, graphics_pipeline.vk.pipeline);
+    pub fn cmdBindPipeline(encoder: gpu.RenderPassEncoder, graphics_pipeline: gpu.GraphicsPipeline) void {
+        encoder.vk.cmd_encoder.dispatch.cmdBindPipeline(encoder.vk.cmd_encoder.command_buffer, .graphics, graphics_pipeline.vk.pipeline);
 
         const viewport: vk.Viewport = .{
             .x = 0,
             .y = 0,
-            .width = @floatFromInt(this.vk.image_size[0]),
-            .height = @floatFromInt(this.vk.image_size[1]),
+            .width = @floatFromInt(encoder.vk.image_size[0]),
+            .height = @floatFromInt(encoder.vk.image_size[1]),
             .min_depth = 0,
             .max_depth = 1,
         };
 
-        this.vk.cmd_encoder.dispatch.cmdSetViewport(this.vk.cmd_encoder.command_buffer, 0, (&viewport)[0..1]);
+        encoder.vk.cmd_encoder.dispatch.cmdSetViewport(encoder.vk.cmd_encoder.command_buffer, 0, (&viewport)[0..1]);
 
         const scissor: vk.Rect2D = .{
-            .extent = .{ .width = this.vk.image_size[0], .height = this.vk.image_size[1] },
+            .extent = .{ .width = encoder.vk.image_size[0], .height = encoder.vk.image_size[1] },
             .offset = .{ .x = 0, .y = 0 },
         };
 
-        this.vk.cmd_encoder.dispatch.cmdSetScissor(this.vk.cmd_encoder.command_buffer, 0, (&scissor)[0..1]);
+        encoder.vk.cmd_encoder.dispatch.cmdSetScissor(encoder.vk.cmd_encoder.command_buffer, 0, (&scissor)[0..1]);
     }
 
-    pub fn cmdBindVertexBuffer(this: gpu.RenderPassEncoder, binding: u32, buffer_region: gpu.Buffer.Region) void {
+    pub fn cmdBindVertexBuffer(encoder: gpu.RenderPassEncoder, binding: u32, buffer_region: gpu.Buffer.Region) void {
         const offset = buffer_region.offset;
-        this.vk.cmd_encoder.dispatch.cmdBindVertexBuffers(this.vk.cmd_encoder.command_buffer, binding, (&buffer_region.buffer.vk.buffer)[0..1], (&offset)[0..1]);
+        encoder.vk.cmd_encoder.dispatch.cmdBindVertexBuffers(encoder.vk.cmd_encoder.command_buffer, binding, (&buffer_region.buffer.vk.buffer)[0..1], (&offset)[0..1]);
     }
 
-    pub fn cmdBindIndexBuffer(this: gpu.RenderPassEncoder, buffer_region: gpu.Buffer.Region, index_type: gpu.RenderPassEncoder.IndexType) void {
-        this.vk.cmd_encoder.dispatch.cmdBindIndexBuffer(this.vk.cmd_encoder.command_buffer, buffer_region.buffer.vk.buffer, buffer_region.offset, switch (index_type) {
+    pub fn cmdBindIndexBuffer(encoder: gpu.RenderPassEncoder, buffer_region: gpu.Buffer.Region, index_type: gpu.RenderPassEncoder.IndexType) void {
+        encoder.vk.cmd_encoder.dispatch.cmdBindIndexBuffer(encoder.vk.cmd_encoder.command_buffer, buffer_region.buffer.vk.buffer, buffer_region.offset, switch (index_type) {
             .uint16 => .uint16,
             .uint32 => .uint32,
         });
     }
 
-    pub fn cmdBindResourceSets(this: gpu.RenderPassEncoder, pipeline: gpu.GraphicsPipeline, resource_sets: []const gpu.ResourceSet, first: u32) void {
-        var buffer: [64]u8 = undefined;
-        var alloc = std.heap.FixedBufferAllocator.init(&buffer);
-        const natives = ResourceSet.nativesFromSlice(resource_sets, alloc.allocator()) catch unreachable;
+    pub fn cmdBindResourceSets(encoder: gpu.RenderPassEncoder, pipeline: gpu.GraphicsPipeline, resource_sets: []const gpu.ResourceSet, first: u32) void {
+        var arena_obj = encoder.vk.cmd_encoder.arena.promote(encoder.vk.cmd_encoder.gpa);
+        defer {
+            _ = arena_obj.reset(.retain_capacity);
+            encoder.vk.cmd_encoder.arena = arena_obj.state;
+        }
 
-        this.vk.cmd_encoder.dispatch.cmdBindDescriptorSets(
-            this.vk.cmd_encoder.command_buffer,
+        const arena = arena_obj.allocator();
+        const natives = ResourceSet.nativesFromSlice(resource_sets, arena) catch {
+            encoder.vk.cmd_encoder.out_of_memory = true;
+            return;
+        };
+
+        encoder.vk.cmd_encoder.dispatch.cmdBindDescriptorSets(
+            encoder.vk.cmd_encoder.command_buffer,
             .graphics,
             pipeline.vk.pipeline_layout,
             first,
@@ -349,9 +391,9 @@ pub const RenderPassEncoder = struct {
         );
     }
 
-    pub fn cmdPushConstants(this: gpu.RenderPassEncoder, pipeline: gpu.GraphicsPipeline, range: gpu.PushConstantRange, data: [*]const u8) void {
-        this.vk.cmd_encoder.dispatch.cmdPushConstants(
-            this.vk.cmd_encoder.command_buffer,
+    pub fn cmdPushConstants(encoder: gpu.RenderPassEncoder, pipeline: gpu.GraphicsPipeline, range: gpu.PushConstantRange, data: [*]const u8) void {
+        encoder.vk.cmd_encoder.dispatch.cmdPushConstants(
+            encoder.vk.cmd_encoder.command_buffer,
             pipeline.vk.pipeline_layout,
             .{
                 .vertex_bit = range.stages.vertex,
@@ -363,11 +405,19 @@ pub const RenderPassEncoder = struct {
         );
     }
 
-    pub fn cmdDraw(this: gpu.RenderPassEncoder, info: gpu.RenderPassEncoder.DrawInfo) void {
+    pub fn cmdDraw(encoder: gpu.RenderPassEncoder, info: gpu.RenderPassEncoder.DrawInfo) void {
         if (info.indexed) {
-            this.vk.cmd_encoder.dispatch.cmdDrawIndexed(this.vk.cmd_encoder.command_buffer, info.vertex_count, info.instance_count, 0, @intCast(info.first_vertex), @intCast(info.first_instance));
+            encoder.vk.cmd_encoder.dispatch.cmdDrawIndexed(encoder.vk.cmd_encoder.command_buffer, info.vertex_count, info.instance_count, 0, @intCast(info.first_vertex), @intCast(info.first_instance));
         } else {
-            this.vk.cmd_encoder.dispatch.cmdDraw(this.vk.cmd_encoder.command_buffer, info.vertex_count, info.instance_count, @intCast(info.first_vertex), @intCast(info.first_instance));
+            encoder.vk.cmd_encoder.dispatch.cmdDraw(encoder.vk.cmd_encoder.command_buffer, info.vertex_count, info.instance_count, @intCast(info.first_vertex), @intCast(info.first_instance));
         }
+    }
+
+    pub fn cmdBeginDebugBlockLabel(encoder: gpu.RenderPassEncoder, name: [:0]const u8) void {
+        CommandEncoder.cmdBeginDebugBlockLabel(.{ .vk = encoder.vk.cmd_encoder }, name);
+    }
+
+    pub fn cmdEndDebugBlockLabel(encoder: gpu.RenderPassEncoder) void {
+        CommandEncoder.cmdEndDebugBlockLabel(.{ .vk = encoder.vk.cmd_encoder });
     }
 };

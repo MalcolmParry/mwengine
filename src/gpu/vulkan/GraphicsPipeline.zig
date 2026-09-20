@@ -324,6 +324,14 @@ pub fn deinit(this: gpu.GraphicsPipeline, device: gpu.Device, alloc: std.mem.All
     alloc.destroy(this.vk);
 }
 
+pub fn debugLabel(pipeline: gpu.GraphicsPipeline, device: gpu.Device, name: [:0]const u8) void {
+    device.vk.device.setDebugUtilsObjectNameEXT(&.{
+        .object_type = .pipeline,
+        .object_handle = @intFromEnum(pipeline.vk.pipeline),
+        .p_object_name = name,
+    }) catch {};
+}
+
 fn blendFactorToNative(x: gpu.GraphicsPipeline.BlendInfo.Factor) vk.BlendFactor {
     return switch (x) {
         .zero => .zero,

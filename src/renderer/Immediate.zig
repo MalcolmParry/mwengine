@@ -33,6 +33,7 @@ pub fn init(info: InitInfo) !Immediate {
         .size = buffer_size,
     });
     errdefer streaming_buffer.deinit(info.device, info.alloc);
+    streaming_buffer.debugLabel(info.device, "immediate renderer streaming buffer");
 
     const staging = try info.device.initBuffer(.{
         .alloc = info.alloc,
@@ -42,6 +43,7 @@ pub fn init(info: InitInfo) !Immediate {
     });
     errdefer staging.deinit(info.device, info.alloc);
     const stage_mapping = try staging.map(info.device);
+    staging.debugLabel(info.device, "immediate renderer staging buffer");
 
     var immediate: Immediate = .{
         .alloc = info.alloc,

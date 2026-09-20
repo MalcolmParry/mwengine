@@ -125,6 +125,7 @@ pub fn FreeListAllocator(comptime opts: Options) type {
                 .usage = gpu_alloc.buffer_usage,
             });
             errdefer buffer.deinit(device, gpa);
+            buffer.debugLabel(device, "free list allocator super slab buffer");
 
             try gpu_alloc.super_descs.append(gpa, .{
                 .slab_descs = undefined,

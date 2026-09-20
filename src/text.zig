@@ -142,6 +142,7 @@ pub const GlyphCache = struct {
                 .size = cache.atlas_size,
             });
             errdefer image.deinit(device, cache.alloc);
+            image.debugLabel(device, "text glyph atlas image");
 
             const view = try device.initImageView(.{
                 .alloc = cache.alloc,
@@ -158,6 +159,7 @@ pub const GlyphCache = struct {
                 },
             });
             errdefer view.deinit(device, cache.alloc);
+            image.debugLabel(device, "text glyph atlas image view");
 
             cache.atlases.items[atlas_id] = .{
                 .image = image,

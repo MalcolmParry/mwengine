@@ -66,6 +66,14 @@ pub fn size(this: gpu.Buffer) gpu.Size {
     return this.vk.size_;
 }
 
+pub fn debugLabel(buffer: gpu.Buffer, device: gpu.Device, name: [:0]const u8) void {
+    device.vk.device.setDebugUtilsObjectNameEXT(&.{
+        .object_type = .buffer,
+        .object_handle = @intFromEnum(buffer.vk.buffer),
+        .p_object_name = name,
+    }) catch {};
+}
+
 pub const Region = struct {
     pub fn map(this: gpu.Buffer.Region, device: gpu.Device) gpu.Buffer.MapError![]u8 {
         const result = device.vk.device.mapMemory(this.buffer.vk.memory_region.memory, this.offset, this.size, .{}) catch |err| return switch (err) {

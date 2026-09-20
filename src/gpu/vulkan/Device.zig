@@ -8,7 +8,7 @@ const CommandEncoder = @import("CommandEncoder.zig");
 const Device = @This();
 pub const Handle = *Device;
 
-pub const required_extensions: [8][*:0]const u8 = .{
+pub const required_extensions = [_][*:0]const u8{
     vk.extensions.khr_synchronization_2.name,
     vk.extensions.khr_swapchain.name,
     vk.extensions.khr_maintenance_2.name,

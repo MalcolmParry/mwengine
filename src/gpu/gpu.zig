@@ -9,6 +9,7 @@ pub const UploadManager = @import("UploadManager.zig");
 pub const PushAllocator = @import("PushAllocator.zig");
 pub const AnyObject = @import("any_object.zig").AnyObject;
 pub const Size = u64;
+const debug_info = true;
 
 pub const Api = enum {
     vk,
@@ -242,6 +243,10 @@ pub const Shader = union {
 
     pub fn deinit(this: Shader, device: Device, alloc: std.mem.Allocator) void {
         return call(device, @src(), "Shader", .{ this, device, alloc });
+    }
+
+    pub fn debugLabel(shader: Shader, device: Device, name: [:0]const u8) void {
+        if (debug_info) call(device, @src(), "Shader", .{ shader, device, name });
     }
 
     pub const Stage = enum {
@@ -541,6 +546,10 @@ pub const GraphicsPipeline = union {
     pub fn deinit(this: GraphicsPipeline, device: Device, alloc: std.mem.Allocator) void {
         return call(device, @src(), "GraphicsPipeline", .{ this, device, alloc });
     }
+
+    pub fn debugLabel(pipeline: GraphicsPipeline, device: Device, name: [:0]const u8) void {
+        if (debug_info) call(device, @src(), "GraphicsPipeline", .{ pipeline, device, name });
+    }
 };
 
 pub const RenderAttachment = struct {
@@ -716,6 +725,10 @@ pub const Buffer = union(Api) {
         return call(this, @src(), "Buffer", .{this});
     }
 
+    pub fn debugLabel(buffer: Buffer, device: Device, name: [:0]const u8) void {
+        return call(device, @src(), "Buffer", .{ buffer, device, name });
+    }
+
     pub fn region(this: Buffer) Region {
         return .{
             .buffer = this,
@@ -770,6 +783,10 @@ pub const Image = union {
 
     pub fn format(this: Image, device: Device) Format {
         return call(device, @src(), "Image", .{ this, device });
+    }
+
+    pub fn debugLabel(image: Image, device: Device, name: [:0]const u8) void {
+        return call(device, @src(), "Image", .{ image, device, name });
     }
 
     pub const Format = enum {
@@ -865,6 +882,10 @@ pub const Image = union {
 
         pub fn deinit(this: View, device: Device, alloc: std.mem.Allocator) void {
             return call(device, @src(), .{ "Image", "View" }, .{ this, device, alloc });
+        }
+
+        pub fn debugLabel(view: View, device: Device, name: [:0]const u8) void {
+            return call(device, @src(), .{ "Image", "View" }, .{ view, device, name });
         }
     };
 
@@ -996,24 +1017,24 @@ pub const CommandEncoder = union(Api) {
         Unknown,
     };
 
-    pub fn init(device: Device) InitError!CommandEncoder {
-        return call(device, @src(), "CommandEncoder", .{device});
+    pub fn init(device: Device, alloc: std.mem.Allocator) InitError!CommandEncoder {
+        return call(device, @src(), "CommandEncoder", .{ device, alloc });
     }
 
-    pub fn deinit(this: CommandEncoder, device: Device) void {
-        return call(device, @src(), "CommandEncoder", .{ this, device });
+    pub fn deinit(encoder: CommandEncoder, device: Device) void {
+        return call(device, @src(), "CommandEncoder", .{ encoder, device });
     }
 
-    pub fn begin(this: CommandEncoder) BeginError!void {
-        return call(this, @src(), "CommandEncoder", .{this});
+    pub fn begin(encoder: CommandEncoder) BeginError!void {
+        return call(encoder, @src(), "CommandEncoder", .{encoder});
     }
 
-    pub fn end(this: CommandEncoder) EndError!void {
-        return call(this, @src(), "CommandEncoder", .{this});
+    pub fn end(encoder: CommandEncoder) EndError!void {
+        return call(encoder, @src(), "CommandEncoder", .{encoder});
     }
 
-    pub fn cmdCopyBuffer(this: CommandEncoder, src: Buffer.Region, dst: Buffer.Region) void {
-        return call(this, @src(), "CommandEncoder", .{ this, src, dst });
+    pub fn cmdCopyBuffer(encoder: CommandEncoder, src: Buffer.Region, dst: Buffer.Region) void {
+        return call(encoder, @src(), "CommandEncoder", .{ encoder, src, dst });
     }
 
     pub const BufferToImageCopyInfo = struct {
@@ -1025,8 +1046,8 @@ pub const CommandEncoder = union(Api) {
         subresource: Image.Subresource.Layers,
     };
 
-    pub fn cmdCopyBufferToImage(this: CommandEncoder, info: BufferToImageCopyInfo) void {
-        return call(this, @src(), "CommandEncoder", .{ this, info });
+    pub fn cmdCopyBufferToImage(encoder: CommandEncoder, info: BufferToImageCopyInfo) void {
+        return call(encoder, @src(), "CommandEncoder", .{ encoder, info });
     }
 
     pub const ImageCopyWithScalingInfo = struct {
@@ -1050,8 +1071,16 @@ pub const CommandEncoder = union(Api) {
         buffer_barriers: []const BufferBarrier = &.{},
     };
 
-    pub fn cmdMemoryBarrier(this: CommandEncoder, info: MemoryBarrierInfo) void {
-        return call(this, @src(), "CommandEncoder", .{ this, info });
+    pub fn cmdMemoryBarrier(encoder: CommandEncoder, info: MemoryBarrierInfo) void {
+        return call(encoder, @src(), "CommandEncoder", .{ encoder, info });
+    }
+
+    pub fn cmdBeginDebugBlockLabel(encoder: CommandEncoder, name: [:0]const u8) void {
+        if (debug_info) return call(encoder, @src(), "CommandEncoder", .{ encoder, name });
+    }
+
+    pub fn cmdEndDebugBlockLabel(encoder: CommandEncoder) void {
+        if (debug_info) return call(encoder, @src(), "CommandEncoder", .{encoder});
     }
 
     pub const cmdBeginRenderPass = RenderPassEncoder.cmdBegin;
@@ -1108,6 +1137,14 @@ pub const RenderPassEncoder = union(Api) {
 
     pub fn cmdDraw(this: RenderPassEncoder, info: DrawInfo) void {
         return call(this, @src(), "RenderPassEncoder", .{ this, info });
+    }
+
+    pub fn cmdBeginDebugBlockLabel(encoder: RenderPassEncoder, name: [:0]const u8) void {
+        if (debug_info) return call(encoder, @src(), "RenderPassEncoder", .{ encoder, name });
+    }
+
+    pub fn cmdEndDebugBlockLabel(encoder: RenderPassEncoder) void {
+        if (debug_info) return call(encoder, @src(), "RenderPassEncoder", .{encoder});
     }
 };
 
@@ -1235,4 +1272,8 @@ fn GetTypeFromName(Base: type, comptime type_name: anytype) type {
         },
         else => @field(Base, type_name),
     };
+}
+
+test {
+    _ = @import("free_list_allocator.zig");
 }

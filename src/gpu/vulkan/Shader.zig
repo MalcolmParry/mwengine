@@ -36,6 +36,14 @@ pub fn deinit(this: gpu.Shader, device: gpu.Device, alloc: std.mem.Allocator) vo
     alloc.destroy(this.vk);
 }
 
+pub fn debugLabel(shader: gpu.Shader, device: gpu.Device, name: [:0]const u8) void {
+    device.vk.device.setDebugUtilsObjectNameEXT(&.{
+        .object_type = .shader_module,
+        .object_handle = @intFromEnum(shader.vk.shader_module),
+        .p_object_name = name,
+    }) catch {};
+}
+
 pub fn dataTypeToNative(t: gpu.Shader.DataType) vk.Format {
     return switch (t) {
         .uint8 => .r8_uint,

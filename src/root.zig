@@ -10,5 +10,4 @@ pub const ImmediateRenderer = if (options.include_renderer) @import("renderer/Im
 test {
     _ = math;
     _ = gpu;
-    _ = @import("gpu/free_list_allocator.zig");
 }

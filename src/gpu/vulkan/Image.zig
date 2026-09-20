@@ -75,6 +75,14 @@ pub fn format(this: gpu.Image, device: gpu.Device) gpu.Image.Format {
     return this.vk.format;
 }
 
+pub fn debugLabel(image: gpu.Image, device: gpu.Device, name: [:0]const u8) void {
+    device.vk.device.setDebugUtilsObjectNameEXT(&.{
+        .object_type = .image,
+        .object_handle = @intFromEnum(image.vk.image),
+        .p_object_name = name,
+    }) catch {};
+}
+
 pub const View = struct {
     pub const Handle = View;
 
@@ -119,6 +127,14 @@ pub const View = struct {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
         _ = alloc;
         device.vk.device.destroyImageView(this.vk.image_view, vk_alloc);
+    }
+
+    pub fn debugLabel(view: gpu.Image.View, device: gpu.Device, name: [:0]const u8) void {
+        device.vk.device.setDebugUtilsObjectNameEXT(&.{
+            .object_type = .image_view,
+            .object_handle = @intFromEnum(view.vk.image_view),
+            .p_object_name = name,
+        }) catch {};
     }
 
     fn componentSwizzleToNative(x: gpu.Image.ComponentMapping.Swizzle) vk.ComponentSwizzle {

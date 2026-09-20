@@ -20,6 +20,7 @@ const PerFrameInFlight = struct {
             .size = info.buffer_size,
         });
         errdefer buffer.deinit(info.device, info.alloc);
+        buffer.debugLabel(info.device, "staging buffer");
 
         const mapping = try buffer.map(info.device);
         errdefer buffer.unmap(info.device);
