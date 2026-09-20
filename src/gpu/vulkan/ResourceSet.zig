@@ -6,17 +6,15 @@ const Shader = @import("Shader.zig");
 const Image = @import("Image.zig");
 
 const ResourceSet = @This();
-pub const Handle = *ResourceSet;
+pub const Handle = ResourceSet;
 
 descriptor_pool: vk.DescriptorPool,
 descriptor_set: vk.DescriptorSet,
 
-pub fn init(device: gpu.Device, layout: gpu.ResourceSet.Layout, alloc: std.mem.Allocator) gpu.ResourceSet.InitError!gpu.ResourceSet {
+pub fn init(device: gpu.Device, layout: gpu.ResourceSet.Layout) gpu.ResourceSet.InitError!gpu.ResourceSet {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    const this = try alloc.create(ResourceSet);
-    errdefer alloc.destroy(this);
 
-    this.descriptor_pool = device.vk.device.createDescriptorPool(&.{
+    const descriptor_pool = device.vk.device.createDescriptorPool(&.{
         .pool_size_count = @intCast(layout.vk.sizes.len),
         .p_pool_sizes = layout.vk.sizes.ptr,
         .max_sets = 1,
@@ -26,13 +24,14 @@ pub fn init(device: gpu.Device, layout: gpu.ResourceSet.Layout, alloc: std.mem.A
         error.FragmentationEXT => error.Fragmentation,
         error.Unknown => error.Unknown,
     };
-    errdefer device.vk.device.destroyDescriptorPool(this.descriptor_pool, vk_alloc);
+    errdefer device.vk.device.destroyDescriptorPool(descriptor_pool, vk_alloc);
 
+    var descriptor_set: vk.DescriptorSet = .null_handle;
     device.vk.device.allocateDescriptorSets(&.{
-        .descriptor_pool = this.descriptor_pool,
+        .descriptor_pool = descriptor_pool,
         .descriptor_set_count = 1,
         .p_set_layouts = @ptrCast(&layout.vk.layout),
-    }, @ptrCast(&this.descriptor_set)) catch |err| return switch (err) {
+    }, (&descriptor_set)[0..1]) catch |err| return switch (err) {
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,
         error.OutOfPoolMemory => error.OutOfPoolMemory,
@@ -40,24 +39,37 @@ pub fn init(device: gpu.Device, layout: gpu.ResourceSet.Layout, alloc: std.mem.A
         error.Unknown => error.Unknown,
     };
 
-    return .{ .vk = this };
+    return .{ .vk = .{
+        .descriptor_pool = descriptor_pool,
+        .descriptor_set = descriptor_set,
+    } };
 }
 
-pub fn deinit(this: gpu.ResourceSet, device: gpu.Device, alloc: std.mem.Allocator) void {
+pub fn deinit(res_set: gpu.ResourceSet, device: gpu.Device) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    device.vk.device.destroyDescriptorPool(this.vk.descriptor_pool, vk_alloc);
-    alloc.destroy(this.vk);
+    device.vk.device.destroyDescriptorPool(res_set.vk.descriptor_pool, vk_alloc);
 }
 
-pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.ResourceSet.Write, alloc: std.mem.Allocator) !void {
-    const descriptor_writes = try alloc.alloc(vk.WriteDescriptorSet, writes.len);
-    defer alloc.free(descriptor_writes);
+pub fn update(res_set: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.ResourceSet.Write) !void {
+    var arena_obj = device.vk.arena.promote(device.vk.gpa);
+    defer {
+        _ = arena_obj.reset(.retain_capacity);
+        device.vk.arena = arena_obj.state;
+    }
+    const arena = arena_obj.allocator();
 
-    var all_buffer_infos: std.ArrayList(vk.DescriptorBufferInfo) = .empty;
-    defer all_buffer_infos.deinit(alloc);
+    var buffer_info_count: usize = 0;
+    var image_info_count: usize = 0;
+    for (writes) |write| {
+        switch (write.data) {
+            .uniform => |regions| buffer_info_count += regions.len,
+            .image => |images| image_info_count += images.len,
+        }
+    }
 
-    var all_image_infos: std.ArrayList(vk.DescriptorImageInfo) = .empty;
-    defer all_image_infos.deinit(alloc);
+    const descriptor_writes = try arena.alloc(vk.WriteDescriptorSet, writes.len);
+    var all_buffer_infos: std.ArrayList(vk.DescriptorBufferInfo) = try .initCapacity(arena, buffer_info_count);
+    var all_image_infos: std.ArrayList(vk.DescriptorImageInfo) = try .initCapacity(arena, image_info_count);
 
     for (writes, descriptor_writes) |write, *descriptor_write| {
         var count: usize = undefined;
@@ -70,7 +82,7 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
                 const buffer_infos_start = all_buffer_infos.items.len;
 
                 for (buffer_regions) |buffer_region| {
-                    try all_buffer_infos.append(alloc, .{
+                    all_buffer_infos.appendAssumeCapacity(.{
                         .buffer = buffer_region.buffer.impl.vk.buffer,
                         .offset = buffer_region.offset,
                         .range = buffer_region.size,
@@ -84,7 +96,7 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
                 const image_infos_start = all_image_infos.items.len;
 
                 for (images) |image| {
-                    try all_image_infos.append(alloc, .{
+                    all_image_infos.appendAssumeCapacity(.{
                         .image_layout = Image.layoutToNative(image.layout),
                         .image_view = image.view.vk.image_view,
                         .sampler = image.sampler.vk.sampler,
@@ -96,7 +108,7 @@ pub fn update(this: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.Res
         }
 
         descriptor_write.* = .{
-            .dst_set = this.vk.descriptor_set,
+            .dst_set = res_set.vk.descriptor_set,
             .dst_binding = write.binding,
             .dst_array_element = 0,
             .descriptor_type = switch (write.data) {
@@ -131,23 +143,22 @@ pub const Layout = struct {
     layout: vk.DescriptorSetLayout,
     sizes: []vk.DescriptorPoolSize,
 
-    pub const Handle = *Layout;
+    pub const Handle = Layout;
 
-    pub fn init(device: gpu.Device, info: gpu.ResourceSet.Layout.InitInfo) gpu.ResourceSet.Layout.InitError!gpu.ResourceSet.Layout {
+    pub fn init(device: gpu.Device, descriptors: []const gpu.ResourceSet.Layout.Descriptor) gpu.ResourceSet.Layout.InitError!gpu.ResourceSet.Layout {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
-        const this = try info.alloc.create(Layout);
-        errdefer info.alloc.destroy(this);
+        const gpa = device.vk.gpa;
 
-        const bindings = try info.alloc.alloc(vk.DescriptorSetLayoutBinding, info.descriptors.len);
-        defer info.alloc.free(bindings);
+        const bindings = try gpa.alloc(vk.DescriptorSetLayoutBinding, descriptors.len);
+        defer gpa.free(bindings);
 
-        const binding_flags = try info.alloc.alloc(vk.DescriptorBindingFlags, info.descriptors.len);
-        defer info.alloc.free(binding_flags);
+        const binding_flags = try gpa.alloc(vk.DescriptorBindingFlags, descriptors.len);
+        defer gpa.free(binding_flags);
 
-        this.sizes = try info.alloc.alloc(vk.DescriptorPoolSize, info.descriptors.len);
-        errdefer info.alloc.free(this.sizes);
+        const sizes = try gpa.alloc(vk.DescriptorPoolSize, descriptors.len);
+        errdefer gpa.free(sizes);
 
-        for (bindings, binding_flags, this.sizes, info.descriptors, 0..) |*binding, *flags, *size, descriptor, i| {
+        for (bindings, binding_flags, sizes, descriptors, 0..) |*binding, *flags, *size, descriptor, i| {
             const t: vk.DescriptorType = switch (descriptor.t) {
                 .uniform => .uniform_buffer,
                 .image => .combined_image_sampler,
@@ -178,7 +189,7 @@ pub const Layout = struct {
             .p_binding_flags = @ptrCast(binding_flags.ptr),
         };
 
-        this.layout = device.vk.device.createDescriptorSetLayout(&.{
+        const layout = device.vk.device.createDescriptorSetLayout(&.{
             .binding_count = @intCast(bindings.len),
             .p_bindings = @ptrCast(bindings.ptr),
             .p_next = @ptrCast(&flags_info),
@@ -187,16 +198,18 @@ pub const Layout = struct {
             error.OutOfDeviceMemory => error.OutOfDeviceMemory,
             error.Unknown => error.Unknown,
         };
-        errdefer device.vk.device.destroyDescriptorSetLayout(this.layout, vk_alloc);
+        errdefer device.vk.device.destroyDescriptorSetLayout(layout, vk_alloc);
 
-        return .{ .vk = this };
+        return .{ .vk = .{
+            .layout = layout,
+            .sizes = sizes,
+        } };
     }
 
-    pub fn deinit(this: gpu.ResourceSet.Layout, device: gpu.Device, alloc: std.mem.Allocator) void {
+    pub fn deinit(this: gpu.ResourceSet.Layout, device: gpu.Device) void {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
         device.vk.device.destroyDescriptorSetLayout(this.vk.layout, vk_alloc);
-        alloc.free(this.vk.sizes);
-        alloc.destroy(this.vk);
+        device.vk.gpa.free(this.vk.sizes);
     }
 
     pub fn nativesFromSlice(these: []const gpu.ResourceSet.Layout, alloc: std.mem.Allocator) ![]const vk.DescriptorSetLayout {

@@ -129,11 +129,13 @@ fn initSwapchain(this: *Display, image_size: @Vector(2, u32), alloc: std.mem.All
     errdefer alloc.free(this.images);
     const format = Image.formatFromNative(this.surface_format.format);
     for (this.images, images) |*x, native| {
-        x.vk = try alloc.create(Image);
-        x.vk.* = .{
-            .image = native,
-            .memory_region = undefined,
-            .format_ = format,
+        x.* = .{
+            .format = format,
+            .size = image_size,
+            .impl = .{ .vk = .{
+                .image = native,
+                .memory_region = undefined,
+            } },
         };
     }
 
@@ -201,12 +203,11 @@ fn deinitSwapchain(this: *Display, alloc: std.mem.Allocator) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
 
     for (this.free_available_semaphores.items) |x| this.device.device.destroySemaphore(x, vk_alloc);
-    for (this.images, this.image_views, this.presentable_semaphores, this.available_semaphores) |img, view, presentable_semaphore, available_semaphore| {
+    for (this.image_views, this.presentable_semaphores, this.available_semaphores) |view, presentable_semaphore, available_semaphore| {
         if (available_semaphore != .null_handle)
             this.device.device.destroySemaphore(available_semaphore, vk_alloc);
         this.device.device.destroySemaphore(presentable_semaphore, vk_alloc);
         this.device.device.destroyImageView(view.vk.image_view, vk_alloc);
-        alloc.destroy(img.vk);
     }
 
     alloc.free(this.images);

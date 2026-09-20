@@ -70,7 +70,7 @@ pub const GlyphCache = struct {
     glyphs: std.AutoHashMapUnmanaged(HashableGlyphDesc, Glyph) = .empty,
 
     current_atlas_id: u32 = 0,
-    next_glyph_start: gpu.Image.Offset2D = @splat(0),
+    next_glyph_start: gpu.Image.Size2D = @splat(0),
     row_highest: u32 = 0,
 
     copies: std.ArrayList(Copy) = .empty,
@@ -118,8 +118,8 @@ pub const GlyphCache = struct {
         cache.glyphs.deinit(cache.alloc);
 
         for (cache.atlases.items) |atlas| {
-            atlas.view.deinit(device, cache.alloc);
-            atlas.image.deinit(device, cache.alloc);
+            atlas.view.deinit(device);
+            atlas.image.deinit(device);
         }
 
         cache.atlases.deinit(cache.alloc);
@@ -135,17 +135,15 @@ pub const GlyphCache = struct {
         // TODO: handle errors correctly
         for (loaded_atlas_count..required_atlas_count) |atlas_id| {
             const image = try device.initImage(.{
-                .alloc = cache.alloc,
                 .format = .r8_unorm,
                 .usage = .{ .sampled = true, .dst = true },
                 .loc = .device,
                 .size = cache.atlas_size,
             });
-            errdefer image.deinit(device, cache.alloc);
+            errdefer image.deinit(device);
             image.debugLabel(device, "text glyph atlas image");
 
             const view = try device.initImageView(.{
-                .alloc = cache.alloc,
                 .image = image,
                 .kind = .@"2d",
                 .component_mapping = .{
@@ -158,7 +156,7 @@ pub const GlyphCache = struct {
                     .aspect = .{ .color = true },
                 },
             });
-            errdefer view.deinit(device, cache.alloc);
+            errdefer view.deinit(device);
             view.debugLabel(device, "text glyph atlas image view");
 
             cache.atlases.items[atlas_id] = .{
@@ -283,7 +281,7 @@ pub const GlyphCache = struct {
         const width: usize = bmp.width;
         const height: usize = bmp.rows;
         const y_flipped = bmp.pitch < 0;
-        const size: gpu.Image.Size2D = .{ @intCast(width), @intCast(height) };
+        const size: gpu.Image.Size2DVec = .{ @intCast(width), @intCast(height) };
         const pitch: usize = @abs(bmp.pitch);
         const bytes_per_pixel = 1;
 
@@ -328,19 +326,19 @@ pub const GlyphCache = struct {
         });
     }
 
-    fn allocateAtlasSpaceWithPad(cache: *GlyphCache, size: gpu.Image.Size2D) !Glyph.Loc {
-        const result = try cache.allocateAtlasSpace(size + @as(gpu.Image.Size2D, @splat(2)));
+    fn allocateAtlasSpaceWithPad(cache: *GlyphCache, size: gpu.Image.Size2DVec) !Glyph.Loc {
+        const result = try cache.allocateAtlasSpace(size + @as(gpu.Image.Size2DVec, @splat(2)));
 
         return .{
             .atlas_id = result.atlas_id,
             .bounds = .{
                 .size = size,
-                .offset = result.bounds.offset + @as(gpu.Image.Size2D, @splat(1)),
+                .offset = result.bounds.offset + @as(gpu.Image.Size2DVec, @splat(1)),
             },
         };
     }
 
-    fn allocateAtlasSpace(cache: *GlyphCache, size: gpu.Image.Size2D) !Glyph.Loc {
+    fn allocateAtlasSpace(cache: *GlyphCache, size: gpu.Image.Size2DVec) !Glyph.Loc {
         if (@reduce(.Or, size > cache.atlas_size)) return error.AtlasAllocationTooBig;
 
         if (cache.next_glyph_start[0] + size[0] > cache.atlas_size[0]) {
@@ -446,13 +444,14 @@ pub const GlyphPositioner = struct {
         const bearing: i16x2 = glyph.bearing;
         const pos_tl = pen + bearing;
 
-        const uv_tl = glyph.loc.bounds.offset;
-        const uv_br = uv_tl + glyph.loc.bounds.size;
+        const uv_tl: gpu.Image.Size2DVec = glyph.loc.bounds.offset;
+        const uv_br = uv_tl + @as(gpu.Image.Size2DVec, glyph.loc.bounds.size);
 
         const uv_tl_f: math.Vec2 = @floatFromInt(uv_tl);
         const uv_br_f: math.Vec2 = @floatFromInt(uv_br);
 
-        const atlas_size: math.Vec2 = @floatFromInt(iter.cache.atlas_size);
+        const iatlas_size: gpu.Image.Size2DVec = iter.cache.atlas_size;
+        const atlas_size: math.Vec2 = @floatFromInt(iatlas_size);
         const uv_tl_n = uv_tl_f / atlas_size;
         const uv_br_n = uv_br_f / atlas_size;
 

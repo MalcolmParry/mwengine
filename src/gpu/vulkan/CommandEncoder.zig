@@ -85,7 +85,8 @@ pub fn cmdCopyBuffer(cmd_encoder: gpu.CommandEncoder, src: gpu.Buffer.Region, ds
 }
 
 pub fn cmdCopyBufferToImage(encoder: gpu.CommandEncoder, info: gpu.CommandEncoder.BufferToImageCopyInfo) void {
-    const signed_offset: @Vector(3, i32) = @intCast(info.region.offset);
+    const offset: gpu.Image.Size3DVec = info.region.offset;
+    const signed_offset: @Vector(3, i32) = @intCast(offset);
 
     const buffer_image_copy: vk.BufferImageCopy = .{
         .buffer_offset = info.src.offset,
@@ -112,7 +113,7 @@ pub fn cmdCopyBufferToImage(encoder: gpu.CommandEncoder, info: gpu.CommandEncode
     encoder.vk.dispatch.cmdCopyBufferToImage(
         encoder.vk.command_buffer,
         info.src.buffer.impl.vk.buffer,
-        info.dst.vk.image,
+        info.dst.impl.vk.image,
         Image.layoutToNative(info.layout),
         (&buffer_image_copy)[0..1],
     );
@@ -150,9 +151,9 @@ pub fn cmdCopyImageWithScaling(cmd_encoder: gpu.CommandEncoder, info: gpu.Comman
 
     cmd_encoder.vk.dispatch.cmdBlitImage(
         cmd_encoder.vk.command_buffer,
-        info.src.vk.image,
+        info.src.impl.vk.image,
         Image.layoutToNative(info.src_layout),
-        info.dst.vk.image,
+        info.dst.impl.vk.image,
         Image.layoutToNative(info.dst_layout),
         (&blit)[0..1],
         Sampler.filterToNative(info.filter),
@@ -206,7 +207,7 @@ pub fn cmdMemoryBarrier(encoder: gpu.CommandEncoder, info: gpu.CommandEncoder.Me
 
     for (info.image_barriers, image_barriers) |barrier, *native| {
         native.* = .{
-            .image = barrier.image.vk.image,
+            .image = barrier.image.impl.vk.image,
             .old_layout = Image.layoutToNative(barrier.old_layout),
             .new_layout = Image.layoutToNative(barrier.new_layout),
             .src_stage_mask = stageToNative(barrier.src_stage),
@@ -218,9 +219,15 @@ pub fn cmdMemoryBarrier(encoder: gpu.CommandEncoder, info: gpu.CommandEncoder.Me
             .subresource_range = .{
                 .aspect_mask = Image.aspectToNative(barrier.subresource_range.aspect),
                 .base_mip_level = barrier.subresource_range.mip_offset,
-                .level_count = if (barrier.subresource_range.mip_count) |x| x else vk.REMAINING_MIP_LEVELS,
+                .level_count = switch (barrier.subresource_range.mip_count) {
+                    .count => |x| x,
+                    .all => vk.REMAINING_MIP_LEVELS,
+                },
                 .base_array_layer = barrier.subresource_range.layer_offset,
-                .layer_count = if (barrier.subresource_range.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
+                .layer_count = switch (barrier.subresource_range.layer_count) {
+                    .count => |x| x,
+                    .all => vk.REMAINING_ARRAY_LAYERS,
+                },
             },
         };
     }

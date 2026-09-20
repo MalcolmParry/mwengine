@@ -7,9 +7,8 @@ sampler: vk.Sampler,
 
 pub fn init(device: gpu.Device, info: gpu.Sampler.InitInfo) gpu.Sampler.InitError!gpu.Sampler {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    var sampler: gpu.Sampler = undefined;
 
-    sampler.vk.sampler = device.vk.device.createSampler(&.{
+    const sampler = device.vk.device.createSampler(&.{
         .min_filter = filterToNative(info.min_filter),
         .mag_filter = filterToNative(info.mag_filter),
         .address_mode_u = addrModeToNative(info.address_mode_u),
@@ -33,11 +32,12 @@ pub fn init(device: gpu.Device, info: gpu.Sampler.InitInfo) gpu.Sampler.InitErro
         error.Unknown => error.Unknown,
     };
 
-    return sampler;
+    return .{ .vk = .{
+        .sampler = sampler,
+    } };
 }
 
-pub fn deinit(sampler: gpu.Sampler, device: gpu.Device, alloc: std.mem.Allocator) void {
-    _ = alloc;
+pub fn deinit(sampler: gpu.Sampler, device: gpu.Device) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     device.vk.device.destroySampler(sampler.vk.sampler, vk_alloc);
 }

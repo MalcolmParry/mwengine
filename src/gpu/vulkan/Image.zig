@@ -4,18 +4,14 @@ const gpu = @import("../gpu.zig");
 const Device = @import("Device.zig");
 
 const Image = @This();
-pub const Handle = *Image;
+pub const Handle = Image;
 
-memory_region: Device.MemoryRegion,
 image: vk.Image,
-format_: gpu.Image.Format,
+memory_region: Device.MemoryRegion,
 
 pub fn init(device: gpu.Device, info: gpu.Image.InitInfo) gpu.Image.InitError!gpu.Image {
-    const this = try info.alloc.create(Image);
-    errdefer info.alloc.destroy(this);
-
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    this.image = device.vk.device.createImage(&.{
+    const image = device.vk.device.createImage(&.{
         .image_type = .@"2d",
         .extent = .{
             .width = info.size[0],
@@ -44,49 +40,49 @@ pub fn init(device: gpu.Device, info: gpu.Image.InitInfo) gpu.Image.InitError!gp
         error.CompressionExhaustedEXT => error.CompressionExhaused,
         error.Unknown => error.Unknown,
     };
-    errdefer device.vk.device.destroyImage(this.image, vk_alloc);
+    errdefer device.vk.device.destroyImage(image, vk_alloc);
 
     const properties: vk.MemoryPropertyFlags = switch (info.loc) {
         .host => .{ .host_coherent_bit = true },
         .device => .{ .device_local_bit = true },
     };
 
-    this.memory_region = device.vk.allocateMemory(device.vk.device.getImageMemoryRequirements(this.image), properties, false) catch |err| return switch (err) {
+    const memory_region = device.vk.allocateMemory(device.vk.device.getImageMemoryRequirements(image), properties, false) catch |err| return switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,
         error.MemoryMapFailed => unreachable,
         error.NoSuitableMemoryType => error.NoSuitableMemoryType,
         error.Unknown => error.Unknown,
     };
-    errdefer device.vk.freeMemory(this.memory_region);
+    errdefer device.vk.freeMemory(memory_region);
 
-    device.vk.device.bindImageMemory(this.image, this.memory_region.memory, this.memory_region.offset) catch |err| return switch (err) {
+    device.vk.device.bindImageMemory(image, memory_region.memory, memory_region.offset) catch |err| return switch (err) {
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,
         error.Unknown => error.Unknown,
     };
 
-    this.format_ = info.format;
-    return .{ .vk = this };
+    return .{
+        .format = info.format,
+        .size = info.size,
+        .impl = .{ .vk = .{
+            .image = image,
+            .memory_region = memory_region,
+        } },
+    };
 }
 
-pub fn deinit(this: gpu.Image, device: gpu.Device, alloc: std.mem.Allocator) void {
+pub fn deinit(image: gpu.Image, device: gpu.Device) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    device.vk.device.destroyImage(this.vk.image, vk_alloc);
-    device.vk.freeMemory(this.vk.memory_region);
-    alloc.destroy(this.vk);
-}
-
-pub fn format(this: gpu.Image, device: gpu.Device) gpu.Image.Format {
-    _ = device;
-    return this.vk.format;
+    device.vk.device.destroyImage(image.impl.vk.image, vk_alloc);
+    device.vk.freeMemory(image.impl.vk.memory_region);
 }
 
 pub fn debugLabel(image: gpu.Image, device: gpu.Device, name: [:0]const u8) void {
     if (device.vk.instance.maybe_debug_messenger == null) return;
     device.vk.device.setDebugUtilsObjectNameEXT(&.{
         .object_type = .image,
-        .object_handle = @intFromEnum(image.vk.image),
+        .object_handle = @intFromEnum(image.impl.vk.image),
         .p_object_name = name,
     }) catch {};
 }
@@ -97,16 +93,14 @@ pub const View = struct {
     image_view: vk.ImageView,
 
     pub fn init(device: gpu.Device, info: gpu.Image.View.InitInfo) gpu.Image.View.InitError!gpu.Image.View {
-        var this: View = undefined;
-
         const vk_alloc: ?*vk.AllocationCallbacks = null;
-        this.image_view = device.vk.device.createImageView(&.{
-            .image = info.image.vk.image,
+        const image_view = device.vk.device.createImageView(&.{
+            .image = info.image.impl.vk.image,
             .view_type = switch (info.kind) {
                 .@"2d" => .@"2d",
                 .array_2d => .@"2d_array",
             },
-            .format = formatToNative(info.image.vk.format_),
+            .format = formatToNative(info.image.format),
             .components = .{
                 .r = componentSwizzleToNative(info.component_mapping.r),
                 .g = componentSwizzleToNative(info.component_mapping.g),
@@ -116,9 +110,15 @@ pub const View = struct {
             .subresource_range = .{
                 .aspect_mask = aspectToNative(info.subresource_range.aspect),
                 .base_mip_level = info.subresource_range.mip_offset,
-                .level_count = if (info.subresource_range.mip_count) |x| x else vk.REMAINING_MIP_LEVELS,
+                .level_count = switch (info.subresource_range.mip_count) {
+                    .count => |x| x,
+                    .all => vk.REMAINING_MIP_LEVELS,
+                },
                 .base_array_layer = info.subresource_range.layer_offset,
-                .layer_count = if (info.subresource_range.layer_count) |x| x else vk.REMAINING_ARRAY_LAYERS,
+                .layer_count = switch (info.subresource_range.layer_count) {
+                    .count => |x| x,
+                    .all => vk.REMAINING_ARRAY_LAYERS,
+                },
             },
         }, vk_alloc) catch |err| return switch (err) {
             error.OutOfHostMemory => error.OutOfMemory,
@@ -128,12 +128,11 @@ pub const View = struct {
             error.Unknown => error.Unknown,
         };
 
-        return .{ .vk = this };
+        return .{ .vk = .{ .image_view = image_view } };
     }
 
-    pub fn deinit(this: gpu.Image.View, device: gpu.Device, alloc: std.mem.Allocator) void {
+    pub fn deinit(this: gpu.Image.View, device: gpu.Device) void {
         const vk_alloc: ?*vk.AllocationCallbacks = null;
-        _ = alloc;
         device.vk.device.destroyImageView(this.vk.image_view, vk_alloc);
     }
 

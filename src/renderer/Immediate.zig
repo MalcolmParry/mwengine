@@ -141,7 +141,7 @@ pub fn render(immediate: *Immediate, device: gpu.Device, cmd_encoder: gpu.Comman
                 .store = .store,
             },
         },
-        .image_size = immediate.frame_data.?.image_size,
+        .image_size = @as(@Vector(2, u16), immediate.frame_data.?.image_size),
     });
 
     if (immediate.box_renderer) |_| try BoxRenderer.render(immediate, render_pass);
@@ -348,7 +348,6 @@ const BoxRenderer = struct {
 
     fn init(immediate: *Immediate, info: Immediate.InitInfo) !void {
         const pipeline = try info.device.initGraphicsPipeline(.{
-            .alloc = info.alloc,
             .render_target_desc = .{
                 .color_format = info.color_format,
                 .depth_format = null,
@@ -380,7 +379,7 @@ const BoxRenderer = struct {
                 .alpha_op = .add,
             },
         });
-        errdefer pipeline.deinit(info.device, info.alloc);
+        errdefer pipeline.deinit(info.device);
 
         immediate.box_renderer = .{
             .pipeline = pipeline,
@@ -392,7 +391,7 @@ const BoxRenderer = struct {
         const this = &immediate.box_renderer.?;
 
         this.vertex_data.deinit(immediate.alloc);
-        this.pipeline.deinit(device, immediate.alloc);
+        this.pipeline.deinit(device);
     }
 
     fn upload(immediate: *Immediate) !void {
@@ -453,7 +452,7 @@ const BoxRenderer = struct {
 const ImageRenderer = struct {
     pipeline: gpu.GraphicsPipeline,
     resource_layout: gpu.ResourceSet.Layout,
-    resource_sets: gpu.FrameRingPool(gpu.ResourceSet, gpu.ResourceSet.init, struct { gpu.Device, gpu.ResourceSet.Layout, std.mem.Allocator }),
+    resource_sets: gpu.FrameRingPool(gpu.ResourceSet, gpu.ResourceSet.init, struct { gpu.Device, gpu.ResourceSet.Layout }),
     sampler: gpu.Sampler,
     draws: std.ArrayList(DrawImageInfo),
 
@@ -462,20 +461,16 @@ const ImageRenderer = struct {
     };
 
     fn init(immediate: *Immediate, info: Immediate.InitInfo) !void {
-        const layout = try info.device.initResourceLayout(.{
-            .alloc = info.alloc,
-            .descriptors = &.{.{
-                .t = .image,
-                .stages = .{ .pixel = true },
-                .flags = .{},
-                .binding = 0,
-                .count = 1,
-            }},
-        });
-        errdefer layout.deinit(info.device, info.alloc);
+        const layout = try info.device.initResourceLayout(&.{.{
+            .t = .image,
+            .stages = .{ .pixel = true },
+            .flags = .{},
+            .binding = 0,
+            .count = 1,
+        }});
+        errdefer layout.deinit(info.device);
 
         const pipeline = try info.device.initGraphicsPipeline(.{
-            .alloc = info.alloc,
             .render_target_desc = .{
                 .color_format = info.color_format,
                 .depth_format = null,
@@ -496,17 +491,16 @@ const ImageRenderer = struct {
                 .alpha_op = .add,
             },
         });
-        errdefer pipeline.deinit(info.device, info.alloc);
+        errdefer pipeline.deinit(info.device);
 
         const sampler = try info.device.initSampler(.{
-            .alloc = info.alloc,
             .min_filter = .linear,
             .mag_filter = .linear,
             .address_mode_u = .repeat,
             .address_mode_v = .repeat,
             .address_mode_w = .repeat,
         });
-        errdefer sampler.deinit(info.device, info.alloc);
+        errdefer sampler.deinit(info.device);
 
         immediate.image_renderer = .{
             .pipeline = pipeline,
@@ -520,13 +514,13 @@ const ImageRenderer = struct {
     fn deinit(immediate: *Immediate, device: gpu.Device) void {
         const this = &immediate.image_renderer.?;
 
-        for (this.resource_sets.free_list.items) |x| x.deinit(device, immediate.alloc);
+        for (this.resource_sets.free_list.items) |x| x.deinit(device);
         for (this.resource_sets.in_use_lists) |list|
-            for (list.items) |x| x.deinit(device, immediate.alloc);
+            for (list.items) |x| x.deinit(device);
         this.resource_sets.deinit(immediate.alloc);
-        this.pipeline.deinit(device, immediate.alloc);
-        this.resource_layout.deinit(device, immediate.alloc);
-        this.sampler.deinit(device, immediate.alloc);
+        this.pipeline.deinit(device);
+        this.resource_layout.deinit(device);
+        this.sampler.deinit(device);
         this.draws.deinit(immediate.alloc);
     }
 
@@ -534,7 +528,7 @@ const ImageRenderer = struct {
         const this = &immediate.image_renderer.?;
         if (this.draws.items.len == 0) return;
 
-        try this.resource_sets.ensureFree(immediate.alloc, .{ device, this.resource_layout, immediate.alloc }, this.draws.items.len);
+        try this.resource_sets.ensureFree(immediate.alloc, .{ device, this.resource_layout }, this.draws.items.len);
         render_pass.cmdBindPipeline(this.pipeline);
 
         for (this.draws.items) |draw| {
@@ -549,7 +543,7 @@ const ImageRenderer = struct {
                     .sampler = this.sampler,
                     .layout = .shader_read_only,
                 }} },
-            }}, immediate.alloc);
+            }});
 
             const i16x2 = @Vector(2, i16);
             const pos: i16x2 = draw.transform.pos.pixels(image_size);
@@ -595,7 +589,7 @@ pub const TextRenderer = struct {
     cache: *text.GlyphCache,
     pipeline: gpu.GraphicsPipeline,
     resource_layout: gpu.ResourceSet.Layout,
-    resource_sets: gpu.FrameRingPool(gpu.ResourceSet, gpu.ResourceSet.init, struct { gpu.Device, gpu.ResourceSet.Layout, std.mem.Allocator }),
+    resource_sets: gpu.FrameRingPool(gpu.ResourceSet, gpu.ResourceSet.init, struct { gpu.Device, gpu.ResourceSet.Layout }),
     sampler: gpu.Sampler,
     per_atlas: std.ArrayList(PerAtlas),
 
@@ -607,20 +601,16 @@ pub const TextRenderer = struct {
     fn init(immediate: *Immediate, info: Immediate.InitInfo) !void {
         const this_info = &info.text_info.?;
 
-        const layout = try info.device.initResourceLayout(.{
-            .alloc = info.alloc,
-            .descriptors = &.{.{
-                .t = .image,
-                .stages = .{ .pixel = true },
-                .flags = .{},
-                .binding = 0,
-                .count = 1,
-            }},
-        });
-        errdefer layout.deinit(info.device, info.alloc);
+        const layout = try info.device.initResourceLayout(&.{.{
+            .t = .image,
+            .stages = .{ .pixel = true },
+            .flags = .{},
+            .binding = 0,
+            .count = 1,
+        }});
+        errdefer layout.deinit(info.device);
 
         const pipeline = try info.device.initGraphicsPipeline(.{
-            .alloc = info.alloc,
             .render_target_desc = .{
                 .color_format = info.color_format,
                 .depth_format = null,
@@ -657,17 +647,16 @@ pub const TextRenderer = struct {
                 .alpha_op = .add,
             },
         });
-        errdefer pipeline.deinit(info.device, info.alloc);
+        errdefer pipeline.deinit(info.device);
 
         const sampler = try info.device.initSampler(.{
-            .alloc = info.alloc,
             .min_filter = .linear,
             .mag_filter = .linear,
             .address_mode_u = .clamp_to_edge,
             .address_mode_v = .clamp_to_edge,
             .address_mode_w = .clamp_to_edge,
         });
-        errdefer sampler.deinit(info.device, info.alloc);
+        errdefer sampler.deinit(info.device);
 
         immediate.text_renderer = .{
             .cache = this_info.glyph_cache,
@@ -682,13 +671,13 @@ pub const TextRenderer = struct {
     fn deinit(immediate: *Immediate, device: gpu.Device) void {
         const this = &immediate.text_renderer.?;
 
-        for (this.resource_sets.free_list.items) |x| x.deinit(device, immediate.alloc);
+        for (this.resource_sets.free_list.items) |x| x.deinit(device);
         for (this.resource_sets.in_use_lists) |list|
-            for (list.items) |x| x.deinit(device, immediate.alloc);
+            for (list.items) |x| x.deinit(device);
         this.resource_sets.deinit(immediate.alloc);
-        this.pipeline.deinit(device, immediate.alloc);
-        this.resource_layout.deinit(device, immediate.alloc);
-        this.sampler.deinit(device, immediate.alloc);
+        this.pipeline.deinit(device);
+        this.resource_layout.deinit(device);
+        this.sampler.deinit(device);
 
         for (this.per_atlas.items) |*x| x.vertex_input.deinit(immediate.alloc);
         this.per_atlas.deinit(immediate.alloc);
@@ -711,7 +700,7 @@ pub const TextRenderer = struct {
     fn render(immediate: *Immediate, device: gpu.Device, render_pass: gpu.RenderPassEncoder) !void {
         const this = &immediate.text_renderer.?;
 
-        try this.resource_sets.ensureFree(immediate.alloc, .{ device, this.resource_layout, immediate.alloc }, this.per_atlas.items.len);
+        try this.resource_sets.ensureFree(immediate.alloc, .{ device, this.resource_layout }, this.per_atlas.items.len);
         render_pass.cmdBindPipeline(this.pipeline);
 
         const image_size: @Vector(2, u16) = immediate.frame_data.?.image_size;
@@ -735,7 +724,7 @@ pub const TextRenderer = struct {
                     .sampler = this.sampler,
                     .layout = .shader_read_only,
                 }} },
-            }}, immediate.alloc);
+            }});
 
             render_pass.cmdBindResourceSets(this.pipeline, &.{resource_set}, 0);
             render_pass.cmdBindVertexBuffer(0, .{

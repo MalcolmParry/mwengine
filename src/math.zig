@@ -473,6 +473,33 @@ pub fn perspective(aspect_ratio: f32, v_fov: f32, near: f32, far: f32) Mat4 {
         .{ 0, 0, -1, 0 },
     };
 }
+pub fn perspectiveReverseZ(aspect_ratio: f32, v_fov: f32, near: f32, far: f32) Mat4 {
+    const tan_half_fov = tan(v_fov / 2);
+    const a = 1 / (aspect_ratio * tan_half_fov);
+    const b = 1 / tan_half_fov;
+    const c = near / (far - near);
+    const d = (far * near) / (far - near);
+
+    return .{
+        .{ a, 0, 0, 0 },
+        .{ 0, b, 0, 0 },
+        .{ 0, 0, c, d },
+        .{ 0, 0, -1, 0 },
+    };
+}
+
+pub fn perspectiveReverseZInf(aspect_ratio: f32, v_fov: f32, near: f32) Mat4 {
+    const tan_half_fov = tan(v_fov / 2);
+    const a = 1 / (aspect_ratio * tan_half_fov);
+    const b = 1 / tan_half_fov;
+
+    return .{
+        .{ a, 0, 0, 0 },
+        .{ 0, b, 0, 0 },
+        .{ 0, 0, 0, near },
+        .{ 0, 0, -1, 0 },
+    };
+}
 
 pub const to_vulkan: Mat4 = .{
     .{ 0, 1, 0, 0 },

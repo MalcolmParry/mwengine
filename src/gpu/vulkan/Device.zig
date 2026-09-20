@@ -33,15 +33,24 @@ device: vk.DeviceProxy,
 queue: vk.Queue,
 queue_family_index: u32,
 command_pool: vk.CommandPool,
-temp_arena: std.heap.ArenaAllocator,
+arena: std.heap.ArenaAllocator.State,
+gpa: std.mem.Allocator,
 
-pub fn init(instance: gpu.Instance, physical_device: gpu.Device.Physical, alloc: std.mem.Allocator) gpu.Device.InitError!gpu.Device {
+pub fn init(instance: gpu.Instance, alloc: std.mem.Allocator, physical_device: gpu.Device.Physical) gpu.Device.InitError!gpu.Device {
     const this = try alloc.create(Device);
     errdefer alloc.destroy(this);
-    this.instance = instance.vk;
-    this.phys = physical_device.vk.device;
-    this.temp_arena = .init(std.heap.page_allocator);
-    errdefer this.temp_arena.deinit();
+
+    this.* = .{
+        .instance = instance.vk,
+        .phys = physical_device.vk.device,
+        .device = undefined,
+        .queue = undefined,
+        .queue_family_index = undefined,
+        .command_pool = undefined,
+        .arena = .init,
+        .gpa = alloc,
+    };
+    errdefer this.arena.promote(alloc).deinit();
 
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const queue_priority: f32 = 1;
@@ -146,13 +155,14 @@ inline fn loadCoreFromExtension(dispatch: *vk.DeviceDispatch, comptime core_name
     ext.* = null;
 }
 
-pub fn deinit(this: gpu.Device, alloc: std.mem.Allocator) void {
+pub fn deinit(this: gpu.Device) void {
+    const gpa = this.vk.gpa;
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     this.vk.device.destroyCommandPool(this.vk.command_pool, vk_alloc);
     this.vk.device.destroyDevice(vk_alloc);
-    alloc.destroy(this.vk.device.wrapper);
-    this.vk.temp_arena.deinit();
-    alloc.destroy(this.vk);
+    gpa.destroy(this.vk.device.wrapper);
+    this.vk.arena.promote(gpa).deinit();
+    gpa.destroy(this.vk);
 }
 
 pub fn waitUntilIdle(this: gpu.Device) gpu.Device.WaitIdleError!void {
@@ -195,12 +205,17 @@ fn getNativeSemaphoreSubmitInfos(
 }
 
 pub fn submitCommands(this: gpu.Device, info: gpu.Device.CommandSubmitInfo) gpu.Device.SubmitError!void {
-    _ = this.vk.temp_arena.reset(.retain_capacity);
+    var arena_obj = this.vk.arena.promote(this.vk.gpa);
+    defer {
+        _ = arena_obj.reset(.retain_capacity);
+        this.vk.arena = arena_obj.state;
+    }
+    const arena = arena_obj.allocator();
 
     const wait_count = info.waits.len + info.display_acquire_waits.len;
     const signal_count = info.signals.len + info.display_present_signals.len;
     const semaphore_info_count = wait_count + signal_count;
-    const semaphore_infos = try this.vk.temp_arena.allocator().alloc(vk.SemaphoreSubmitInfo, semaphore_info_count);
+    const semaphore_infos = try arena.alloc(vk.SemaphoreSubmitInfo, semaphore_info_count);
 
     const native_waits = semaphore_infos[0..wait_count];
     getNativeSemaphoreSubmitInfos(native_waits, info.waits, info.display_acquire_waits, .wait);

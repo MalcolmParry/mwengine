@@ -17,36 +17,36 @@ pub const AnyObject = union(enum) {
     sampler: gpu.Sampler,
     timeline: gpu.Timeline,
 
-    pub fn deinit(this: AnyObject, device: gpu.Device, alloc: std.mem.Allocator) void {
+    pub fn deinit(this: AnyObject, device: gpu.Device) void {
         switch (this) {
             .instance => @panic("invalid type"),
             .device => @panic("invalid type"),
             .phys_device => @panic("invalid type"),
             .display => @panic("invalid type"),
-            .shader => |x| x.deinit(device, alloc),
-            .graphics_pipeline => |x| x.deinit(device, alloc),
-            .resource_layout => |x| x.deinit(device, alloc),
-            .resource_set => |x| x.deinit(device, alloc),
+            .shader => |x| x.deinit(device),
+            .graphics_pipeline => |x| x.deinit(device),
+            .resource_layout => |x| x.deinit(device),
+            .resource_set => |x| x.deinit(device),
             .buffer => |x| x.deinit(device),
-            .image => |x| x.deinit(device, alloc),
-            .image_view => |x| x.deinit(device, alloc),
+            .image => |x| x.deinit(device),
+            .image_view => |x| x.deinit(device),
             .cmd_encoder => |x| x.deinit(device),
-            .sampler => |x| x.deinit(device, alloc),
+            .sampler => |x| x.deinit(device),
             .timeline => |x| x.deinit(device),
         }
     }
 
-    pub fn deinitAll(these: []AnyObject, device: gpu.Device, alloc: std.mem.Allocator) void {
+    pub fn deinitAll(these: []AnyObject, device: gpu.Device) void {
         for (these) |*this| {
-            this.deinit(device, alloc);
+            this.deinit(device);
         }
     }
 
-    pub fn deinitAllReversed(these: []AnyObject, device: gpu.Device, alloc: std.mem.Allocator) void {
+    pub fn deinitAllReversed(these: []AnyObject, device: gpu.Device) void {
         for (0..these.len) |j| {
             const i = these.len - j - 1;
             const this = &these[i];
-            this.deinit(device, alloc);
+            this.deinit(device);
         }
     }
 };

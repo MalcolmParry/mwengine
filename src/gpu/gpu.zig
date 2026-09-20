@@ -78,12 +78,12 @@ pub const Device = union(Api) {
         Unknown,
     };
 
-    pub fn init(instance: Instance, physical_device: Physical, alloc: std.mem.Allocator) InitError!Device {
-        return call(instance, @src(), "Device", .{ instance, physical_device, alloc });
+    pub fn init(instance: Instance, alloc: std.mem.Allocator, physical_device: Physical) InitError!Device {
+        return call(instance, @src(), "Device", .{ instance, alloc, physical_device });
     }
 
-    pub fn deinit(this: Device, alloc: std.mem.Allocator) void {
-        return call(this, @src(), "Device", .{ this, alloc });
+    pub fn deinit(this: Device) void {
+        return call(this, @src(), "Device", .{this});
     }
 
     pub const WaitIdleError = SubmitError;
@@ -237,12 +237,12 @@ pub const Shader = union {
         Unknown,
     };
 
-    pub fn fromSpirv(device: Device, stage: Stage, spirv_byte_code: []const u32, alloc: std.mem.Allocator) InitError!Shader {
-        return call(device, @src(), "Shader", .{ device, stage, spirv_byte_code, alloc });
+    pub fn fromSpirv(device: Device, stage: Stage, spirv_byte_code: []const u32) InitError!Shader {
+        return call(device, @src(), "Shader", .{ device, stage, spirv_byte_code });
     }
 
-    pub fn deinit(this: Shader, device: Device, alloc: std.mem.Allocator) void {
-        return call(device, @src(), "Shader", .{ this, device, alloc });
+    pub fn deinit(this: Shader, device: Device) void {
+        return call(device, @src(), "Shader", .{ this, device });
     }
 
     pub fn debugLabel(shader: Shader, device: Device, name: [:0]const u8) void {
@@ -519,7 +519,6 @@ pub const GraphicsPipeline = union {
     };
 
     pub const InitInfo = struct {
-        alloc: std.mem.Allocator,
         render_target_desc: RenderTarget.Desc,
         resource_layouts: []const ResourceSet.Layout = &.{},
         push_constant_ranges: []const PushConstantRange = &.{},
@@ -543,8 +542,8 @@ pub const GraphicsPipeline = union {
         return call(device, @src(), "GraphicsPipeline", .{ device, info });
     }
 
-    pub fn deinit(this: GraphicsPipeline, device: Device, alloc: std.mem.Allocator) void {
-        return call(device, @src(), "GraphicsPipeline", .{ this, device, alloc });
+    pub fn deinit(this: GraphicsPipeline, device: Device) void {
+        return call(device, @src(), "GraphicsPipeline", .{ this, device });
     }
 
     pub fn debugLabel(pipeline: GraphicsPipeline, device: Device, name: [:0]const u8) void {
@@ -597,12 +596,12 @@ pub const ResourceSet = union {
         Unknown,
     };
 
-    pub fn init(device: Device, layout: Layout, alloc: std.mem.Allocator) InitError!ResourceSet {
-        return call(device, @src(), "ResourceSet", .{ device, layout, alloc });
+    pub fn init(device: Device, layout: Layout) InitError!ResourceSet {
+        return call(device, @src(), "ResourceSet", .{ device, layout });
     }
 
-    pub fn deinit(this: ResourceSet, device: Device, alloc: std.mem.Allocator) void {
-        return call(device, @src(), "ResourceSet", .{ this, device, alloc });
+    pub fn deinit(this: ResourceSet, device: Device) void {
+        return call(device, @src(), "ResourceSet", .{ this, device });
     }
 
     pub const CombinedImageSampler = struct {
@@ -619,9 +618,8 @@ pub const ResourceSet = union {
         },
     };
 
-    // TODO: remove allocations
-    pub fn update(this: ResourceSet, device: Device, writes: []const Write, alloc: std.mem.Allocator) std.mem.Allocator.Error!void {
-        return call(device, @src(), "ResourceSet", .{ this, device, writes, alloc });
+    pub fn update(this: ResourceSet, device: Device, writes: []const Write) std.mem.Allocator.Error!void {
+        return call(device, @src(), "ResourceSet", .{ this, device, writes });
     }
 
     pub const Type = enum {
@@ -644,23 +642,18 @@ pub const ResourceSet = union {
             count: u32,
         };
 
-        pub const InitInfo = struct {
-            alloc: std.mem.Allocator,
-            descriptors: []const Descriptor,
-        };
-
         pub const InitError = error{
             OutOfMemory,
             OutOfDeviceMemory,
             Unknown,
         };
 
-        pub fn init(device: Device, info: InitInfo) Layout.InitError!Layout {
-            return call(device, @src(), .{ "ResourceSet", "Layout" }, .{ device, info });
+        pub fn init(device: Device, descriptors: []const Descriptor) Layout.InitError!Layout {
+            return call(device, @src(), .{ "ResourceSet", "Layout" }, .{ device, descriptors });
         }
 
-        pub fn deinit(this: @This(), device: Device, alloc: std.mem.Allocator) void {
-            return call(device, @src(), .{ "ResourceSet", "Layout" }, .{ this, device, alloc });
+        pub fn deinit(this: @This(), device: Device) void {
+            return call(device, @src(), .{ "ResourceSet", "Layout" }, .{ this, device });
         }
     };
 };
@@ -734,11 +727,14 @@ pub const Buffer = struct {
     };
 };
 
-pub const Image = union {
-    vk: vk.Image.Handle,
+pub const Image = struct {
+    format: Format,
+    size: Size2D,
+    impl: union {
+        vk: vk.Image.Handle,
+    },
 
     pub const InitInfo = struct {
-        alloc: std.mem.Allocator,
         format: Format,
         usage: Usage,
         loc: MemLocation,
@@ -759,11 +755,7 @@ pub const Image = union {
         return call(device, @src(), "Image", .{ device, info });
     }
 
-    pub fn deinit(this: Image, device: Device, alloc: std.mem.Allocator) void {
-        return call(device, @src(), "Image", .{ this, device, alloc });
-    }
-
-    pub fn format(this: Image, device: Device) Format {
+    pub fn deinit(this: Image, device: Device) void {
         return call(device, @src(), "Image", .{ this, device });
     }
 
@@ -845,7 +837,6 @@ pub const Image = union {
         };
 
         pub const InitInfo = struct {
-            alloc: std.mem.Allocator,
             image: Image,
             kind: Kind,
             subresource_range: Subresource.Range,
@@ -862,8 +853,8 @@ pub const Image = union {
             return call(device, @src(), .{ "Image", "View" }, .{ device, info });
         }
 
-        pub fn deinit(this: View, device: Device, alloc: std.mem.Allocator) void {
-            return call(device, @src(), .{ "Image", "View" }, .{ this, device, alloc });
+        pub fn deinit(this: View, device: Device) void {
+            return call(device, @src(), .{ "Image", "View" }, .{ this, device });
         }
 
         pub fn debugLabel(view: View, device: Device, name: [:0]const u8) void {
@@ -884,11 +875,9 @@ pub const Image = union {
         pub const Range = struct {
             aspect: Aspect,
             mip_offset: u32 = 0,
-            /// null means all mips
-            mip_count: ?u32 = null,
+            mip_count: CountOrAll(u32) = .all,
             layer_offset: u32 = 0,
-            /// null means all layers
-            layer_count: ?u32 = null,
+            layer_count: CountOrAll(u32) = .all,
         };
 
         pub const Layers = struct {
@@ -899,18 +888,18 @@ pub const Image = union {
         };
     };
 
-    pub const ColorRGBA32 = @Vector(4, f32);
-    pub const Offset2D = @Vector(2, u32);
-    pub const Size2D = @Vector(2, u32);
+    pub const ColorRGBA32 = [4]f32;
+    pub const Size2D = [2]u32;
+    pub const Size2DVec = @Vector(2, u32);
     pub const Rect = struct {
-        offset: Offset2D = @splat(0),
+        offset: Size2D = @splat(0),
         size: Size2D,
     };
 
-    pub const Offset3D = @Vector(3, u32);
-    pub const Size3D = @Vector(3, u32);
+    pub const Size3D = [3]u32;
+    pub const Size3DVec = @Vector(3, u32);
     pub const Region3D = struct {
-        offset: Offset3D = @splat(0),
+        offset: Size3D = @splat(0),
         size: Size3D,
     };
 };
@@ -931,7 +920,6 @@ pub const Sampler = union {
     };
 
     pub const InitInfo = struct {
-        alloc: std.mem.Allocator,
         min_filter: Filter,
         mag_filter: Filter,
         address_mode_u: AddressMode,
@@ -953,8 +941,8 @@ pub const Sampler = union {
         return call(device, @src(), "Sampler", .{ device, info });
     }
 
-    pub fn deinit(this: Sampler, device: Device, alloc: std.mem.Allocator) void {
-        return call(device, @src(), "Sampler", .{ this, device, alloc });
+    pub fn deinit(sampler: Sampler, device: Device) void {
+        return call(device, @src(), "Sampler", .{ sampler, device });
     }
 };
 
@@ -1221,6 +1209,13 @@ pub const Timeline = union {
         stages: PipelineStageFlags,
     };
 };
+
+pub fn CountOrAll(T: type) type {
+    return union(enum) {
+        count: T,
+        all,
+    };
+}
 
 fn call(api: Api, comptime src: std.builtin.SourceLocation, comptime type_name: anytype, args: anytype) CallRetType(src, type_name) {
     const fn_name = src.fn_name;

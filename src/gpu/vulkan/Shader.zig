@@ -3,21 +3,14 @@ const gpu = @import("../gpu.zig");
 const vk = @import("vulkan");
 
 const Shader = @This();
-pub const Handle = *Shader;
+pub const Handle = Shader;
 
 shader_module: vk.ShaderModule,
 stage: vk.ShaderStageFlags,
 
-pub fn fromSpirv(device: gpu.Device, stage: gpu.Shader.Stage, spirv_byte_code: []const u32, alloc: std.mem.Allocator) gpu.Shader.InitError!gpu.Shader {
-    const this = try alloc.create(Shader);
-    errdefer alloc.destroy(this);
-    this.stage = switch (stage) {
-        .vertex => .{ .vertex_bit = true },
-        .pixel => .{ .fragment_bit = true },
-    };
-
+pub fn fromSpirv(device: gpu.Device, stage: gpu.Shader.Stage, spirv_byte_code: []const u32) gpu.Shader.InitError!gpu.Shader {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
-    this.shader_module = device.vk.device.createShaderModule(&.{
+    const shader_module = device.vk.device.createShaderModule(&.{
         .code_size = spirv_byte_code.len * @sizeOf(u32),
         .p_code = spirv_byte_code.ptr,
     }, vk_alloc) catch |err| return switch (err) {
@@ -27,13 +20,18 @@ pub fn fromSpirv(device: gpu.Device, stage: gpu.Shader.Stage, spirv_byte_code: [
         error.Unknown => error.Unknown,
     };
 
-    return .{ .vk = this };
+    return .{ .vk = .{
+        .shader_module = shader_module,
+        .stage = switch (stage) {
+            .vertex => .{ .vertex_bit = true },
+            .pixel => .{ .fragment_bit = true },
+        },
+    } };
 }
 
-pub fn deinit(this: gpu.Shader, device: gpu.Device, alloc: std.mem.Allocator) void {
+pub fn deinit(this: gpu.Shader, device: gpu.Device) void {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     device.vk.device.destroyShaderModule(this.vk.shader_module, vk_alloc);
-    alloc.destroy(this.vk);
 }
 
 pub fn debugLabel(shader: gpu.Shader, device: gpu.Device, name: [:0]const u8) void {
