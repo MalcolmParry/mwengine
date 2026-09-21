@@ -32,7 +32,7 @@ pub fn allocTAligned(alloc: *PushAlloc, T: type, count: usize, alignment: std.me
 }
 
 pub fn allocT(alloc: *PushAlloc, T: type, count: usize) !gpu.Buffer.Region {
-    return alloc.allocTAligned(T, count, @alignOf(T));
+    return alloc.allocTAligned(T, count, .fromByteUnits(@alignOf(T)));
 }
 
 pub inline fn perFrameRegion(alloc: PushAlloc) gpu.Buffer.Region {

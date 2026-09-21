@@ -64,6 +64,7 @@ pub fn update(res_set: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.
         switch (write.data) {
             .uniform => |regions| buffer_info_count += regions.len,
             .image => |images| image_info_count += images.len,
+            .storage => |regions| buffer_info_count += regions.len,
         }
     }
 
@@ -77,23 +78,21 @@ pub fn update(res_set: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.
         var image_infos: [*]vk.DescriptorImageInfo = undefined;
 
         switch (write.data) {
-            .uniform => |buffer_regions| {
-                count = buffer_regions.len;
-                const buffer_infos_start = all_buffer_infos.items.len;
+            .uniform, .storage => |regions| {
+                count = regions.len;
+                buffer_infos = all_buffer_infos.items.ptr + all_buffer_infos.items.len;
 
-                for (buffer_regions) |buffer_region| {
+                for (regions) |region| {
                     all_buffer_infos.appendAssumeCapacity(.{
-                        .buffer = buffer_region.buffer.impl.vk.buffer,
-                        .offset = buffer_region.offset,
-                        .range = buffer_region.size,
+                        .buffer = region.buffer.impl.vk.buffer,
+                        .offset = region.offset,
+                        .range = region.size,
                     });
                 }
-
-                buffer_infos = @ptrCast(&all_buffer_infos.items[buffer_infos_start]);
             },
             .image => |images| {
                 count = images.len;
-                const image_infos_start = all_image_infos.items.len;
+                image_infos = all_image_infos.items.ptr + all_image_infos.items.len;
 
                 for (images) |image| {
                     all_image_infos.appendAssumeCapacity(.{
@@ -102,8 +101,6 @@ pub fn update(res_set: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.
                         .sampler = image.sampler.vk.sampler,
                     });
                 }
-
-                image_infos = @ptrCast(&all_image_infos.items[image_infos_start]);
             },
         }
 
@@ -114,6 +111,7 @@ pub fn update(res_set: gpu.ResourceSet, device: gpu.Device, writes: []const gpu.
             .descriptor_type = switch (write.data) {
                 .uniform => .uniform_buffer,
                 .image => .combined_image_sampler,
+                .storage => .storage_buffer,
             },
             .descriptor_count = @intCast(count),
             .p_buffer_info = buffer_infos,
@@ -162,6 +160,7 @@ pub const Layout = struct {
             const t: vk.DescriptorType = switch (descriptor.t) {
                 .uniform => .uniform_buffer,
                 .image => .combined_image_sampler,
+                .storage => .storage_buffer,
             };
 
             binding.* = .{

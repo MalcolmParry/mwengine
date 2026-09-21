@@ -459,6 +459,7 @@ pub const PipelineStageFlags = packed struct {
     vertex_input: bool = false,
     vertex_shader: bool = false,
     pixel_shader: bool = false,
+    draw_indirect: bool = false,
 };
 
 pub const GraphicsPipeline = union {
@@ -621,6 +622,7 @@ pub const ResourceSet = union {
         data: union(Type) {
             uniform: []const Buffer.Region,
             image: []const CombinedImageSampler,
+            storage: []const Buffer.Region,
         },
     };
 
@@ -631,6 +633,7 @@ pub const ResourceSet = union {
     pub const Type = enum {
         uniform,
         image,
+        storage,
     };
 
     pub const Layout = union {
@@ -686,6 +689,8 @@ pub const Buffer = struct {
         index: bool = false,
         uniform: bool = false,
         mapped: bool = false,
+        storage: bool = false,
+        indirect_cmd: bool = false,
     };
 
     pub const InitInfo = struct {
@@ -730,6 +735,19 @@ pub const Buffer = struct {
         buffer: Buffer,
         offset: Size,
         size: Size,
+
+        pub fn slice(reg: Region, start: Size, end: Size) Region {
+            const abs_start = reg.offset + start;
+            const abs_end = reg.offset + end;
+            const len = abs_end - abs_start;
+            std.debug.assert(abs_end <= reg.offset + reg.size);
+
+            return .{
+                .buffer = reg.buffer,
+                .offset = abs_start,
+                .size = len,
+            };
+        }
     };
 };
 
@@ -961,6 +979,7 @@ pub const Access = packed struct {
     uniform_read: bool = false,
     vertex_read: bool = false,
     shader_read: bool = false,
+    indirect_cmd_read: bool = false,
 };
 
 pub const ImageBarrier = struct {
@@ -1115,6 +1134,16 @@ pub const RenderPassEncoder = union(Api) {
         return call(this, @src(), "RenderPassEncoder", .{ this, info });
     }
 
+    pub const DrawIndirectInfo = struct {
+        region: Buffer.Region,
+        draw_count: u32,
+        stride: u32,
+    };
+
+    pub fn cmdDrawIndirect(this: RenderPassEncoder, info: DrawIndirectInfo) void {
+        return call(this, @src(), "RenderPassEncoder", .{ this, info });
+    }
+
     pub fn cmdBeginDebugBlockLabel(encoder: RenderPassEncoder, name: [:0]const u8) void {
         if (debug_info) return call(encoder, @src(), "RenderPassEncoder", .{ encoder, name });
     }
@@ -1122,6 +1151,13 @@ pub const RenderPassEncoder = union(Api) {
     pub fn cmdEndDebugBlockLabel(encoder: RenderPassEncoder) void {
         if (debug_info) return call(encoder, @src(), "RenderPassEncoder", .{encoder});
     }
+};
+
+pub const VulkanIndirectDrawCommand = extern struct {
+    vertex_count: u32,
+    instance_count: u32,
+    first_vertex: u32,
+    first_instance: u32,
 };
 
 pub const CompareOp = enum {

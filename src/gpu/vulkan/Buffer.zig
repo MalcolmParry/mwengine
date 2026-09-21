@@ -20,6 +20,8 @@ pub fn init(device: gpu.Device, info: gpu.Buffer.InitInfo) gpu.Buffer.InitError!
         .uniform_buffer_bit = info.usage.uniform,
         .transfer_src_bit = info.usage.src,
         .transfer_dst_bit = info.usage.dst,
+        .storage_buffer_bit = info.usage.storage,
+        .indirect_buffer_bit = info.usage.indirect_cmd,
     };
 
     const buffer = device.vk.device.createBuffer(&.{

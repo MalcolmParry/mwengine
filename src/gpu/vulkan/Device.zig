@@ -72,8 +72,13 @@ pub fn init(instance: gpu.Instance, alloc: std.mem.Allocator, physical_device: g
         .p_queue_priorities = @ptrCast(&queue_priority),
     };
 
+    var phys_device_vk_11_features: vk.PhysicalDeviceVulkan11Features = .{
+        .shader_draw_parameters = .true,
+    };
+
     var timeline_semaphore: vk.PhysicalDeviceTimelineSemaphoreFeatures = .{
         .timeline_semaphore = .true,
+        .p_next = @ptrCast(&phys_device_vk_11_features),
     };
 
     var indexing: vk.PhysicalDeviceDescriptorIndexingFeatures = .{
@@ -102,6 +107,7 @@ pub fn init(instance: gpu.Instance, alloc: std.mem.Allocator, physical_device: g
                 .sampler_anisotropy = .true,
                 .fill_mode_non_solid = .true,
                 .shader_int_64 = .true,
+                .multi_draw_indirect = .true,
             },
             .p_next = &sync2,
         },

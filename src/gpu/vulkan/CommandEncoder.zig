@@ -171,6 +171,7 @@ pub fn stageToNative(stage: gpu.PipelineStageFlags) vk.PipelineStageFlags2KHR {
         .vertex_input_bit = stage.vertex_input,
         .vertex_shader_bit = stage.vertex_shader,
         .fragment_shader_bit = stage.pixel_shader,
+        .draw_indirect_bit = stage.draw_indirect,
     };
 }
 
@@ -184,6 +185,7 @@ pub fn accessToNative(access: gpu.Access) vk.AccessFlags2KHR {
         .vertex_attribute_read_bit = access.vertex_read,
         .uniform_read_bit = access.uniform_read,
         .shader_read_bit = access.shader_read,
+        .indirect_command_read_bit = access.indirect_cmd_read,
     };
 }
 
@@ -427,6 +429,19 @@ pub const RenderPassEncoder = struct {
         } else {
             encoder.vk.cmd_encoder.dispatch.cmdDraw(encoder.vk.cmd_encoder.command_buffer, info.vertex_count, info.instance_count, @intCast(info.first_vertex), @intCast(info.first_instance));
         }
+    }
+
+    pub fn cmdDrawIndirect(encoder: gpu.RenderPassEncoder, info: gpu.RenderPassEncoder.DrawIndirectInfo) void {
+        std.debug.assert(info.region.offset % 4 == 0);
+        std.debug.assert(@as(gpu.Size, info.stride) * info.draw_count <= info.region.size);
+
+        encoder.vk.cmd_encoder.dispatch.cmdDrawIndirect(
+            encoder.vk.cmd_encoder.command_buffer,
+            info.region.buffer.impl.vk.buffer,
+            info.region.offset,
+            info.draw_count,
+            info.stride,
+        );
     }
 
     pub fn cmdBeginDebugBlockLabel(encoder: gpu.RenderPassEncoder, name: [:0]const u8) void {
