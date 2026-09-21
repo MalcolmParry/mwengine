@@ -518,12 +518,18 @@ pub const GraphicsPipeline = union {
         alpha_op: Op,
     };
 
+    pub const Topology = enum {
+        triangle_list,
+        triangle_strip,
+    };
+
     pub const InitInfo = struct {
         render_target_desc: RenderTarget.Desc,
         resource_layouts: []const ResourceSet.Layout = &.{},
         push_constant_ranges: []const PushConstantRange = &.{},
         shaders: []const Shader,
         vertex_input_bindings: []const VertexInputBinding = &.{},
+        topology: Topology = .triangle_list,
         polygon_mode: PolygonMode = .fill,
         cull_mode: CullMode = .none,
         depth_mode: DepthMode = .disabled,

@@ -208,7 +208,10 @@ pub fn init(device: gpu.Device, info: gpu.GraphicsPipeline.InitInfo) gpu.Graphic
             .p_vertex_binding_descriptions = vert_bind_descs.ptr,
         },
         .p_input_assembly_state = &.{
-            .topology = .triangle_list, // TODO: allow more options
+            .topology = switch (info.topology) {
+                .triangle_list => .triangle_list,
+                .triangle_strip => .triangle_strip,
+            },
             .primitive_restart_enable = .false, // TODO: implement (allows you to seperate triangle strip)
         },
         .p_viewport_state = &.{
