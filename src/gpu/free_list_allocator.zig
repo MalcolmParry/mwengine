@@ -30,7 +30,7 @@ pub fn FreeListAllocator(comptime opts: Options) type {
         const max_alloc = slab_size / 2;
         const min_alloc = 8;
         const log2_min_alloc = std.math.log2(min_alloc);
-        const max_size_class = sizeClass(max_alloc);
+        const max_size_class = sizeClass(max_alloc, .@"1");
         const size_class_count = max_size_class + 1;
 
         comptime {
@@ -53,7 +53,7 @@ pub fn FreeListAllocator(comptime opts: Options) type {
             free: ?SuperAndSlab,
         };
 
-        const SlotIndex = std.math.IntFittingRange(0, classSlots(sizeClass(min_alloc)) + 1);
+        const SlotIndex = std.math.IntFittingRange(0, classSlots(sizeClass(min_alloc, .@"1")) + 1);
         const OptSlotIndex = enum(SlotIndex) {
             none = std.math.maxInt(SlotIndex),
             _,
@@ -150,10 +150,11 @@ pub fn FreeListAllocator(comptime opts: Options) type {
             super_slab: u32,
             offset: u32,
             size: u32,
+            alignment: std.mem.Alignment,
         };
 
-        pub fn alloc(gpu_alloc: *GpuAlloc, device: gpu.Device, size: u32) !Alloc {
-            const class = sizeClass(size);
+        pub fn alloc(gpu_alloc: *GpuAlloc, device: gpu.Device, size: u32, alignment: std.mem.Alignment) !Alloc {
+            const class = sizeClass(size, alignment);
             const slot_count = classSlots(class);
             const slot_size = classSize(class);
 
@@ -200,6 +201,7 @@ pub fn FreeListAllocator(comptime opts: Options) type {
                     .super_slab = slab.super,
                     .size = size,
                     .offset = (slab.slab * slab_size) + (slot * slot_size),
+                    .alignment = alignment,
                 };
             }
 
@@ -210,11 +212,12 @@ pub fn FreeListAllocator(comptime opts: Options) type {
                 .super_slab = slab.super,
                 .size = size,
                 .offset = (slab.slab * slab_size) + (slot * slot_size),
+                .alignment = alignment,
             };
         }
 
         pub fn free(gpu_alloc: *GpuAlloc, allocation: Alloc) void {
-            const class = sizeClass(allocation.size);
+            const class = sizeClass(allocation.size, allocation.alignment);
             const slot_size = classSize(class);
             const slot_count = classSlots(class);
 
@@ -290,16 +293,16 @@ pub fn FreeListAllocator(comptime opts: Options) type {
         }
 
         const SizeClass = std.math.Log2Int(u32);
-        fn sizeClass(size: u32) SizeClass {
+        fn sizeClass(size: u32, alignment: std.mem.Alignment) SizeClass {
             std.debug.assert(size != 0);
             std.debug.assert(size <= max_alloc);
 
-            const size_or_min: u32 = @max(size, min_alloc);
+            const size_or_min: u32 = @intCast(@max(size, alignment.toByteUnits(), min_alloc));
             const log2: SizeClass = @intCast(@bitSizeOf(u32) - @clz(size_or_min - 1));
             const half = @as(u32, 1) << (log2 - 1);
             const three_quarters = half + (half >> 1);
             const class = (log2 - log2_min_alloc) * 2;
-            return if (size_or_min <= three_quarters) class - 1 else class;
+            return if (size_or_min <= three_quarters and alignment.check(three_quarters)) class - 1 else class;
         }
 
         fn classSize(class: SizeClass) u32 {
