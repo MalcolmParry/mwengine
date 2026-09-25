@@ -186,6 +186,8 @@ pub fn accessToNative(access: gpu.Access) vk.AccessFlags2KHR {
         .uniform_read_bit = access.uniform_read,
         .shader_read_bit = access.shader_read,
         .indirect_command_read_bit = access.indirect_cmd_read,
+        .shader_storage_read_bit = access.shader_storage_read,
+        .shader_storage_write_bit = access.shader_storage_write,
     };
 }
 

@@ -675,9 +675,14 @@ pub const MemLocation = enum {
 pub const Buffer = struct {
     size: Size,
     mapping_ptr: ?[*]u8,
+    gpu_ptr: ?[*]u8,
     impl: union {
         vk: vk.Buffer.Handle,
     },
+
+    comptime {
+        std.debug.assert(@sizeOf(@FieldType(Buffer, "gpu_ptr")) == @sizeOf(Size));
+    }
 
     pub const Usage = packed struct {
         const BackingInt = @typeInfo(@TypeOf(@This())).@"struct".backing_integer.?;
@@ -691,6 +696,7 @@ pub const Buffer = struct {
         mapped: bool = false,
         storage: bool = false,
         indirect_cmd: bool = false,
+        device_address: bool = false,
     };
 
     pub const InitInfo = struct {
@@ -980,6 +986,8 @@ pub const Access = packed struct {
     vertex_read: bool = false,
     shader_read: bool = false,
     indirect_cmd_read: bool = false,
+    shader_storage_read: bool = false,
+    shader_storage_write: bool = false,
 };
 
 pub const ImageBarrier = struct {

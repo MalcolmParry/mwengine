@@ -22,6 +22,7 @@ pub fn init(device: gpu.Device, info: gpu.Buffer.InitInfo) gpu.Buffer.InitError!
         .transfer_dst_bit = info.usage.dst,
         .storage_buffer_bit = info.usage.storage,
         .indirect_buffer_bit = info.usage.indirect_cmd,
+        .shader_device_address_bit = info.usage.device_address,
     };
 
     const buffer = device.vk.device.createBuffer(&.{
@@ -42,8 +43,14 @@ pub fn init(device: gpu.Device, info: gpu.Buffer.InitInfo) gpu.Buffer.InitError!
         .device => .{ .device_local_bit = true },
     };
 
-    const memory_region = try device.vk.allocateMemory(device.vk.device.getBufferMemoryRequirements(buffer), properties, info.usage.mapped);
+    const memory_region = try device.vk.allocateMemory(.{
+        .requirements = device.vk.device.getBufferMemoryRequirements(buffer),
+        .properties = properties,
+        .map = info.usage.mapped,
+        .device_address = info.usage.device_address,
+    });
     errdefer device.vk.freeMemory(memory_region);
+
     device.vk.device.bindBufferMemory(buffer, memory_region.memory, memory_region.offset) catch |err| return switch (err) {
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,
@@ -54,9 +61,15 @@ pub fn init(device: gpu.Device, info: gpu.Buffer.InitInfo) gpu.Buffer.InitError!
 
     const mapping = if (memory_region.mapping) |ptr| ptr + memory_region.offset else null;
 
+    const device_address: ?gpu.Size = if (info.usage.device_address)
+        device.vk.device.getBufferDeviceAddress(&.{ .buffer = buffer })
+    else
+        null;
+
     return .{
         .size = info.size,
         .mapping_ptr = mapping,
+        .gpu_ptr = if (device_address) |x| @ptrFromInt(x) else null,
         .impl = .{ .vk = .{
             .buffer = buffer,
             .memory = memory_region.memory,

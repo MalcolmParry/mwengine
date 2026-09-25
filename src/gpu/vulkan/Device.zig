@@ -17,6 +17,7 @@ pub const required_extensions = [_][*:0]const u8{
     vk.extensions.khr_depth_stencil_resolve.name,
     vk.extensions.khr_dynamic_rendering.name,
     vk.extensions.khr_timeline_semaphore.name,
+    vk.extensions.khr_buffer_device_address.name,
 };
 
 pub const Physical = struct {
@@ -72,28 +73,21 @@ pub fn init(instance: gpu.Instance, alloc: std.mem.Allocator, physical_device: g
         .p_queue_priorities = @ptrCast(&queue_priority),
     };
 
-    var phys_device_vk_11_features: vk.PhysicalDeviceVulkan11Features = .{
-        .shader_draw_parameters = .true,
-    };
-
-    var timeline_semaphore: vk.PhysicalDeviceTimelineSemaphoreFeatures = .{
-        .timeline_semaphore = .true,
-        .p_next = @ptrCast(&phys_device_vk_11_features),
-    };
-
-    var indexing: vk.PhysicalDeviceDescriptorIndexingFeatures = .{
-        .descriptor_binding_partially_bound = .true,
-        .p_next = @ptrCast(&timeline_semaphore),
-    };
-
-    var dynamic_rendering: vk.PhysicalDeviceDynamicRenderingFeatures = .{
+    var vk_13_features: vk.PhysicalDeviceVulkan13Features = .{
         .dynamic_rendering = .true,
-        .p_next = @ptrCast(&indexing),
+        .synchronization_2 = .true,
     };
 
-    var sync2: vk.PhysicalDeviceSynchronization2Features = .{
-        .synchronization_2 = .true,
-        .p_next = @ptrCast(&dynamic_rendering),
+    var vk_12_features: vk.PhysicalDeviceVulkan12Features = .{
+        .buffer_device_address = .true,
+        .timeline_semaphore = .true,
+        .descriptor_binding_partially_bound = .true,
+        .p_next = @ptrCast(&vk_13_features),
+    };
+
+    var vk_11_features: vk.PhysicalDeviceVulkan11Features = .{
+        .shader_draw_parameters = .true,
+        .p_next = @ptrCast(&vk_12_features),
     };
 
     // TODO: check extention support
@@ -109,7 +103,7 @@ pub fn init(instance: gpu.Instance, alloc: std.mem.Allocator, physical_device: g
                 .shader_int_64 = .true,
                 .multi_draw_indirect = .true,
             },
-            .p_next = &sync2,
+            .p_next = &vk_11_features,
         },
     }, vk_alloc) catch |err| return switch (err) {
         error.OutOfHostMemory => error.OutOfMemory,
@@ -133,6 +127,7 @@ pub fn init(instance: gpu.Instance, alloc: std.mem.Allocator, physical_device: g
     loadCoreFromExtension(dispatch, "vkGetSemaphoreCounterValue", "KHR");
     loadCoreFromExtension(dispatch, "vkCmdBeginRendering", "KHR");
     loadCoreFromExtension(dispatch, "vkCmdEndRendering", "KHR");
+    loadCoreFromExtension(dispatch, "vkGetBufferDeviceAddress", "KHR");
 
     this.queue = this.device.getDeviceQueue(this.queue_family_index, 0);
     this.command_pool = this.device.createCommandPool(&.{
@@ -259,24 +254,39 @@ pub const MemoryRegion = struct {
     mapping: ?[*]u8,
 };
 
-pub fn allocateMemory(this: *Device, requirements: vk.MemoryRequirements, properties: vk.MemoryPropertyFlags, map: bool) !MemoryRegion {
+pub const AllocateMemoryInfo = struct {
+    requirements: vk.MemoryRequirements,
+    properties: vk.MemoryPropertyFlags,
+    map: bool = false,
+    device_address: bool = false,
+};
+
+pub fn allocateMemory(this: *Device, info: AllocateMemoryInfo) !MemoryRegion {
     const vk_alloc: ?*vk.AllocationCallbacks = null;
     const mem_index: u32 = blk: {
         const mem_properties = this.instance.instance.getPhysicalDeviceMemoryProperties(this.phys);
         for (mem_properties.memory_types[0..mem_properties.memory_type_count], 0..) |mem_type, i| {
             const mem_type_bit = @as(Size, 1) << @intCast(i);
-            if (mem_type_bit & requirements.memory_type_bits == 0) continue;
-            if (!mem_type.property_flags.contains(properties)) continue;
+            if (mem_type_bit & info.requirements.memory_type_bits == 0) continue;
+            if (!mem_type.property_flags.contains(info.properties)) continue;
             break :blk @intCast(i);
         }
 
         return error.NoSuitableMemoryType;
     };
 
-    const memory_size = requirements.size;
+    const mem_alloc_flags: vk.MemoryAllocateFlagsInfo = .{
+        .flags = .{
+            .device_address_bit = info.device_address,
+        },
+        .device_mask = 0,
+    };
+
+    const memory_size = info.requirements.size;
     const memory = this.device.allocateMemory(&.{
         .allocation_size = memory_size,
         .memory_type_index = mem_index,
+        .p_next = @ptrCast(&mem_alloc_flags),
     }, vk_alloc) catch |err| return switch (err) {
         error.OutOfHostMemory => error.OutOfMemory,
         error.OutOfDeviceMemory => error.OutOfDeviceMemory,
@@ -287,7 +297,7 @@ pub fn allocateMemory(this: *Device, requirements: vk.MemoryRequirements, proper
         error.Unknown => error.Unknown,
     };
 
-    const mapping: ?*anyopaque = if (map)
+    const mapping: ?*anyopaque = if (info.map)
         this.device.mapMemory(memory, 0, memory_size, .{}) catch |err| return switch (err) {
             error.OutOfHostMemory => error.OutOfMemory,
             error.OutOfDeviceMemory => error.OutOfDeviceMemory,
@@ -300,7 +310,7 @@ pub fn allocateMemory(this: *Device, requirements: vk.MemoryRequirements, proper
     return .{
         .memory = memory,
         .offset = 0,
-        .size = requirements.size,
+        .size = info.requirements.size,
         .mapping = @ptrCast(mapping),
     };
 }
